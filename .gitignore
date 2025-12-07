@@ -49,6 +49,7 @@ pids
 coverage/
 *.lcov
 
+caddy/
 # nyc test coverage
 .nyc_output
 
