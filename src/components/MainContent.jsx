@@ -20,6 +20,7 @@ import GitPanel from './GitPanel';
 import ErrorBoundary from './ErrorBoundary';
 import ClaudeLogo from './ClaudeLogo';
 import CursorLogo from './CursorLogo';
+import CodeBuddyLogo from './CodeBuddyLogo';
 import TaskList from './TaskList';
 import TaskDetail from './TaskDetail';
 import PRDEditor from './PRDEditor';
@@ -47,6 +48,7 @@ function MainContent({
   onSessionInactive,      // Mark session as inactive when conversation completes/aborts
   onSessionProcessing,    // Mark session as processing (thinking/working)
   onSessionNotProcessing, // Mark session as not processing (finished thinking)
+  onSessionCompleted,     // Mark session as recently completed (prevents file watcher race conditions)
   processingSessions,     // Set of session IDs currently processing
   onReplaceTemporarySession, // Replace temporary session ID with real session ID from WebSocket
   onNavigateToSession,    // Navigate to a specific session (for Claude CLI session duplication workaround)
@@ -311,7 +313,9 @@ function MainContent({
             <div className="min-w-0 flex items-center gap-2 flex-1 overflow-x-auto scrollbar-hide">
               {activeTab === 'chat' && selectedSession && (
                 <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center">
-                  {selectedSession.__provider === 'cursor' ? (
+                  {selectedSession.__provider === 'codebuddy' ? (
+                    <CodeBuddyLogo className="w-4 h-4" />
+                  ) : selectedSession.__provider === 'cursor' ? (
                     <CursorLogo className="w-4 h-4" />
                   ) : (
                     <ClaudeLogo className="w-4 h-4" />
@@ -322,7 +326,7 @@ function MainContent({
                 {activeTab === 'chat' && selectedSession ? (
                   <div className="min-w-0">
                     <h2 className="text-sm sm:text-base font-semibold text-gray-900 dark:text-white whitespace-nowrap overflow-x-auto scrollbar-hide">
-                      {selectedSession.__provider === 'cursor' ? (selectedSession.name || 'Untitled Session') : (selectedSession.summary || 'New Session')}
+                      {selectedSession.__provider === 'codebuddy' || selectedSession.__provider === 'cursor' ? (selectedSession.name || 'Untitled Session') : (selectedSession.summary || 'New Session')}
                     </h2>
                     <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                       {selectedProject.displayName}
@@ -482,6 +486,7 @@ function MainContent({
               onSessionInactive={onSessionInactive}
               onSessionProcessing={onSessionProcessing}
               onSessionNotProcessing={onSessionNotProcessing}
+              onSessionCompleted={onSessionCompleted}
               processingSessions={processingSessions}
               onReplaceTemporarySession={onReplaceTemporarySession}
               onNavigateToSession={onNavigateToSession}

@@ -54,6 +54,26 @@ router.get('/cursor/status', async (req, res) => {
   }
 });
 
+router.get('/codebuddy/status', async (req, res) => {
+  try {
+    const result = await checkCodeBuddyStatus();
+
+    res.json({
+      authenticated: result.authenticated,
+      email: result.email,
+      error: result.error
+    });
+
+  } catch (error) {
+    console.error('Error checking CodeBuddy auth status:', error);
+    res.status(500).json({
+      authenticated: false,
+      email: null,
+      error: error.message
+    });
+  }
+});
+
 async function checkClaudeCredentials() {
   try {
     const credPath = path.join(os.homedir(), '.claude', '.credentials.json');
@@ -172,6 +192,85 @@ function checkCursorStatus() {
         authenticated: false,
         email: null,
         error: 'Cursor CLI not found or not installed'
+      });
+    });
+  });
+}
+
+function checkCodeBuddyStatus() {
+  return new Promise((resolve) => {
+    let processCompleted = false;
+
+    const timeout = setTimeout(() => {
+      if (!processCompleted) {
+        processCompleted = true;
+        if (childProcess) {
+          childProcess.kill();
+        }
+        resolve({
+          authenticated: false,
+          email: null,
+          error: 'Command timeout'
+        });
+      }
+    }, 5000);
+
+    let childProcess;
+    try {
+      // CodeBuddy uses 'codebuddy' or 'cbc' command
+      childProcess = spawn('codebuddy', ['--version']);
+    } catch (err) {
+      clearTimeout(timeout);
+      processCompleted = true;
+      resolve({
+        authenticated: false,
+        email: null,
+        error: 'CodeBuddy CLI not found or not installed'
+      });
+      return;
+    }
+
+    let stdout = '';
+    let stderr = '';
+
+    childProcess.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    childProcess.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    childProcess.on('close', (code) => {
+      if (processCompleted) return;
+      processCompleted = true;
+      clearTimeout(timeout);
+
+      if (code === 0) {
+        // CodeBuddy CLI is installed and working
+        resolve({
+          authenticated: true,
+          email: 'codebuddy-cli-user',
+          version: stdout.trim() || 'unknown'
+        });
+      } else {
+        resolve({
+          authenticated: false,
+          email: null,
+          error: stderr || 'CodeBuddy CLI not found'
+        });
+      }
+    });
+
+    childProcess.on('error', (err) => {
+      if (processCompleted) return;
+      processCompleted = true;
+      clearTimeout(timeout);
+
+      resolve({
+        authenticated: false,
+        email: null,
+        error: 'CodeBuddy CLI not found or not installed'
       });
     });
   });

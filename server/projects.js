@@ -197,6 +197,47 @@ async function detectTaskMasterFolder(projectPath) {
 // Cache for extracted project directories
 const projectDirectoryCache = new Map();
 
+// Smart path decoder for CodeBuddy format
+// CodeBuddy: Users-waderli-tools-my-project -> /Users/waderli/tools/my-project
+// Heuristic: First 3 segments are path (Users/username/parentdir), rest is project name
+function decodeCodeBuddyPath(projectName) {
+  // Remove leading - if present
+  const cleanName = projectName.startsWith('-') ? projectName.substring(1) : projectName;
+  
+  // Split by dash
+  const parts = cleanName.split('-');
+  
+  // Common patterns:
+  // - Users-username-dir-project
+  // - Users-username-dir-subdir-project  
+  // - home-username-dir-project
+  
+  if (parts.length >= 3 && (parts[0] === 'Users' || parts[0] === 'home' || parts[0] === 'opt')) {
+    // Take first 3 parts as path components
+    const pathParts = parts.slice(0, 3);
+    const projectParts = parts.slice(3);
+    
+    // Join: /Users/username/parentdir/project-with-dashes
+    if (projectParts.length > 0) {
+      return `/${pathParts.join('/')}/${projectParts.join('-')}`;
+    } else {
+      // Project name is the 3rd part itself
+      return `/${pathParts.join('/')}`;
+    }
+  }
+  
+  // Fallback: just add leading slash
+  return `/${cleanName}`;
+}
+
+// Smart path decoder for Claude format  
+// Claude: -Users-waderli-tools-my-project -> /Users/waderli/tools/my-project
+function decodeClaudePath(projectName) {
+  // Claude always starts with -, remove it
+  const cleanName = projectName.startsWith('-') ? projectName.substring(1) : projectName;
+  return decodeCodeBuddyPath(cleanName);
+}
+
 // Clear cache when needed (called when project files change)
 function clearProjectDirectoryCache() {
   projectDirectoryCache.clear();
@@ -261,18 +302,68 @@ async function generateDisplayName(projectName, actualProjectDir = null) {
 }
 
 // Extract the actual project directory from JSONL sessions (with caching)
-async function extractProjectDirectory(projectName) {
+async function extractProjectDirectory(projectName, projectsBaseDir = null) {
   // Check cache first
   if (projectDirectoryCache.has(projectName)) {
     return projectDirectoryCache.get(projectName);
   }
   
+  // If projectsBaseDir is specified, use it directly
+  if (projectsBaseDir) {
+    return extractProjectDirectoryFromDir(projectName, projectsBaseDir);
+  }
   
-  const projectDir = path.join(process.env.HOME, '.claude', 'projects', projectName);
+  // Otherwise, try both Claude and CodeBuddy directories with their naming conventions
+  // Claude: -Users-waderli-tools-xxx (with leading -)
+  // CodeBuddy: Users-waderli-tools-xxx (without leading -)
+  
+  const claudeProjectName = projectName.startsWith('-') ? projectName : `-${projectName}`;
+  const codebuddyProjectName = projectName.startsWith('-') ? projectName.substring(1) : projectName;
+  
+  const claudeDir = path.join(process.env.HOME, '.claude', 'projects');
+  const codebuddyDir = path.join(process.env.HOME, '.codebuddy', 'projects');
+  
+  // Try Claude directory first
+  try {
+    const claudePath = await extractProjectDirectoryFromDir(claudeProjectName, claudeDir);
+    if (claudePath && !claudePath.includes('-')) {
+      // Cache with original name too
+      projectDirectoryCache.set(projectName, claudePath);
+      return claudePath;
+    }
+  } catch (e) {
+    // Claude directory doesn't have this project
+  }
+  
+  // Try CodeBuddy directory
+  try {
+    const codebuddyPath = await extractProjectDirectoryFromDir(codebuddyProjectName, codebuddyDir);
+    if (codebuddyPath && !codebuddyPath.includes('-')) {
+      projectDirectoryCache.set(projectName, codebuddyPath);
+      return codebuddyPath;
+    }
+  } catch (e) {
+    // CodeBuddy directory doesn't have this project either
+  }
+  
+  // Fallback: use smart decoding based on project name format
+  const fallbackPath = projectName.startsWith('-') 
+    ? decodeClaudePath(projectName)
+    : decodeCodeBuddyPath(projectName);
+  
+  projectDirectoryCache.set(projectName, fallbackPath);
+  return fallbackPath;
+}
+
+async function extractProjectDirectoryFromDir(projectName, projectsBaseDir) {
+  const projectDir = path.join(projectsBaseDir, projectName);
   const cwdCounts = new Map();
   let latestTimestamp = 0;
   let latestCwd = null;
   let extractedPath;
+  
+  // Detect if this is a CodeBuddy directory (doesn't start with -)
+  const isCodeBuddy = !projectName.startsWith('-') && projectsBaseDir.includes('.codebuddy');
   
   try {
     // Check if the project directory exists
@@ -282,8 +373,17 @@ async function extractProjectDirectory(projectName) {
     const jsonlFiles = files.filter(file => file.endsWith('.jsonl'));
     
     if (jsonlFiles.length === 0) {
-      // Fall back to decoded project name if no sessions
-      extractedPath = projectName.replace(/-/g, '/');
+      // Fall back: Use smart decoding based on provider
+      if (isCodeBuddy) {
+        // CodeBuddy format: Users-waderli-tools-projectname (no leading -)
+        // This is the full path encoded, so we just need to add / at the start
+        // and be smart about not replacing dashes in project names
+        extractedPath = decodeCodeBuddyPath(projectName);
+      } else {
+        // Claude format: -Users-waderli-tools-projectname (with leading -)
+        // Strip the leading - and decode
+        extractedPath = decodeClaudePath(projectName);
+      }
     } else {
       // Process all JSONL files to collect cwd values
       for (const file of jsonlFiles) {
@@ -319,8 +419,12 @@ async function extractProjectDirectory(projectName) {
       
       // Determine the best cwd to use
       if (cwdCounts.size === 0) {
-        // No cwd found, fall back to decoded project name
-        extractedPath = projectName.replace(/-/g, '/');
+        // No cwd found, use smart decoding
+        if (isCodeBuddy) {
+          extractedPath = decodeCodeBuddyPath(projectName);
+        } else {
+          extractedPath = decodeClaudePath(projectName);
+        }
       } else if (cwdCounts.size === 1) {
         // Only one cwd, use it
         extractedPath = Array.from(cwdCounts.keys())[0];
@@ -355,13 +459,13 @@ async function extractProjectDirectory(projectName) {
     return extractedPath;
     
   } catch (error) {
-    // If the directory doesn't exist, just use the decoded project name
+    // If the directory doesn't exist, use smart decoding
     if (error.code === 'ENOENT') {
-      extractedPath = projectName.replace(/-/g, '/');
+      extractedPath = isCodeBuddy ? decodeCodeBuddyPath(projectName) : decodeClaudePath(projectName);
     } else {
       console.error(`Error extracting project directory for ${projectName}:`, error);
-      // Fall back to decoded project name for other errors
-      extractedPath = projectName.replace(/-/g, '/');
+      // Fall back to smart decoding for other errors
+      extractedPath = isCodeBuddy ? decodeCodeBuddyPath(projectName) : decodeClaudePath(projectName);
     }
     
     // Cache the fallback result too
@@ -373,87 +477,152 @@ async function extractProjectDirectory(projectName) {
 
 async function getProjects() {
   const claudeDir = path.join(process.env.HOME, '.claude', 'projects');
+  const codebuddyDir = path.join(process.env.HOME, '.codebuddy', 'projects');
   const config = await loadProjectConfig();
-  const projects = [];
+  const projectsMap = new Map(); // Use Map to merge projects by actual path
   const existingProjects = new Set();
   
-  try {
-    // Check if the .claude/projects directory exists
-    await fs.access(claudeDir);
-    
-    // First, get existing Claude projects from the file system
-    const entries = await fs.readdir(claudeDir, { withFileTypes: true });
-    
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        existingProjects.add(entry.name);
-        const projectPath = path.join(claudeDir, entry.name);
-        
-        // Extract actual project directory from JSONL sessions
-        const actualProjectDir = await extractProjectDirectory(entry.name);
-        
-        // Get display name from config or generate one
-        const customName = config[entry.name]?.displayName;
-        const autoDisplayName = await generateDisplayName(entry.name, actualProjectDir);
-        const fullPath = actualProjectDir;
-        
-        const project = {
-          name: entry.name,
-          path: actualProjectDir,
-          displayName: customName || autoDisplayName,
-          fullPath: fullPath,
-          isCustomName: !!customName,
-          sessions: []
-        };
-        
-        // Try to get sessions for this project (just first 5 for performance)
-        try {
-          const sessionResult = await getSessions(entry.name, 5, 0);
-          project.sessions = sessionResult.sessions || [];
-          project.sessionMeta = {
-            hasMore: sessionResult.hasMore,
-            total: sessionResult.total
-          };
-        } catch (e) {
-          console.warn(`Could not load sessions for project ${entry.name}:`, e.message);
+  // Helper function to scan a projects directory (Claude or CodeBuddy)
+  const scanProjectsDir = async (projectsDir, provider = 'claude') => {
+    try {
+      // Check if the directory exists
+      await fs.access(projectsDir);
+      
+      // Get existing projects from the file system
+      const entries = await fs.readdir(projectsDir, { withFileTypes: true });
+      
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          existingProjects.add(entry.name);
+          const projectPath = path.join(projectsDir, entry.name);
+          
+          // Extract actual project directory from JSONL sessions
+          const actualProjectDir = await extractProjectDirectory(entry.name, projectsDir);
+          
+          // Use actualProjectDir as the merge key (since Claude and CodeBuddy use different naming)
+          // Claude uses: -Users-waderli-tools-xxx (with leading -)
+          // CodeBuddy uses: Users-waderli-tools-xxx (without leading -)
+          let project = projectsMap.get(actualProjectDir);
+          
+          if (!project) {
+            // Get display name from config or generate one
+            // Prefer Claude's naming convention for config lookup
+            const configKey = provider === 'claude' ? entry.name : `-${entry.name}`;
+            const customName = config[configKey]?.displayName || config[entry.name]?.displayName;
+            const autoDisplayName = await generateDisplayName(entry.name, actualProjectDir);
+            const fullPath = actualProjectDir;
+            
+            // Create new project - prefer Claude's name format if available
+            project = {
+              name: provider === 'claude' ? entry.name : `-${entry.name}`, // Standardize to Claude format
+              path: actualProjectDir,
+              displayName: customName || autoDisplayName,
+              fullPath: fullPath,
+              isCustomName: !!customName,
+              sessions: [], // Claude sessions
+              codebuddySessions: [], // CodeBuddy sessions
+              cursorSessions: [], // Cursor sessions
+              __provider: provider, // Primary provider
+              // Store both provider-specific names for API calls
+              claudeName: provider === 'claude' ? entry.name : null,
+              codebuddyName: provider === 'codebuddy' ? entry.name : null
+            };
+            projectsMap.set(actualProjectDir, project);
+          } else {
+            // Update provider-specific name
+            if (provider === 'claude') {
+              project.claudeName = entry.name;
+              // Update the primary name to Claude's format if it was CodeBuddy's
+              if (!project.name.startsWith('-')) {
+                project.name = entry.name;
+              }
+            } else if (provider === 'codebuddy') {
+              project.codebuddyName = entry.name;
+              // If no Claude name exists, use CodeBuddy's but add the leading dash
+              if (!project.claudeName) {
+                project.name = `-${entry.name}`;
+              }
+            }
+          }
+          
+          // Try to get sessions for this project (just first 5 for performance)
+          try {
+            const sessionResult = await getSessions(entry.name, 5, 0, projectsDir);
+            const sessions = sessionResult.sessions || [];
+            
+            if (provider === 'claude') {
+              project.sessions = sessions;
+              project.sessionMeta = {
+                hasMore: sessionResult.hasMore,
+                total: sessionResult.total
+              };
+            } else if (provider === 'codebuddy') {
+              project.codebuddySessions = sessions;
+              project.codebuddySessionMeta = {
+                hasMore: sessionResult.hasMore,
+                total: sessionResult.total
+              };
+            }
+          } catch (e) {
+            console.warn(`Could not load ${provider} sessions for project ${entry.name}:`, e.message);
+          }
+          
+          // Only fetch Cursor sessions once (when processing Claude projects, or if no Claude project exists)
+          if (provider === 'claude' || !project.cursorSessions || project.cursorSessions.length === 0) {
+            try {
+              project.cursorSessions = await getCursorSessions(actualProjectDir);
+            } catch (e) {
+              console.warn(`Could not load Cursor sessions for project ${entry.name}:`, e.message);
+              project.cursorSessions = [];
+            }
+          }
+          
+          // Add TaskMaster detection (only once)
+          if (!project.taskmaster) {
+            try {
+              const taskMasterResult = await detectTaskMasterFolder(actualProjectDir);
+              project.taskmaster = {
+                hasTaskmaster: taskMasterResult.hasTaskmaster,
+                hasEssentialFiles: taskMasterResult.hasEssentialFiles,
+                metadata: taskMasterResult.metadata,
+                status: taskMasterResult.hasTaskmaster && taskMasterResult.hasEssentialFiles ? 'configured' : 'not-configured'
+              };
+            } catch (e) {
+              console.warn(`Could not detect TaskMaster for project ${entry.name}:`, e.message);
+              project.taskmaster = {
+                hasTaskmaster: false,
+                hasEssentialFiles: false,
+                metadata: null,
+                status: 'error'
+              };
+            }
+          }
         }
-        
-        // Also fetch Cursor sessions for this project
-        try {
-          project.cursorSessions = await getCursorSessions(actualProjectDir);
-        } catch (e) {
-          console.warn(`Could not load Cursor sessions for project ${entry.name}:`, e.message);
-          project.cursorSessions = [];
-        }
-        
-        // Add TaskMaster detection
-        try {
-          const taskMasterResult = await detectTaskMasterFolder(actualProjectDir);
-          project.taskmaster = {
-            hasTaskmaster: taskMasterResult.hasTaskmaster,
-            hasEssentialFiles: taskMasterResult.hasEssentialFiles,
-            metadata: taskMasterResult.metadata,
-            status: taskMasterResult.hasTaskmaster && taskMasterResult.hasEssentialFiles ? 'configured' : 'not-configured'
-          };
-        } catch (e) {
-          console.warn(`Could not detect TaskMaster for project ${entry.name}:`, e.message);
-          project.taskmaster = {
-            hasTaskmaster: false,
-            hasEssentialFiles: false,
-            metadata: null,
-            status: 'error'
-          };
-        }
-        
-        projects.push(project);
+      }
+    } catch (error) {
+      // If the directory doesn't exist (ENOENT), that's okay - just continue
+      if (error.code !== 'ENOENT') {
+        throw error;
       }
     }
+  };
+  
+  try {
+    // Scan Claude projects
+    await scanProjectsDir(claudeDir, 'claude');
+    
+    // Scan CodeBuddy projects
+    await scanProjectsDir(codebuddyDir, 'codebuddy');
+    
   } catch (error) {
     // If the directory doesn't exist (ENOENT), that's okay - just continue with empty projects
     if (error.code !== 'ENOENT') {
       console.error('Error reading projects directory:', error);
     }
   }
+  
+  // Convert Map to array
+  const projects = Array.from(projectsMap.values());
   
   // Add manually configured projects that don't exist as folders yet
   for (const [projectName, projectConfig] of Object.entries(config)) {
@@ -465,8 +634,10 @@ async function getProjects() {
         try {
           actualProjectDir = await extractProjectDirectory(projectName);
         } catch (error) {
-          // Fall back to decoded project name
-          actualProjectDir = projectName.replace(/-/g, '/');
+          // Fall back to smart decoding
+          actualProjectDir = projectName.startsWith('-') 
+            ? decodeClaudePath(projectName)
+            : decodeCodeBuddyPath(projectName);
         }
       }
       
@@ -478,6 +649,7 @@ async function getProjects() {
           isCustomName: !!projectConfig.displayName,
           isManuallyAdded: true,
           sessions: [],
+          codebuddySessions: [],
           cursorSessions: []
         };
       
@@ -521,8 +693,49 @@ async function getProjects() {
   return projects;
 }
 
-async function getSessions(projectName, limit = 5, offset = 0) {
-  const projectDir = path.join(process.env.HOME, '.claude', 'projects', projectName);
+async function getSessions(projectName, limit = 5, offset = 0, projectsBaseDir = null) {
+  // If projectsBaseDir is specified, use it directly (internal call from getProjects)
+  if (projectsBaseDir) {
+    return getSessionsFromDir(projectName, limit, offset, projectsBaseDir);
+  }
+  
+  // Otherwise, try to find the project in both Claude and CodeBuddy directories
+  // Claude and CodeBuddy use different naming conventions:
+  // Claude: -Users-waderli-tools-xxx (with leading -)
+  // CodeBuddy: Users-waderli-tools-xxx (without leading -)
+  
+  const claudeProjectName = projectName.startsWith('-') ? projectName : `-${projectName}`;
+  const codebuddyProjectName = projectName.startsWith('-') ? projectName.substring(1) : projectName;
+  
+  const claudeDir = path.join(process.env.HOME, '.claude', 'projects');
+  const codebuddyDir = path.join(process.env.HOME, '.codebuddy', 'projects');
+  
+  // Try Claude directory first
+  try {
+    const claudeResult = await getSessionsFromDir(claudeProjectName, limit, offset, claudeDir);
+    if (claudeResult.sessions.length > 0 || claudeResult.total > 0) {
+      return claudeResult;
+    }
+  } catch (e) {
+    // Claude directory doesn't have this project
+  }
+  
+  // Try CodeBuddy directory
+  try {
+    const codebuddyResult = await getSessionsFromDir(codebuddyProjectName, limit, offset, codebuddyDir);
+    return codebuddyResult;
+  } catch (e) {
+    // CodeBuddy directory doesn't have this project either
+  }
+  
+  return { sessions: [], hasMore: false, total: 0 };
+}
+
+async function getSessionsFromDir(projectName, limit = 5, offset = 0, projectsBaseDir) {
+  // Detect if this is a CodeBuddy directory
+  const isCodeBuddy = projectsBaseDir.includes('.codebuddy');
+  
+  const projectDir = path.join(projectsBaseDir, projectName);
 
   try {
     const files = await fs.readdir(projectDir);
@@ -544,6 +757,117 @@ async function getSessions(projectName, limit = 5, offset = 0) {
     );
     filesWithStats.sort((a, b) => b.mtime - a.mtime);
     
+    // For CodeBuddy, each file IS a session (filename = session ID)
+    if (isCodeBuddy) {
+      const sessions = [];
+      
+      for (const { file, mtime } of filesWithStats) {
+        const sessionId = file.replace('.jsonl', '');
+        const jsonlFile = path.join(projectDir, file);
+        
+        // Parse the file to get session info (using Claude's three-tier approach)
+        let summary = 'New Session';
+        let messageCount = 0;
+        let lastUserMessage = null;
+        let lastAssistantMessage = null;
+        let cwd = '';
+        
+        try {
+          const fileStream = fsSync.createReadStream(jsonlFile);
+          const rl = readline.createInterface({
+            input: fileStream,
+            crlfDelay: Infinity
+          });
+          
+          for await (const line of rl) {
+            if (line.trim()) {
+              try {
+                const entry = JSON.parse(line);
+                messageCount++;
+                
+                if (entry.cwd) {
+                  cwd = entry.cwd;
+                }
+                
+                // Priority 1: Check for explicit summary entry (like Claude)
+                if (entry.type === 'summary' && entry.summary) {
+                  summary = entry.summary;
+                }
+                
+                // Priority 2: Track first user message (for fallback)
+                if (entry.role === 'user' || (entry.type === 'message' && entry.role === 'user')) {
+                  let content = entry.content;
+                  if (Array.isArray(content)) {
+                    const textPart = content.find(p => p.type === 'text' || p.type === 'input_text');
+                    if (textPart) {
+                      content = textPart.text;
+                    }
+                  }
+                  if (typeof content === 'string' && content.length > 0) {
+                    if (!lastUserMessage) {
+                      lastUserMessage = content;
+                    }
+                  }
+                }
+                
+                // Priority 3: Track first assistant message (for fallback)
+                if (entry.role === 'assistant' || (entry.type === 'message' && entry.role === 'assistant')) {
+                  let content = entry.content;
+                  if (Array.isArray(content)) {
+                    const textPart = content.find(p => p.type === 'text' || p.type === 'output_text');
+                    if (textPart) {
+                      content = textPart.text;
+                    }
+                  }
+                  if (typeof content === 'string' && content.length > 0) {
+                    if (!lastAssistantMessage) {
+                      lastAssistantMessage = content;
+                    }
+                  }
+                }
+              } catch (parseError) {
+                // Skip malformed lines
+              }
+            }
+          }
+        } catch (readError) {
+          console.warn(`Error reading CodeBuddy session ${sessionId}:`, readError.message);
+        }
+        
+        // Apply Claude's three-tier fallback logic for summary
+        if (summary === 'New Session') {
+          // Prefer last user message, fall back to last assistant message
+          const lastMessage = lastUserMessage || lastAssistantMessage;
+          if (lastMessage) {
+            summary = lastMessage.length > 50 ? lastMessage.substring(0, 50) + '...' : lastMessage;
+          }
+        }
+        
+        sessions.push({
+          id: sessionId,
+          name: summary, // Use 'name' field for consistency with Cursor sessions
+          summary: summary, // Keep summary for backward compatibility
+          messageCount: messageCount,
+          lastActivity: mtime,
+          createdAt: mtime.toISOString(),
+          cwd: cwd
+        });
+      }
+      
+      const total = sessions.length;
+      const paginatedSessions = sessions.slice(offset, offset + limit);
+      const hasMore = offset + limit < total;
+      
+      return {
+        sessions: paginatedSessions,
+        hasMore,
+        total,
+        offset,
+        limit
+      };
+    }
+    
+    // For Claude, use the existing logic with sessionId field
     const allSessions = new Map();
     const allEntries = [];
     const uuidToSessionMap = new Map();
@@ -804,24 +1128,66 @@ async function parseJsonlSessions(filePath) {
 
 // Get messages for a specific session with pagination support
 async function getSessionMessages(projectName, sessionId, limit = null, offset = 0) {
-  const projectDir = path.join(process.env.HOME, '.claude', 'projects', projectName);
-
-  try {
-    const files = await fs.readdir(projectDir);
-    // agent-*.jsonl files contain session start data at this point. This needs to be revisited
-    // periodically to make sure only accurate data is there and no new functionality is added there
-    const jsonlFiles = files.filter(file => file.endsWith('.jsonl') && !file.startsWith('agent-'));
-    
-    if (jsonlFiles.length === 0) {
-      return { messages: [], total: 0, hasMore: false };
+  // Claude and CodeBuddy use different naming conventions:
+  // Claude: -Users-waderli-tools-xxx (with leading -)
+  // CodeBuddy: Users-waderli-tools-xxx (without leading -)
+  // Try both formats for each provider
+  
+  const claudeProjectName = projectName.startsWith('-') ? projectName : `-${projectName}`;
+  const codebuddyProjectName = projectName.startsWith('-') ? projectName.substring(1) : projectName;
+  
+  const claudeProjectDir = path.join(process.env.HOME, '.claude', 'projects', claudeProjectName);
+  const codebuddyProjectDir = path.join(process.env.HOME, '.codebuddy', 'projects', codebuddyProjectName);
+  
+  const messages = [];
+  
+  // Helper function to read messages from Claude project directory (uses sessionId field)
+  const readClaudeMessages = async (projectDir) => {
+    try {
+      const files = await fs.readdir(projectDir);
+      const jsonlFiles = files.filter(file => file.endsWith('.jsonl') && !file.startsWith('agent-'));
+      
+      for (const file of jsonlFiles) {
+        const jsonlFile = path.join(projectDir, file);
+        const fileStream = fsSync.createReadStream(jsonlFile);
+        const rl = readline.createInterface({
+          input: fileStream,
+          crlfDelay: Infinity
+        });
+        
+        for await (const line of rl) {
+          if (line.trim()) {
+            try {
+              const entry = JSON.parse(line);
+              if (entry.sessionId === sessionId) {
+                messages.push(entry);
+              }
+            } catch (parseError) {
+              console.warn('Error parsing line:', parseError.message);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        console.warn(`Error reading from ${projectDir}:`, error.message);
+      }
     }
-    
-    const messages = [];
-    
-    // Process all JSONL files to find messages for this session
-    for (const file of jsonlFiles) {
-      const jsonlFile = path.join(projectDir, file);
-      const fileStream = fsSync.createReadStream(jsonlFile);
+  };
+  
+  // Helper function to read messages from CodeBuddy project directory (filename = sessionId)
+  const readCodeBuddyMessages = async (projectDir) => {
+    try {
+      // For CodeBuddy, the session ID is the filename
+      const sessionFile = path.join(projectDir, `${sessionId}.jsonl`);
+      
+      try {
+        await fs.access(sessionFile);
+      } catch (e) {
+        return; // File doesn't exist
+      }
+      
+      const fileStream = fsSync.createReadStream(sessionFile);
       const rl = readline.createInterface({
         input: fileStream,
         crlfDelay: Infinity
@@ -831,14 +1197,30 @@ async function getSessionMessages(projectName, sessionId, limit = null, offset =
         if (line.trim()) {
           try {
             const entry = JSON.parse(line);
-            if (entry.sessionId === sessionId) {
-              messages.push(entry);
-            }
+            // Add sessionId to entry for consistency
+            entry.sessionId = sessionId;
+            messages.push(entry);
           } catch (parseError) {
             console.warn('Error parsing line:', parseError.message);
           }
         }
       }
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        console.warn(`Error reading from ${projectDir}:`, error.message);
+      }
+    }
+  };
+
+  try {
+    // Read from both directories
+    await Promise.all([
+      readClaudeMessages(claudeProjectDir),
+      readCodeBuddyMessages(codebuddyProjectDir)
+    ]);
+    
+    if (messages.length === 0) {
+      return limit === null ? [] : { messages: [], total: 0, hasMore: false };
     }
     
     // Sort messages by timestamp
@@ -893,19 +1275,22 @@ async function renameProject(projectName, newDisplayName) {
 
 // Delete a session from a project
 async function deleteSession(projectName, sessionId) {
-  const projectDir = path.join(process.env.HOME, '.claude', 'projects', projectName);
+  // Get the actual project directory first
+  const actualProjectDir = await extractProjectDirectory(projectName);
   
+  // Try to delete from all three providers
+  let deleted = false;
+  
+  // 1. Try Claude (sessions in JSONL files with sessionId field)
   try {
-    const files = await fs.readdir(projectDir);
+    const claudeProjectName = projectName.startsWith('-') ? projectName : `-${projectName}`;
+    const claudeProjectDir = path.join(process.env.HOME, '.claude', 'projects', claudeProjectName);
+    
+    const files = await fs.readdir(claudeProjectDir);
     const jsonlFiles = files.filter(file => file.endsWith('.jsonl'));
     
-    if (jsonlFiles.length === 0) {
-      throw new Error('No session files found for this project');
-    }
-    
-    // Check all JSONL files to find which one contains the session
     for (const file of jsonlFiles) {
-      const jsonlFile = path.join(projectDir, file);
+      const jsonlFile = path.join(claudeProjectDir, file);
       const content = await fs.readFile(jsonlFile, 'utf8');
       const lines = content.split('\n').filter(line => line.trim());
       
@@ -932,15 +1317,57 @@ async function deleteSession(projectName, sessionId) {
         
         // Write back the filtered content
         await fs.writeFile(jsonlFile, filteredLines.join('\n') + (filteredLines.length > 0 ? '\n' : ''));
-        return true;
+        deleted = true;
+        break;
       }
     }
-    
-    throw new Error(`Session ${sessionId} not found in any files`);
   } catch (error) {
-    console.error(`Error deleting session ${sessionId} from project ${projectName}:`, error);
-    throw error;
+    if (error.code !== 'ENOENT') {
+      console.warn(`Error checking Claude sessions:`, error.message);
+    }
   }
+  
+  // 2. Try Cursor (sessions in ~/.cursor/chats/{cwdId}/{sessionId}/)
+  if (!deleted && actualProjectDir) {
+    try {
+      const cwdId = crypto.createHash('md5').update(actualProjectDir).digest('hex');
+      const cursorSessionDir = path.join(os.homedir(), '.cursor', 'chats', cwdId, sessionId);
+      
+      // Check if session directory exists
+      await fs.access(cursorSessionDir);
+      
+      // Delete the entire session directory
+      await fs.rm(cursorSessionDir, { recursive: true, force: true });
+      deleted = true;
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        console.warn(`Error checking Cursor sessions:`, error.message);
+      }
+    }
+  }
+  
+  // 3. Try CodeBuddy (sessions as individual JSONL files)
+  if (!deleted) {
+    try {
+      const normalProjectName = projectName.startsWith('-') ? projectName.substring(1) : projectName;
+      const codebuddyProjectDir = path.join(process.env.HOME, '.codebuddy', 'projects', normalProjectName);
+      const sessionFile = path.join(codebuddyProjectDir, `${sessionId}.jsonl`);
+      
+      await fs.access(sessionFile);
+      await fs.unlink(sessionFile);
+      deleted = true;
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        console.warn(`Error checking CodeBuddy sessions:`, error.message);
+      }
+    }
+  }
+  
+  if (!deleted) {
+    throw new Error(`Session ${sessionId} not found in Claude, Cursor or CodeBuddy projects`);
+  }
+  
+  return true;
 }
 
 // Check if a project is empty (has no sessions)

@@ -7,28 +7,45 @@ import os from 'os';
 // Use cross-spawn on Windows for better command execution
 const spawnFunction = process.platform === 'win32' ? crossSpawn : spawn;
 
-let activeCursorProcesses = new Map(); // Track active processes by session ID
+let activeCodeBuddyProcesses = new Map(); // Track active processes by session ID
 
-async function spawnCursor(command, options = {}, ws) {
+/**
+ * Spawns a CodeBuddy CLI process to handle a query
+ * Modeled after Cursor CLI behavior
+ * 
+ * @param {string} command - User prompt/command
+ * @param {Object} options - Query options
+ * @param {Object} ws - WebSocket connection
+ * @returns {Promise<void>}
+ */
+async function spawnCodeBuddy(command, options = {}, ws) {
   return new Promise(async (resolve, reject) => {
     const { sessionId, projectPath, cwd, resume, toolsSettings, skipPermissions, model, images } = options;
     let capturedSessionId = sessionId; // Track session ID throughout the process
     let sessionCreatedSent = false; // Track if we've already sent session-created event
     let messageBuffer = ''; // Buffer for accumulating assistant messages
+    // isNewSession should only be true when we start without a sessionId (not resuming)
+    // This matches CodeBuddy SDK behavior: isNewSession: !sessionId && !!command
+    const isNewSession = !sessionId && !!command;
     
     // Use tools settings passed from frontend, or defaults
     const settings = toolsSettings || {
-      allowedShellCommands: [],
+      allowedTools: [],
+      disallowedTools: [],
       skipPermissions: false
     };
     
-    // Build Cursor CLI command
+    // Build CodeBuddy CLI command
     const args = [];
     
     // Build flags allowing both resume and prompt together (reply in existing session)
-    // Treat presence of sessionId as intention to resume, regardless of resume flag
-    if (sessionId) {
+    // ONLY add --resume if sessionId exists and is NOT a temp ID
+    if (sessionId && !sessionId.startsWith('temp-')) {
       args.push('--resume=' + sessionId);
+      console.log('🔄 Resuming existing session:', sessionId);
+    } else if (sessionId && sessionId.startsWith('temp-')) {
+      console.log('⚠️  Ignoring temp session ID, starting new session');
+      capturedSessionId = null; // Reset to allow new session
     }
 
     if (command && command.trim()) {
@@ -36,7 +53,7 @@ async function spawnCursor(command, options = {}, ws) {
       args.push('-p', command);
 
       // Add model flag if specified (only meaningful for new sessions; harmless on resume)
-      if (!sessionId && model) {
+      if (!sessionId && model && model !== 'default') {
         args.push('--model', model);
       }
 
@@ -51,40 +68,41 @@ async function spawnCursor(command, options = {}, ws) {
     }
     
     // Use cwd (actual project directory) instead of projectPath
-    const workingDir = cwd || projectPath || process.cwd();
+    // Ensure workingDir is an absolute path
+    let workingDir = cwd || projectPath || process.cwd();
+    if (!path.isAbsolute(workingDir)) {
+      workingDir = path.join('/', workingDir);
+    }
     
-    console.log('Spawning Cursor CLI:', 'cursor-agent', args.join(' '));
-    console.log('Working directory:', workingDir);
-    console.log('Session info - Input sessionId:', sessionId, 'Resume:', resume);
+    // CodeBuddy CLI command
+    const codebuddyCmd = 'codebuddy';
     
-    const cursorProcess = spawnFunction('cursor-agent', args, {
+    console.log('🤖 Spawning CodeBuddy CLI:', codebuddyCmd, args.join(' '));
+    console.log('📁 Working directory:', workingDir);
+    console.log('🔑 Session info - Input sessionId:', sessionId, 'Resume:', resume);
+    
+    const codebuddyProcess = spawnFunction(codebuddyCmd, args, {
       cwd: workingDir,
       stdio: ['pipe', 'pipe', 'pipe'],
+      shell: true, // Use shell to find codebuddy in PATH
       env: { ...process.env } // Inherit all environment variables
     });
     
     // Store process reference for potential abort
-    const processKey = capturedSessionId || Date.now().toString();
-    activeCursorProcesses.set(processKey, cursorProcess);
+    // Use timestamp as key for new sessions (will be updated when we capture real session ID)
+    const processKey = (capturedSessionId && !capturedSessionId.startsWith('temp-')) 
+      ? capturedSessionId 
+      : `process-${Date.now()}`;
+    activeCodeBuddyProcesses.set(processKey, codebuddyProcess);
     
     // Handle stdout (streaming JSON responses)
-    cursorProcess.stdout.on('data', (data) => {
+    codebuddyProcess.stdout.on('data', (data) => {
       const rawOutput = data.toString();
-      
       const lines = rawOutput.split('\n').filter(line => line.trim());
       
       for (const line of lines) {
         try {
           const response = JSON.parse(line);
-          
-          // Skip logging empty thinking messages (heartbeats)
-          if (response.type === 'thinking' && (!response.text || !response.text.trim())) {
-            continue; // Silently skip
-          }
-          
-          // Log other messages
-          console.log('📤 Cursor CLI stdout:', rawOutput);
-          console.log('📄 Parsed JSON response:', response);
           
           // Handle different message types
           switch (response.type) {
@@ -93,12 +111,12 @@ async function spawnCursor(command, options = {}, ws) {
                 // Capture session ID
                 if (response.session_id && !capturedSessionId) {
                   capturedSessionId = response.session_id;
-                  console.log('📝 Captured session ID:', capturedSessionId);
+                  console.log('📝 Captured NEW session ID:', capturedSessionId);
                   
                   // Update process key with captured session ID
                   if (processKey !== capturedSessionId) {
-                    activeCursorProcesses.delete(processKey);
-                    activeCursorProcesses.set(capturedSessionId, cursorProcess);
+                    activeCodeBuddyProcesses.delete(processKey);
+                    activeCodeBuddyProcesses.set(capturedSessionId, codebuddyProcess);
                   }
                   
                   // Set session ID on writer (for API endpoint compatibility)
@@ -120,7 +138,7 @@ async function spawnCursor(command, options = {}, ws) {
                 
                 // Send system info to frontend
                 ws.send(JSON.stringify({
-                  type: 'cursor-system',
+                  type: 'codebuddy-system',
                   data: response
                 }));
               }
@@ -129,7 +147,7 @@ async function spawnCursor(command, options = {}, ws) {
             case 'user':
               // Forward user message
               ws.send(JSON.stringify({
-                type: 'cursor-user',
+                type: 'codebuddy-user',
                 data: response
               }));
               break;
@@ -156,7 +174,6 @@ async function spawnCursor(command, options = {}, ws) {
               
             case 'result':
               // Session complete
-              console.log('Cursor session result:', response);
               
               // Send final message if we have buffered content
               if (messageBuffer) {
@@ -170,36 +187,27 @@ async function spawnCursor(command, options = {}, ws) {
               
               // Send completion event
               ws.send(JSON.stringify({
-                type: 'cursor-result',
+                type: 'codebuddy-result',
                 sessionId: capturedSessionId || sessionId,
                 data: response,
                 success: response.subtype === 'success'
               }));
-              break;
               
-            case 'thinking':
-              // Cursor sends thinking messages (often empty) - only forward if there's actual content
-              if (response.text && response.text.trim()) {
-                ws.send(JSON.stringify({
-                  type: 'cursor-thinking',
-                  data: response
-                }));
-              }
-              // Silently ignore empty thinking messages (heartbeats)
+              // Cleanup
+              activeCodeBuddyProcesses.delete(capturedSessionId || processKey);
               break;
               
             default:
               // Forward any other message types
               ws.send(JSON.stringify({
-                type: 'cursor-response',
+                type: 'codebuddy-response',
                 data: response
               }));
           }
         } catch (parseError) {
-          console.log('📄 Non-JSON response:', line);
           // If not JSON, send as raw text
           ws.send(JSON.stringify({
-            type: 'cursor-output',
+            type: 'codebuddy-output',
             data: line
           }));
         }
@@ -207,79 +215,94 @@ async function spawnCursor(command, options = {}, ws) {
     });
     
     // Handle stderr
-    cursorProcess.stderr.on('data', (data) => {
-      console.error('Cursor CLI stderr:', data.toString());
+    codebuddyProcess.stderr.on('data', (data) => {
+      console.error('❌ CodeBuddy CLI stderr:', data.toString());
       ws.send(JSON.stringify({
-        type: 'cursor-error',
+        type: 'codebuddy-error',
         error: data.toString()
       }));
     });
     
     // Handle process completion
-    cursorProcess.on('close', async (code) => {
-      console.log(`Cursor CLI process exited with code ${code}`);
-      
+    codebuddyProcess.on('close', (code) => {
       // Clean up process reference
-      const finalSessionId = capturedSessionId || sessionId || processKey;
-      activeCursorProcesses.delete(finalSessionId);
-
+      activeCodeBuddyProcesses.delete(capturedSessionId || processKey);
+      
       ws.send(JSON.stringify({
-        type: 'claude-complete',
-        sessionId: finalSessionId,
+        type: 'codebuddy-complete',
+        sessionId: capturedSessionId || sessionId,
         exitCode: code,
-        isNewSession: !sessionId && !!command // Flag to indicate this was a new session
+        isNewSession: isNewSession // Use tracked flag instead of calculating
       }));
       
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`Cursor CLI exited with code ${code}`));
-      }
+      resolve({ 
+        sessionId: capturedSessionId || sessionId,
+        exitCode: code 
+      });
     });
     
     // Handle process errors
-    cursorProcess.on('error', (error) => {
-      console.error('Cursor CLI process error:', error);
+    codebuddyProcess.on('error', (error) => {
+      console.error('❌ CodeBuddy process error:', error);
       
-      // Clean up process reference on error
-      const finalSessionId = capturedSessionId || sessionId || processKey;
-      activeCursorProcesses.delete(finalSessionId);
+      // Clean up process reference
+      activeCodeBuddyProcesses.delete(capturedSessionId || processKey);
       
       ws.send(JSON.stringify({
-        type: 'cursor-error',
+        type: 'codebuddy-error',
         error: error.message
       }));
       
       reject(error);
     });
-    
-    // Close stdin since Cursor doesn't need interactive input
-    cursorProcess.stdin.end();
   });
 }
 
-function abortCursorSession(sessionId) {
-  const process = activeCursorProcesses.get(sessionId);
-  if (process) {
-    console.log(`🛑 Aborting Cursor session: ${sessionId}`);
-    process.kill('SIGTERM');
-    activeCursorProcesses.delete(sessionId);
-    return true;
+/**
+ * Aborts an active CodeBuddy session
+ * @param {string} sessionId - Session identifier
+ * @returns {boolean} True if session was aborted, false if not found
+ */
+async function abortCodeBuddySession(sessionId) {
+  const process = activeCodeBuddyProcesses.get(sessionId);
+  
+  if (!process) {
+    console.log(`⚠️  CodeBuddy session ${sessionId} not found in active processes`);
+    return false;
   }
-  return false;
+  
+  try {
+    console.log(`🛑 Aborting CodeBuddy session: ${sessionId}`);
+    process.kill('SIGTERM');
+    activeCodeBuddyProcesses.delete(sessionId);
+    return true;
+  } catch (error) {
+    console.error(`❌ Error aborting CodeBuddy session ${sessionId}:`, error);
+    return false;
+  }
 }
 
-function isCursorSessionActive(sessionId) {
-  return activeCursorProcesses.has(sessionId);
+/**
+ * Checks if a CodeBuddy session is currently active
+ * @param {string} sessionId - Session identifier
+ * @returns {boolean} True if session is active
+ */
+function isCodeBuddySessionActive(sessionId) {
+  return activeCodeBuddyProcesses.has(sessionId);
 }
 
-function getActiveCursorSessions() {
-  return Array.from(activeCursorProcesses.keys());
+/**
+ * Gets all active CodeBuddy session IDs
+ * @returns {Array<string>} Array of active session IDs
+ */
+function getActiveCodeBuddySessions() {
+  return Array.from(activeCodeBuddyProcesses.keys());
 }
 
+// Export public API
 export {
-  spawnCursor,
-  abortCursorSession,
-  isCursorSessionActive,
-  getActiveCursorSessions
+  spawnCodeBuddy,
+  abortCodeBuddySession,
+  isCodeBuddySessionActive,
+  getActiveCodeBuddySessions
 };

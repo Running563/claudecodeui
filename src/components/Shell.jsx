@@ -80,12 +80,23 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
           if (fitAddon.current && terminal.current) {
             fitAddon.current.fit();
 
+            // Determine provider: use session's provider, or fall back to localStorage, or default to 'claude'
+            const provider = isPlainShellRef.current 
+              ? 'plain-shell' 
+              : (selectedSessionRef.current?.__provider || localStorage.getItem('selected-provider') || 'claude');
+
+            console.log('[Shell] Sending init with provider:', provider, {
+              sessionProvider: selectedSessionRef.current?.__provider,
+              localStorageProvider: localStorage.getItem('selected-provider'),
+              sessionId: selectedSessionRef.current?.id
+            });
+
             ws.current.send(JSON.stringify({
               type: 'init',
               projectPath: selectedProjectRef.current.fullPath || selectedProjectRef.current.path,
               sessionId: isPlainShellRef.current ? null : selectedSessionRef.current?.id,
               hasSession: isPlainShellRef.current ? false : !!selectedSessionRef.current,
-              provider: isPlainShellRef.current ? 'plain-shell' : (selectedSessionRef.current?.__provider || 'claude'),
+              provider: provider,
               cols: terminal.current.cols,
               rows: terminal.current.rows,
               initialCommand: initialCommandRef.current,

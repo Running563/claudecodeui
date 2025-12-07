@@ -25,6 +25,7 @@ import { useDropzone } from 'react-dropzone';
 import TodoList from './TodoList';
 import ClaudeLogo from './ClaudeLogo.jsx';
 import CursorLogo from './CursorLogo.jsx';
+import CodeBuddyLogo from './CodeBuddyLogo.jsx';
 import NextTaskBanner from './NextTaskBanner.jsx';
 import { useTasksSettings } from '../contexts/TasksSettingsContext';
 
@@ -442,13 +443,15 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                 <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm flex-shrink-0 p-1">
                   {(localStorage.getItem('selected-provider') || 'claude') === 'cursor' ? (
                     <CursorLogo className="w-full h-full" />
+                  ) : (localStorage.getItem('selected-provider') || 'claude') === 'codebuddy' ? (
+                    <CodeBuddyLogo className="w-full h-full" />
                   ) : (
                     <ClaudeLogo className="w-full h-full" />
                   )}
                 </div>
               )}
               <div className="text-sm font-medium text-gray-900 dark:text-white">
-                {message.type === 'error' ? 'Error' : message.type === 'tool' ? 'Tool' : ((localStorage.getItem('selected-provider') || 'claude') === 'cursor' ? 'Cursor' : 'Claude')}
+                {message.type === 'error' ? 'Error' : message.type === 'tool' ? 'Tool' : ((localStorage.getItem('selected-provider') || 'claude') === 'cursor' ? 'Cursor' : (localStorage.getItem('selected-provider') || 'claude') === 'codebuddy' ? 'CodeBuddy' : 'Claude')}
               </div>
             </div>
           )}
@@ -1640,7 +1643,7 @@ const ImageAttachment = ({ file, onRemove, uploadProgress, error }) => {
 // - onReplaceTemporarySession: Called to replace temporary session ID with real WebSocket session ID
 //
 // This ensures uninterrupted chat experience by pausing sidebar refreshes during conversations.
-function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, messages, onFileOpen, onInputFocusChange, onSessionActive, onSessionInactive, onSessionProcessing, onSessionNotProcessing, processingSessions, onReplaceTemporarySession, onNavigateToSession, onShowSettings, autoExpandTools, showRawParameters, showThinking, autoScrollToBottom, sendByCtrlEnter, externalMessageUpdate, onTaskClick, onShowAllTasks }) {
+function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, messages, onFileOpen, onInputFocusChange, onSessionActive, onSessionInactive, onSessionProcessing, onSessionNotProcessing, onSessionCompleted, processingSessions, onReplaceTemporarySession, onNavigateToSession, onShowSettings, autoExpandTools, showRawParameters, showThinking, autoScrollToBottom, sendByCtrlEnter, externalMessageUpdate, onTaskClick, onShowAllTasks }) {
   const { tasksEnabled } = useTasksSettings();
   const [input, setInput] = useState(() => {
     if (typeof window !== 'undefined' && selectedProject) {
@@ -1704,6 +1707,9 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
   });
   const [cursorModel, setCursorModel] = useState(() => {
     return localStorage.getItem('cursor-model') || 'gpt-5';
+  });
+  const [codebuddyModel, setCodebuddyModel] = useState(() => {
+    return localStorage.getItem('codebuddy-model') || 'default';
   });
   // Load permission mode for the current session
   useEffect(() => {
@@ -2126,6 +2132,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
         throw new Error('Failed to load session messages');
       }
       const data = await response.json();
+      console.log('📩 loadSessionMessages response:', { messageCount: data.messages?.length, hasMore: data.hasMore, total: data.total });
       
       // Handle paginated response
       if (data.hasMore !== undefined) {
@@ -2507,8 +2514,12 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     
     // First pass: collect all tool results
     for (const msg of rawMessages) {
-      if (msg.message?.role === 'user' && Array.isArray(msg.message?.content)) {
-        for (const part of msg.message.content) {
+      // Support both Claude format (nested message) and CodeBuddy format (flat)
+      const role = msg.message?.role || msg.role;
+      const content = msg.message?.content || msg.content;
+      
+      if (role === 'user' && Array.isArray(content)) {
+        for (const part of content) {
           if (part.type === 'tool_result') {
             toolResults.set(part.tool_use_id, {
               content: part.content,
@@ -2524,56 +2535,62 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     
     // Second pass: process messages and attach tool results to tool uses
     for (const msg of rawMessages) {
+      // Support both Claude format (nested message) and CodeBuddy format (flat)
+      const role = msg.message?.role || msg.role;
+      const content = msg.message?.content || msg.content;
+      
       // Handle user messages
-      if (msg.message?.role === 'user' && msg.message?.content) {
-        let content = '';
+      if (role === 'user' && content) {
+        let textContent = '';
         let messageType = 'user';
         
-        if (Array.isArray(msg.message.content)) {
+        if (Array.isArray(content)) {
           // Handle array content, but skip tool results (they're attached to tool uses)
           const textParts = [];
           
-          for (const part of msg.message.content) {
-            if (part.type === 'text') {
+          for (const part of content) {
+            if (part.type === 'text' || part.type === 'input_text') {
+              // Support both 'text' and 'input_text' types
               textParts.push(decodeHtmlEntities(part.text));
             }
             // Skip tool_result parts - they're handled in the first pass
           }
           
-          content = textParts.join('\n');
-        } else if (typeof msg.message.content === 'string') {
-          content = decodeHtmlEntities(msg.message.content);
+          textContent = textParts.join('\n');
+        } else if (typeof content === 'string') {
+          textContent = decodeHtmlEntities(content);
         } else {
-          content = decodeHtmlEntities(String(msg.message.content));
+          textContent = decodeHtmlEntities(String(content));
         }
         
         // Skip command messages, system messages, and empty content
-        const shouldSkip = !content ||
-                          content.startsWith('<command-name>') ||
-                          content.startsWith('<command-message>') ||
-                          content.startsWith('<command-args>') ||
-                          content.startsWith('<local-command-stdout>') ||
-                          content.startsWith('<system-reminder>') ||
-                          content.startsWith('Caveat:') ||
-                          content.startsWith('This session is being continued from a previous') ||
-                          content.startsWith('[Request interrupted');
+        const shouldSkip = !textContent ||
+                          textContent.startsWith('<command-name>') ||
+                          textContent.startsWith('<command-message>') ||
+                          textContent.startsWith('<command-args>') ||
+                          textContent.startsWith('<local-command-stdout>') ||
+                          textContent.startsWith('<system-reminder>') ||
+                          textContent.startsWith('Caveat:') ||
+                          textContent.startsWith('This session is being continued from a previous') ||
+                          textContent.startsWith('[Request interrupted');
 
         if (!shouldSkip) {
           // Unescape with math formula protection
-          content = unescapeWithMathProtection(content);
+          textContent = unescapeWithMathProtection(textContent);
           converted.push({
             type: messageType,
-            content: content,
+            content: textContent,
             timestamp: msg.timestamp || new Date().toISOString()
           });
         }
       }
       
       // Handle assistant messages
-      else if (msg.message?.role === 'assistant' && msg.message?.content) {
-        if (Array.isArray(msg.message.content)) {
-          for (const part of msg.message.content) {
-            if (part.type === 'text') {
+      else if (role === 'assistant' && content) {
+        if (Array.isArray(content)) {
+          for (const part of content) {
+            if (part.type === 'text' || part.type === 'output_text') {
+              // Support both 'text' and 'output_text' types
               // Unescape with math formula protection
               let text = part.text;
               if (typeof text === 'string') {
@@ -2605,9 +2622,9 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
               });
             }
           }
-        } else if (typeof msg.message.content === 'string') {
+        } else if (typeof content === 'string') {
           // Unescape with math formula protection
-          let text = msg.message.content;
+          let text = content;
           text = unescapeWithMathProtection(text);
           converted.push({
             type: 'assistant',
@@ -2950,7 +2967,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
               }
               return;
             }
-            if (messageData.type === 'content_block_stop') {
+            if (messageData.type === 'content_block_stop' || messageData.type === 'message_stop') {
               // Flush any buffered text and mark streaming message complete
               if (streamTimerRef.current) {
                 clearTimeout(streamTimerRef.current);
@@ -2978,6 +2995,11 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                 }
                 return updated;
               });
+              
+              // Clear loading state
+              setIsLoading(false);
+              setCanAbortSession(false);
+              
               return;
             }
           }
@@ -3218,6 +3240,10 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
 
           // Always mark the completed session as inactive and not processing
           if (cursorCompletedSessionId) {
+            // Mark as recently completed to prevent file watcher race conditions
+            if (onSessionCompleted) {
+              onSessionCompleted(cursorCompletedSessionId, 'cursor');
+            }
             if (onSessionInactive) {
               onSessionInactive(cursorCompletedSessionId);
             }
@@ -3258,15 +3284,20 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
             }
           }
 
-          // Store session ID for future use and trigger refresh (for new sessions)
+          // Store session ID for new sessions ONLY (to avoid refresh on every message)
+          // Check pendingSessionId to ensure this is truly a new session
           const pendingCursorSessionId = sessionStorage.getItem('pendingSessionId');
           if (cursorCompletedSessionId && !currentSessionId && cursorCompletedSessionId === pendingCursorSessionId) {
             setCurrentSessionId(cursorCompletedSessionId);
             sessionStorage.removeItem('pendingSessionId');
 
-            // Trigger a project refresh to update the sidebar with the new session
-            if (window.refreshProjects) {
-              setTimeout(() => window.refreshProjects(), 500);
+            // Mark as system session change to preserve messages during navigation
+            setIsSystemSessionChange(true);
+            
+            // Navigate to the new session immediately (like Claude does)
+            // The projects_updated WebSocket message will handle sidebar refresh
+            if (onNavigateToSession) {
+              onNavigateToSession(cursorCompletedSessionId);
             }
           }
           break;
@@ -3302,6 +3333,212 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           }
           break;
           
+        // CodeBuddy message handlers (similar to Cursor)
+        case 'codebuddy-system':
+          // Handle CodeBuddy system/init messages similar to Cursor
+          try {
+            const cbdata = latestMessage.data;
+            if (cbdata && cbdata.type === 'system' && cbdata.subtype === 'init' && cbdata.session_id) {
+              // If we already have a session and this differs, switch (duplication/redirect)
+              if (currentSessionId && cbdata.session_id !== currentSessionId) {
+                console.log('🔄 CodeBuddy session switch detected:', { originalSession: currentSessionId, newSession: cbdata.session_id });
+                setIsSystemSessionChange(true);
+                if (onNavigateToSession) {
+                  onNavigateToSession(cbdata.session_id);
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('Error handling codebuddy-system message:', e);
+          }
+          break;
+
+        case 'codebuddy-user':
+          // Handle CodeBuddy user messages
+          break;
+
+        case 'codebuddy-error':
+          setChatMessages(prev => [...prev, {
+            type: 'error',
+            content: `CodeBuddy error: ${latestMessage.error || 'Unknown error'}`,
+            timestamp: new Date()
+          }]);
+          break;
+          
+        case 'codebuddy-result':
+          // Get session ID from message or fall back to current session
+          const codebuddyCompletedSessionId = latestMessage.sessionId || currentSessionId;
+
+          // Only update UI state if this is the current session
+          if (codebuddyCompletedSessionId === currentSessionId) {
+            setIsLoading(false);
+            setCanAbortSession(false);
+            setClaudeStatus(null);
+          }
+
+          // Always mark the completed session as inactive and not processing
+          if (codebuddyCompletedSessionId) {
+            if (onSessionInactive) {
+              onSessionInactive(codebuddyCompletedSessionId);
+            }
+            if (onSessionNotProcessing) {
+              onSessionNotProcessing(codebuddyCompletedSessionId);
+            }
+          }
+
+          // Only process result for current session
+          if (codebuddyCompletedSessionId === currentSessionId) {
+            try {
+              const r = latestMessage.data || {};
+              const textResult = typeof r.result === 'string' ? r.result : '';
+              // Flush buffered deltas before finalizing
+              if (streamTimerRef.current) {
+                clearTimeout(streamTimerRef.current);
+                streamTimerRef.current = null;
+              }
+              const pendingChunk = streamBufferRef.current;
+              streamBufferRef.current = '';
+
+              setChatMessages(prev => {
+                const updated = [...prev];
+                // Try to consolidate into the last streaming assistant message
+                const last = updated[updated.length - 1];
+                if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
+                  // Replace streaming content with the final content so deltas don't remain
+                  const finalContent = textResult && textResult.trim() ? textResult : (last.content || '') + (pendingChunk || '');
+                  last.content = finalContent;
+                  last.isStreaming = false;
+                } else if (textResult && textResult.trim()) {
+                  updated.push({ type: r.is_error ? 'error' : 'assistant', content: textResult, timestamp: new Date(), isStreaming: false });
+                }
+                return updated;
+              });
+            } catch (e) {
+              console.warn('Error handling codebuddy-result message:', e);
+            }
+          }
+
+          // Store session ID for future use (for new sessions)
+          const pendingCodeBuddySessionId = sessionStorage.getItem('pendingSessionId');
+          if (codebuddyCompletedSessionId && !currentSessionId && codebuddyCompletedSessionId === pendingCodeBuddySessionId) {
+            console.log('✅ New CodeBuddy session in codebuddy-result, ID set to:', codebuddyCompletedSessionId);
+            setCurrentSessionId(codebuddyCompletedSessionId);
+            sessionStorage.removeItem('pendingSessionId');
+
+            // Mark as system session change to preserve messages during navigation
+            setIsSystemSessionChange(true);
+            
+            // Navigate to the new session immediately
+            // The projects_updated WebSocket message will handle sidebar refresh
+            if (onNavigateToSession) {
+              onNavigateToSession(codebuddyCompletedSessionId);
+              console.log('🔄 Navigated to new CodeBuddy session in codebuddy-result:', codebuddyCompletedSessionId);
+            }
+          }
+          break;
+
+        case 'codebuddy-output':
+          // Handle CodeBuddy raw terminal output; strip ANSI and ignore empty control-only payloads
+          try {
+            const cbraw = String(latestMessage.data ?? '');
+            const cbcleaned = cbraw.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim();
+            if (cbcleaned) {
+              streamBufferRef.current += (streamBufferRef.current ? `\n${cbcleaned}` : cbcleaned);
+              if (!streamTimerRef.current) {
+                streamTimerRef.current = setTimeout(() => {
+                  const chunk = streamBufferRef.current;
+                  streamBufferRef.current = '';
+                  streamTimerRef.current = null;
+                  if (!chunk) return;
+                  setChatMessages(prev => {
+                    const updated = [...prev];
+                    const last = updated[updated.length - 1];
+                    if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
+                      last.content = last.content ? `${last.content}\n${chunk}` : chunk;
+                    } else {
+                      updated.push({ type: 'assistant', content: chunk, timestamp: new Date(), isStreaming: true });
+                    }
+                    return updated;
+                  });
+                }, 100);
+              }
+            }
+          } catch (e) {
+            console.warn('Error handling codebuddy-output message:', e);
+          }
+          break;
+
+        case 'codebuddy-complete':
+          // Handle CodeBuddy session completion
+          const cbCompletedSessionId = latestMessage.sessionId || currentSessionId;
+          
+          console.log('📋 codebuddy-complete received:', {
+            messageSessionId: latestMessage.sessionId,
+            currentSessionId: currentSessionId,
+            isNewSession: latestMessage.isNewSession,
+            exitCode: latestMessage.exitCode,
+            pendingSessionId: sessionStorage.getItem('pendingSessionId')
+          });
+
+          // Update UI state if this is the current session
+          if (cbCompletedSessionId === currentSessionId || !currentSessionId) {
+            setIsLoading(false);
+            setCanAbortSession(false);
+            setClaudeStatus(null);
+          }
+
+          // Always mark the completed session as inactive and not processing
+          if (cbCompletedSessionId) {
+            // Mark as recently completed to prevent file watcher race conditions
+            if (onSessionCompleted) {
+              onSessionCompleted(cbCompletedSessionId, 'codebuddy');
+            }
+            if (onSessionInactive) {
+              onSessionInactive(cbCompletedSessionId);
+            }
+            if (onSessionNotProcessing) {
+              onSessionNotProcessing(cbCompletedSessionId);
+            }
+          }
+
+          // Store session ID for new sessions ONLY if we don't have one yet
+          // AND this is marked as a new session by the backend
+          // Note: In most cases, codebuddy-result will have already set the session ID
+          // This is a fallback in case the order is different
+          if (latestMessage.isNewSession && cbCompletedSessionId && !currentSessionId) {
+            const pendingCbSessionId = sessionStorage.getItem('pendingSessionId');
+            
+            // Only update if this matches the pending session
+            if (cbCompletedSessionId === pendingCbSessionId) {
+              console.log('✅ New CodeBuddy session complete (fallback), ID set to:', cbCompletedSessionId);
+              setCurrentSessionId(cbCompletedSessionId);
+              sessionStorage.removeItem('pendingSessionId');
+
+              // Mark as system session change to preserve messages during navigation
+              setIsSystemSessionChange(true);
+              
+              // Navigate to the new session immediately (like Claude does)
+              // The projects_updated WebSocket message will handle sidebar refresh
+              if (onNavigateToSession) {
+                onNavigateToSession(cbCompletedSessionId);
+              }
+              
+              console.log('🔄 Navigated to new CodeBuddy session (fallback):', cbCompletedSessionId);
+            } else {
+              console.log('⚠️ Session ID mismatch, NOT setting current session:', {
+                completed: cbCompletedSessionId,
+                pending: pendingCbSessionId
+              });
+            }
+          } else {
+            console.log('✅ CodeBuddy session complete, NO action needed:', {
+              isNewSession: latestMessage.isNewSession,
+              hasSessionId: !!cbCompletedSessionId,
+              hasCurrentSessionId: !!currentSessionId
+            });
+          }
+          break;
+          
         case 'claude-complete':
           // Get session ID from message or fall back to current session
           const completedSessionId = latestMessage.sessionId || currentSessionId || sessionStorage.getItem('pendingSessionId');
@@ -3332,6 +3569,10 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
 
           // Always mark the completed session as inactive and not processing
           if (completedSessionId) {
+            // Mark as recently completed to prevent file watcher race conditions
+            if (onSessionCompleted) {
+              onSessionCompleted(completedSessionId, 'claude');
+            }
             if (onSessionInactive) {
               onSessionInactive(completedSessionId);
             }
@@ -3343,11 +3584,20 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           // If we have a pending session ID and the conversation completed successfully, use it
           const pendingSessionId = sessionStorage.getItem('pendingSessionId');
           if (pendingSessionId && !currentSessionId && latestMessage.exitCode === 0) {
-                setCurrentSessionId(pendingSessionId);
+            setCurrentSessionId(pendingSessionId);
             sessionStorage.removeItem('pendingSessionId');
 
-            // No need to manually refresh - projects_updated WebSocket message will handle it
-            console.log('✅ New session complete, ID set to:', pendingSessionId);
+            // Mark as system session change to preserve messages during navigation
+            setIsSystemSessionChange(true);
+            
+            // Navigate to the new session immediately
+            // The projects_updated WebSocket message will handle sidebar refresh
+            if (onNavigateToSession) {
+              onNavigateToSession(pendingSessionId);
+            }
+            
+            console.log('✅ New Claude session complete, ID set to:', pendingSessionId);
+            console.log('🔄 Navigated to new Claude session:', pendingSessionId);
           }
           
           // Clear persisted chat messages after successful completion
@@ -3840,6 +4090,22 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           toolsSettings: toolsSettings
         }
       });
+    } else if (provider === 'codebuddy') {
+      // Send CodeBuddy command (similar to Cursor)
+      // Don't generate temp session ID - let CodeBuddy CLI create it
+      sendMessage({
+        type: 'codebuddy-command',
+        command: input,
+        sessionId: effectiveSessionId, // null for new sessions
+        options: {
+          cwd: selectedProject.fullPath || selectedProject.path,
+          projectPath: selectedProject.fullPath || selectedProject.path,
+          sessionId: effectiveSessionId, // null for new sessions
+          resume: !!effectiveSessionId,
+          model: codebuddyModel,
+          toolsSettings: toolsSettings
+        }
+      });
     } else {
       // Send Claude command (existing code)
       sendMessage({
@@ -3872,7 +4138,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     if (selectedProject) {
       safeLocalStorage.removeItem(`draft_input_${selectedProject.name}`);
     }
-  }, [input, isLoading, selectedProject, attachedImages, currentSessionId, selectedSession, provider, permissionMode, onSessionActive, cursorModel, sendMessage, setInput, setAttachedImages, setUploadingImages, setImageErrors, setIsTextareaExpanded, textareaRef, setChatMessages, setIsLoading, setCanAbortSession, setClaudeStatus, setIsUserScrolledUp, scrollToBottom]);
+  }, [input, isLoading, selectedProject, attachedImages, currentSessionId, selectedSession, provider, permissionMode, onSessionActive, cursorModel, codebuddyModel, sendMessage, setInput, setAttachedImages, setUploadingImages, setImageErrors, setIsTextareaExpanded, textareaRef, setChatMessages, setIsLoading, setCanAbortSession, setClaudeStatus, setIsUserScrolledUp, scrollToBottom]);
 
   // Store handleSubmit in ref so handleCustomCommand can access it
   useEffect(() => {
@@ -4269,6 +4535,38 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                       </div>
                     )}
                   </button>
+                  
+                  {/* CodeBuddy Button */}
+                  <button
+                    onClick={() => {
+                      setProvider('codebuddy');
+                      localStorage.setItem('selected-provider', 'codebuddy');
+                      // Focus input after selection
+                      setTimeout(() => textareaRef.current?.focus(), 100);
+                    }}
+                    className={`group relative w-64 h-32 bg-white dark:bg-gray-800 rounded-xl border-2 transition-all duration-200 hover:scale-105 hover:shadow-xl ${
+                      provider === 'codebuddy' 
+                        ? 'border-green-500 shadow-lg ring-2 ring-green-500/20' 
+                        : 'border-gray-200 dark:border-gray-700 hover:border-green-400'
+                    }`}
+                  >
+                    <div className="flex flex-col items-center justify-center h-full gap-3">
+                      <CodeBuddyLogo className="w-10 h-10" />
+                      <div>
+                        <p className="font-semibold text-gray-900 dark:text-white">CodeBuddy</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Tencent Cloud AI</p>
+                      </div>
+                    </div>
+                    {provider === 'codebuddy' && (
+                      <div className="absolute top-2 right-2">
+                        <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        </div>
+                      </div>
+                    )}
+                  </button>
                 </div>
                 
                 {/* Model Selection for Cursor - Always reserve space to prevent jumping */}
@@ -4297,6 +4595,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                     ? 'Ready to use Claude AI. Start typing your message below.'
                     : provider === 'cursor'
                     ? `Ready to use Cursor with ${cursorModel}. Start typing your message below.`
+                    : provider === 'codebuddy'
+                    ? 'Ready to use CodeBuddy AI. Start typing your message below.'
                     : 'Select a provider above to begin'
                   }
                 </p>
@@ -4397,11 +4697,13 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                 <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm flex-shrink-0 p-1 bg-transparent">
                   {(localStorage.getItem('selected-provider') || 'claude') === 'cursor' ? (
                     <CursorLogo className="w-full h-full" />
+                  ) : (localStorage.getItem('selected-provider') || 'claude') === 'codebuddy' ? (
+                    <CodeBuddyLogo className="w-full h-full" />
                   ) : (
                     <ClaudeLogo className="w-full h-full" />
                   )}
                 </div>
-                <div className="text-sm font-medium text-gray-900 dark:text-white">{(localStorage.getItem('selected-provider') || 'claude') === 'cursor' ? 'Cursor' : 'Claude'}</div>
+                <div className="text-sm font-medium text-gray-900 dark:text-white">{(localStorage.getItem('selected-provider') || 'claude') === 'cursor' ? 'Cursor' : (localStorage.getItem('selected-provider') || 'claude') === 'codebuddy' ? 'CodeBuddy' : 'Claude'}</div>
                 {/* Abort button removed - functionality not yet implemented at backend */}
               </div>
               <div className="w-full text-sm text-gray-500 dark:text-gray-400 pl-3 sm:pl-0">
@@ -4679,7 +4981,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                 const isExpanded = e.target.scrollHeight > lineHeight * 2;
                 setIsTextareaExpanded(isExpanded);
               }}
-              placeholder={`Type / for commands, @ for files, or ask ${provider === 'cursor' ? 'Cursor' : 'Claude'} anything...`}
+              placeholder={`Type / for commands, @ for files, or ask ${provider === 'cursor' ? 'Cursor' : provider === 'codebuddy' ? 'CodeBuddy' : 'Claude'} anything...`}
               disabled={isLoading}
               className="chat-input-placeholder block w-full pl-12 pr-20 sm:pr-40 py-1.5 sm:py-4 bg-transparent rounded-2xl focus:outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 disabled:opacity-50 resize-none min-h-[50px] sm:min-h-[80px] max-h-[40vh] sm:max-h-[300px] overflow-y-auto text-sm sm:text-base leading-[21px] sm:leading-6 transition-all duration-200"
               style={{ height: '50px' }}

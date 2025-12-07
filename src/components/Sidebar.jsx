@@ -9,6 +9,7 @@ import { FolderOpen, Folder, Plus, MessageSquare, Clock, ChevronDown, ChevronRig
 import { cn } from '../lib/utils';
 import ClaudeLogo from './ClaudeLogo';
 import CursorLogo from './CursorLogo.jsx';
+import CodeBuddyLogo from './CodeBuddyLogo.jsx';
 import TaskIndicator from './TaskIndicator';
 import ProjectCreationWizard from './ProjectCreationWizard';
 import { api } from '../utils/api';
@@ -220,12 +221,13 @@ function Sidebar({
 
   // Helper function to get all sessions for a project (initial + additional)
   const getAllSessions = (project) => {
-    // Combine Claude and Cursor sessions; Sidebar will display icon per row
+    // Combine Claude, CodeBuddy and Cursor sessions; Sidebar will display icon per row
     const claudeSessions = [...(project.sessions || []), ...(additionalSessions[project.name] || [])].map(s => ({ ...s, __provider: 'claude' }));
+    const codebuddySessions = (project.codebuddySessions || []).map(s => ({ ...s, __provider: 'codebuddy' }));
     const cursorSessions = (project.cursorSessions || []).map(s => ({ ...s, __provider: 'cursor' }));
     // Sort by most recent activity/date
-    const normalizeDate = (s) => new Date(s.__provider === 'cursor' ? s.createdAt : s.lastActivity);
-    return [...claudeSessions, ...cursorSessions].sort((a, b) => normalizeDate(b) - normalizeDate(a));
+    const normalizeDate = (s) => new Date(s.__provider === 'cursor' || s.__provider === 'codebuddy' ? s.createdAt || s.lastActivity : s.lastActivity);
+    return [...claudeSessions, ...codebuddySessions, ...cursorSessions].sort((a, b) => normalizeDate(b) - normalizeDate(a));
   };
 
   // Helper function to get the last activity date for a project
@@ -309,6 +311,20 @@ function Sidebar({
 
       if (response.ok) {
         console.log('[Sidebar] Session deleted successfully, calling callback');
+        
+        // Update local additionalSessions state to remove the deleted session
+        setAdditionalSessions(prev => {
+          const projectSessions = prev[projectName];
+          if (projectSessions && projectSessions.length > 0) {
+            const filtered = projectSessions.filter(s => s.id !== sessionId);
+            return {
+              ...prev,
+              [projectName]: filtered
+            };
+          }
+          return prev;
+        });
+        
         // Call parent callback if provided
         if (onSessionDelete) {
           onSessionDelete(sessionId);
@@ -1014,15 +1030,16 @@ function Sidebar({
                         getAllSessions(project).map((session) => {
                           // Handle both Claude and Cursor session formats
                           const isCursorSession = session.__provider === 'cursor';
+                          const isCodeBuddySession = session.__provider === 'codebuddy';
                           
                           // Calculate if session is active (within last 10 minutes)
-                          const sessionDate = new Date(isCursorSession ? session.createdAt : session.lastActivity);
+                          const sessionDate = new Date(isCursorSession || isCodeBuddySession ? session.createdAt : session.lastActivity);
                           const diffInMinutes = Math.floor((currentTime - sessionDate) / (1000 * 60));
                           const isActive = diffInMinutes < 10;
                           
                           // Get session display values
-                          const sessionName = isCursorSession ? (session.name || 'Untitled Session') : (session.summary || 'New Session');
-                          const sessionTime = isCursorSession ? session.createdAt : session.lastActivity;
+                          const sessionName = isCursorSession || isCodeBuddySession ? (session.name || 'Untitled Session') : (session.summary || 'New Session');
+                          const sessionTime = isCursorSession || isCodeBuddySession ? session.createdAt : session.lastActivity;
                           const messageCount = session.messageCount || 0;
                           
                           return (
@@ -1055,7 +1072,9 @@ function Sidebar({
                                     "w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0",
                                     selectedSession?.id === session.id ? "bg-primary/10" : "bg-muted/50"
                                   )}>
-                                    {isCursorSession ? (
+                                    {isCodeBuddySession ? (
+                                      <CodeBuddyLogo className="w-3 h-3" />
+                                    ) : isCursorSession ? (
                                       <CursorLogo className="w-3 h-3" />
                                     ) : (
                                       <ClaudeLogo className="w-3 h-3" />
@@ -1077,7 +1096,9 @@ function Sidebar({
                                       )}
                                   {/* Provider tiny icon */}
                                   <span className="ml-1 opacity-70">
-                                    {isCursorSession ? (
+                                    {isCodeBuddySession ? (
+                                      <CodeBuddyLogo className="w-3 h-3" />
+                                    ) : isCursorSession ? (
                                       <CursorLogo className="w-3 h-3" />
                                     ) : (
                                       <ClaudeLogo className="w-3 h-3" />
@@ -1085,19 +1106,17 @@ function Sidebar({
                                   </span>
                                     </div>
                                   </div>
-                                  {/* Mobile delete button - only for Claude sessions */}
-                                  {!isCursorSession && (
-                                    <button
-                                      className="w-5 h-5 rounded-md bg-red-50 dark:bg-red-900/20 flex items-center justify-center active:scale-95 transition-transform opacity-70 ml-1"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        deleteSession(project.name, session.id);
-                                      }}
-                                      onTouchEnd={handleTouchClick(() => deleteSession(project.name, session.id))}
-                                    >
-                                      <Trash2 className="w-2.5 h-2.5 text-red-600 dark:text-red-400" />
-                                    </button>
-                                  )}
+                                  {/* Mobile delete button */}
+                                  <button
+                                    className="w-5 h-5 rounded-md bg-red-50 dark:bg-red-900/20 flex items-center justify-center active:scale-95 transition-transform opacity-70 ml-1"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      deleteSession(project.name, session.id);
+                                    }}
+                                    onTouchEnd={handleTouchClick(() => deleteSession(project.name, session.id))}
+                                  >
+                                    <Trash2 className="w-2.5 h-2.5 text-red-600 dark:text-red-400" />
+                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -1114,7 +1133,9 @@ function Sidebar({
                                 onTouchEnd={handleTouchClick(() => handleSessionClick(session, project.name))}
                               >
                                 <div className="flex items-start gap-2 min-w-0 w-full">
-                                  {isCursorSession ? (
+                                  {isCodeBuddySession ? (
+                                    <CodeBuddyLogo className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                  ) : isCursorSession ? (
                                     <CursorLogo className="w-3 h-3 mt-0.5 flex-shrink-0" />
                                   ) : (
                                     <ClaudeLogo className="w-3 h-3 mt-0.5 flex-shrink-0" />
@@ -1135,7 +1156,9 @@ function Sidebar({
                                       )}
                                       {/* Provider tiny icon */}
                                       <span className="ml-1 opacity-70">
-                                        {isCursorSession ? (
+                                        {isCodeBuddySession ? (
+                                          <CodeBuddyLogo className="w-3 h-3" />
+                                        ) : isCursorSession ? (
                                           <CursorLogo className="w-3 h-3" />
                                         ) : (
                                           <ClaudeLogo className="w-3 h-3" />
@@ -1145,8 +1168,7 @@ function Sidebar({
                                   </div>
                                 </div>
                               </Button>
-                              {/* Desktop hover buttons - only for Claude sessions */}
-                              {!isCursorSession && (
+                              {/* Desktop hover buttons */}
                               <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200">
                                 {editingSession === session.id ? (
                                   <>
@@ -1233,7 +1255,6 @@ function Sidebar({
                                   </>
                                 )}
                               </div>
-                              )}
                             </div>
                           </div>
                           );

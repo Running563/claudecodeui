@@ -6,6 +6,7 @@ import { X, Plus, Settings as SettingsIcon, Shield, AlertTriangle, Moon, Sun, Se
 import { useTheme } from '../contexts/ThemeContext';
 import ClaudeLogo from './ClaudeLogo';
 import CursorLogo from './CursorLogo';
+import CodeBuddyLogo from './CodeBuddyLogo';
 import CredentialsSettings from './CredentialsSettings';
 import GitSettings from './GitSettings';
 import TasksSettings from './TasksSettings';
@@ -86,6 +87,13 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
     error: null
   });
   const [cursorAuthStatus, setCursorAuthStatus] = useState({
+    authenticated: false,
+    email: null,
+    loading: true,
+    error: null
+  });
+  
+  const [codebuddyAuthStatus, setCodeBuddyAuthStatus] = useState({
     authenticated: false,
     email: null,
     loading: true,
@@ -308,6 +316,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
       loadSettings();
       checkClaudeAuthStatus();
       checkCursorAuthStatus();
+      checkCodeBuddyAuthStatus();
       setActiveTab(initialTab);
     }
   }, [isOpen, initialTab]);
@@ -448,6 +457,37 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
       });
     }
   };
+
+  const checkCodeBuddyAuthStatus = async () => {
+    try {
+      const response = await authenticatedFetch('/api/cli/codebuddy/status');
+
+      if (response.ok) {
+        const data = await response.json();
+        setCodeBuddyAuthStatus({
+          authenticated: data.authenticated,
+          email: data.email,
+          loading: false,
+          error: data.error || null
+        });
+      } else {
+        setCodeBuddyAuthStatus({
+          authenticated: false,
+          email: null,
+          loading: false,
+          error: 'Failed to check authentication status'
+        });
+      }
+    } catch (error) {
+      console.error('Error checking CodeBuddy auth status:', error);
+      setCodeBuddyAuthStatus({
+        authenticated: false,
+        email: null,
+        loading: false,
+        error: error.message
+      });
+    }
+  };
   const handleClaudeLogin = () => {
     setLoginProvider('claude');
     setSelectedProject(projects?.[0] || { name: 'default', fullPath: process.cwd() });
@@ -460,6 +500,12 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
     setShowLoginModal(true);
   };
 
+  const handleCodeBuddyLogin = () => {
+    setLoginProvider('codebuddy');
+    setSelectedProject(projects?.[0] || { name: 'default', fullPath: process.cwd() });
+    setShowLoginModal(true);
+  };
+
   const handleLoginComplete = (exitCode) => {
     if (exitCode === 0) {
       setSaveStatus('success');
@@ -468,6 +514,8 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
         checkClaudeAuthStatus();
       } else if (loginProvider === 'cursor') {
         checkCursorAuthStatus();
+      } else if (loginProvider === 'codebuddy') {
+        checkCodeBuddyAuthStatus();
       }
     }
   };
@@ -1028,6 +1076,19 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                   <div className="flex items-center gap-2">
                     <CursorLogo className="w-4 h-4" />
                     <span>Cursor</span>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setToolsProvider('codebuddy')}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    toolsProvider === 'codebuddy'
+                      ? 'border-green-600 text-green-600 dark:text-green-400'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <CodeBuddyLogo className="w-4 h-4" />
+                    <span>CodeBuddy</span>
                   </div>
                 </button>
               </div>
@@ -1816,6 +1877,161 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                 </div>
               </div>
             )}
+            
+            {/* CodeBuddy Content */}
+            {toolsProvider === 'codebuddy' && (
+              <div className="space-y-6 md:space-y-8">
+                
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <LogIn className="w-5 h-5 text-green-500" />
+                    <h3 className="text-lg font-medium text-foreground">
+                      Authentication
+                    </h3>
+                  </div>
+                  <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        {codebuddyAuthStatus.loading ? (
+                          <span className="text-sm text-green-700 dark:text-green-300">
+                            Checking authentication...
+                          </span>
+                        ) : codebuddyAuthStatus.authenticated ? (
+                          <div className="flex items-center gap-2">
+                            <Badge variant="success" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
+                              ✓ HTTP API Connected
+                            </Badge>
+                            {codebuddyAuthStatus.email && (
+                              <span className="text-sm text-green-700 dark:text-green-300">
+                                as {codebuddyAuthStatus.email}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <Badge variant="secondary" className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">
+                            Not connected
+                          </Badge>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="font-medium text-green-900 dark:text-green-100">
+                            CodeBuddy HTTP API
+                          </div>
+                          <div className="text-sm text-green-700 dark:text-green-300">
+                            {codebuddyAuthStatus.authenticated
+                              ? 'HTTP API service is running'
+                              : 'Start CodeBuddy HTTP API server to enable AI features'}
+                          </div>
+                        </div>
+                        <Button
+                          onClick={handleCodeBuddyLogin}
+                          className="bg-green-600 hover:bg-green-700 text-white"
+                          size="sm"
+                        >
+                          <LogIn className="w-4 h-4 mr-2" />
+                          Connect
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Installation Instructions */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Terminal className="w-5 h-5 text-green-500" />
+                    <h3 className="text-lg font-medium text-foreground">
+                      Installation & Setup
+                    </h3>
+                  </div>
+                  <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                    <div className="space-y-4">
+                      <div>
+                        <div className="font-medium text-green-900 dark:text-green-100 mb-2">
+                          1. Install CodeBuddy
+                        </div>
+                        <code className="block bg-green-100 dark:bg-green-800 px-3 py-2 rounded text-sm">
+                          npm install -g @tencent-ai/codebuddy-code
+                        </code>
+                      </div>
+                      
+                      <div>
+                        <div className="font-medium text-green-900 dark:text-green-100 mb-2">
+                          2. Start HTTP API Server
+                        </div>
+                        <code className="block bg-green-100 dark:bg-green-800 px-3 py-2 rounded text-sm">
+                          codebuddy --serve --port 8080
+                        </code>
+                        <p className="text-xs text-green-700 dark:text-green-300 mt-1">
+                          The HTTP API service will run at http://127.0.0.1:8080
+                        </p>
+                      </div>
+
+                      <div>
+                        <div className="font-medium text-green-900 dark:text-green-100 mb-2">
+                          3. Configure API Endpoint (Optional)
+                        </div>
+                        <p className="text-sm text-green-700 dark:text-green-300">
+                          Default endpoint: <code className="bg-green-100 dark:bg-green-800 px-1 rounded">http://127.0.0.1:8080</code>
+                        </p>
+                        <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                          You can change this in environment variables if needed
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* API Features */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Server className="w-5 h-5 text-green-500" />
+                    <h3 className="text-lg font-medium text-foreground">
+                      CodeBuddy Features
+                    </h3>
+                  </div>
+                  <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                    <ul className="text-sm text-green-800 dark:text-green-200 space-y-2">
+                      <li className="flex items-start gap-2">
+                        <span className="text-green-500">✓</span>
+                        <span><strong>HTTP API Integration:</strong> Direct HTTP API calls without CLI wrapper</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-green-500">✓</span>
+                        <span><strong>SSE Streaming:</strong> Real-time streaming responses via Server-Sent Events</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-green-500">✓</span>
+                        <span><strong>Session Management:</strong> Resume and manage multiple chat sessions</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-green-500">✓</span>
+                        <span><strong>Enterprise Features:</strong> Sandbox execution, custom plugins, and proxy support</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-green-500">✓</span>
+                        <span><strong>Project Context:</strong> Dynamic project directory support via <code className="bg-green-100 dark:bg-green-800 px-1 rounded">cwd</code> parameter</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Help Section */}
+                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                  <h4 className="font-medium text-green-900 dark:text-green-100 mb-2">
+                    CodeBuddy Integration Details:
+                  </h4>
+                  <ul className="text-sm text-green-800 dark:text-green-200 space-y-1">
+                    <li><strong>Architecture:</strong> Global single HTTP service + multi-project support</li>
+                    <li><strong>API Endpoint:</strong> <code className="bg-green-100 dark:bg-green-800 px-1 rounded">POST /agent</code> for queries</li>
+                    <li><strong>Streaming:</strong> JSON-stream output format with Server-Sent Events</li>
+                    <li><strong>Session Resume:</strong> Use <code className="bg-green-100 dark:bg-green-800 px-1 rounded">resume</code> parameter with session ID</li>
+                  </ul>
+                </div>
+              </div>
+            )}
               </div>
             )}
             
@@ -2078,6 +2294,161 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                     <li><code className="bg-purple-100 dark:bg-purple-800 px-1 rounded">"Shell(git status)"</code> - Allow git status command</li>
                     <li><code className="bg-purple-100 dark:bg-purple-800 px-1 rounded">"Shell(mkdir)"</code> - Allow mkdir command</li>
                     <li><code className="bg-purple-100 dark:bg-purple-800 px-1 rounded">"-f"</code> flag - Skip all permission prompts (dangerous)</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+            
+            {/* CodeBuddy Content */}
+            {toolsProvider === 'codebuddy' && (
+              <div className="space-y-6 md:space-y-8">
+                
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <LogIn className="w-5 h-5 text-green-500" />
+                    <h3 className="text-lg font-medium text-foreground">
+                      Authentication
+                    </h3>
+                  </div>
+                  <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        {codebuddyAuthStatus.loading ? (
+                          <span className="text-sm text-green-700 dark:text-green-300">
+                            Checking authentication...
+                          </span>
+                        ) : codebuddyAuthStatus.authenticated ? (
+                          <div className="flex items-center gap-2">
+                            <Badge variant="success" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
+                              ✓ HTTP API Connected
+                            </Badge>
+                            {codebuddyAuthStatus.email && (
+                              <span className="text-sm text-green-700 dark:text-green-300">
+                                as {codebuddyAuthStatus.email}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <Badge variant="secondary" className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">
+                            Not connected
+                          </Badge>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="font-medium text-green-900 dark:text-green-100">
+                            CodeBuddy HTTP API
+                          </div>
+                          <div className="text-sm text-green-700 dark:text-green-300">
+                            {codebuddyAuthStatus.authenticated
+                              ? 'HTTP API service is running'
+                              : 'Start CodeBuddy HTTP API server to enable AI features'}
+                          </div>
+                        </div>
+                        <Button
+                          onClick={handleCodeBuddyLogin}
+                          className="bg-green-600 hover:bg-green-700 text-white"
+                          size="sm"
+                        >
+                          <LogIn className="w-4 h-4 mr-2" />
+                          Connect
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Installation Instructions */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Terminal className="w-5 h-5 text-green-500" />
+                    <h3 className="text-lg font-medium text-foreground">
+                      Installation & Setup
+                    </h3>
+                  </div>
+                  <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                    <div className="space-y-4">
+                      <div>
+                        <div className="font-medium text-green-900 dark:text-green-100 mb-2">
+                          1. Install CodeBuddy
+                        </div>
+                        <code className="block bg-green-100 dark:bg-green-800 px-3 py-2 rounded text-sm">
+                          npm install -g @tencent-ai/codebuddy-code
+                        </code>
+                      </div>
+                      
+                      <div>
+                        <div className="font-medium text-green-900 dark:text-green-100 mb-2">
+                          2. Start HTTP API Server
+                        </div>
+                        <code className="block bg-green-100 dark:bg-green-800 px-3 py-2 rounded text-sm">
+                          codebuddy --serve --port 8080
+                        </code>
+                        <p className="text-xs text-green-700 dark:text-green-300 mt-1">
+                          The HTTP API service will run at http://127.0.0.1:8080
+                        </p>
+                      </div>
+
+                      <div>
+                        <div className="font-medium text-green-900 dark:text-green-100 mb-2">
+                          3. Configure API Endpoint (Optional)
+                        </div>
+                        <p className="text-sm text-green-700 dark:text-green-300">
+                          Default endpoint: <code className="bg-green-100 dark:bg-green-800 px-1 rounded">http://127.0.0.1:8080</code>
+                        </p>
+                        <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                          You can change this in environment variables if needed
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* API Features */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Server className="w-5 h-5 text-green-500" />
+                    <h3 className="text-lg font-medium text-foreground">
+                      CodeBuddy Features
+                    </h3>
+                  </div>
+                  <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                    <ul className="text-sm text-green-800 dark:text-green-200 space-y-2">
+                      <li className="flex items-start gap-2">
+                        <span className="text-green-500">✓</span>
+                        <span><strong>HTTP API Integration:</strong> Direct HTTP API calls without CLI wrapper</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-green-500">✓</span>
+                        <span><strong>SSE Streaming:</strong> Real-time streaming responses via Server-Sent Events</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-green-500">✓</span>
+                        <span><strong>Session Management:</strong> Resume and manage multiple chat sessions</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-green-500">✓</span>
+                        <span><strong>Enterprise Features:</strong> Sandbox execution, custom plugins, and proxy support</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-green-500">✓</span>
+                        <span><strong>Project Context:</strong> Dynamic project directory support via <code className="bg-green-100 dark:bg-green-800 px-1 rounded">cwd</code> parameter</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Help Section */}
+                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                  <h4 className="font-medium text-green-900 dark:text-green-100 mb-2">
+                    CodeBuddy Integration Details:
+                  </h4>
+                  <ul className="text-sm text-green-800 dark:text-green-200 space-y-1">
+                    <li><strong>Architecture:</strong> Global single HTTP service + multi-project support</li>
+                    <li><strong>API Endpoint:</strong> <code className="bg-green-100 dark:bg-green-800 px-1 rounded">POST /agent</code> for queries</li>
+                    <li><strong>Streaming:</strong> JSON-stream output format with Server-Sent Events</li>
+                    <li><strong>Session Resume:</strong> Use <code className="bg-green-100 dark:bg-green-800 px-1 rounded">resume</code> parameter with session ID</li>
                   </ul>
                 </div>
               </div>

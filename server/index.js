@@ -60,6 +60,8 @@ import mime from 'mime-types';
 import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions } from './claude-sdk.js';
 import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
+// Use SDK-style CodeBuddy integration (similar to Cursor CLI)
+import { spawnCodeBuddy, abortCodeBuddySession, isCodeBuddySessionActive, getActiveCodeBuddySessions } from './codebuddy-sdk.js';
 import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
 import mcpRoutes from './routes/mcp.js';
@@ -79,18 +81,25 @@ import { validateApiKey, authenticateToken, authenticateWebSocket } from './midd
 let projectsWatcher = null;
 const connectedClients = new Set();
 
-// Setup file system watcher for Claude projects folder using chokidar
+// Setup file system watcher for Claude and CodeBuddy projects folders using chokidar
 async function setupProjectsWatcher() {
     const chokidar = (await import('chokidar')).default;
     const claudeProjectsPath = path.join(process.env.HOME, '.claude', 'projects');
+    // NOTE: We intentionally do NOT watch .codebuddy/projects because CodeBuddy CLI
+    // writes session files during the conversation, which triggers projects_updated
+    // messages that can interfere with the active chat session.
+    // CodeBuddy sessions are refreshed via explicit API calls after completion instead.
 
     if (projectsWatcher) {
         projectsWatcher.close();
     }
 
     try {
+        // Only watch Claude projects directory (not CodeBuddy)
+        const watchPaths = [claudeProjectsPath];
+        
         // Initialize chokidar watcher with optimized settings
-        projectsWatcher = chokidar.watch(claudeProjectsPath, {
+        projectsWatcher = chokidar.watch(watchPaths, {
             ignored: [
                 '**/node_modules/**',
                 '**/.git/**',
@@ -123,13 +132,17 @@ async function setupProjectsWatcher() {
                     // Get updated projects list
                     const updatedProjects = await getProjects();
 
+                    // Since we only watch Claude projects now, provider is always 'claude'
+                    const basePath = claudeProjectsPath;
+                    
                     // Notify all connected clients about the project changes
                     const updateMessage = JSON.stringify({
                         type: 'projects_updated',
                         projects: updatedProjects,
                         timestamp: new Date().toISOString(),
                         changeType: eventType,
-                        changedFile: path.relative(claudeProjectsPath, filePath)
+                        changedFile: path.relative(basePath, filePath),
+                        provider: 'claude'
                     });
 
                     connectedClients.forEach(client => {
@@ -705,6 +718,10 @@ wss.on('connection', (ws, request) => {
 // Handle chat WebSocket connections
 function handleChatConnection(ws) {
     console.log('[INFO] Chat WebSocket connected');
+    
+    // Add unique ID for debugging
+    const wsId = Math.random().toString(36).substring(7);
+    ws.id = wsId;
 
     // Add to connected clients for project updates
     connectedClients.add(ws);
@@ -726,6 +743,12 @@ function handleChatConnection(ws) {
                 console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
                 console.log('🤖 Model:', data.options?.model || 'default');
                 await spawnCursor(data.command, data.options, ws);
+            } else if (data.type === 'codebuddy-command') {
+                console.log('[DEBUG] CodeBuddy message:', data.command || '[Continue/Resume]');
+                console.log('📁 Project:', data.options?.cwd || 'Unknown');
+                console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
+                console.log('🤖 Model:', data.options?.model || 'default');
+                await spawnCodeBuddy(data.command, data.options, ws);
             } else if (data.type === 'cursor-resume') {
                 // Backward compatibility: treat as cursor-command with resume and no prompt
                 console.log('[DEBUG] Cursor resume session (compat):', data.sessionId);
@@ -741,6 +764,8 @@ function handleChatConnection(ws) {
 
                 if (provider === 'cursor') {
                     success = abortCursorSession(data.sessionId);
+                } else if (provider === 'codebuddy') {
+                    success = abortCodeBuddySession(data.sessionId);
                 } else {
                     // Use Claude Agents SDK
                     success = await abortClaudeSDKSession(data.sessionId);
@@ -769,6 +794,8 @@ function handleChatConnection(ws) {
 
                 if (provider === 'cursor') {
                     isActive = isCursorSessionActive(sessionId);
+                } else if (provider === 'codebuddy') {
+                    isActive = isCodeBuddySessionActive(sessionId);
                 } else {
                     // Use Claude Agents SDK
                     isActive = isClaudeSDKSessionActive(sessionId);
@@ -784,7 +811,8 @@ function handleChatConnection(ws) {
                 // Get all currently active sessions
                 const activeSessions = {
                     claude: getActiveClaudeSDKSessions(),
-                    cursor: getActiveCursorSessions()
+                    cursor: getActiveCursorSessions(),
+                    codebuddy: getActiveCodeBuddySessions()
                 };
                 ws.send(JSON.stringify({
                     type: 'active-sessions',
@@ -801,7 +829,7 @@ function handleChatConnection(ws) {
     });
 
     ws.on('close', () => {
-        console.log('🔌 Chat client disconnected');
+        console.log('🔌 Chat client disconnected, ID:', ws.id || 'unknown');
         // Remove from connected clients
         connectedClients.delete(ws);
     });
@@ -868,7 +896,7 @@ function handleShellConnection(ws) {
                 if (isPlainShell) {
                     welcomeMsg = `\x1b[36mStarting terminal in: ${projectPath}\x1b[0m\r\n`;
                 } else {
-                    const providerName = provider === 'cursor' ? 'Cursor' : 'Claude';
+                    const providerName = provider === 'cursor' ? 'Cursor' : (provider === 'codebuddy' ? 'CodeBuddy' : 'Claude');
                     welcomeMsg = hasSession ?
                         `\x1b[36mResuming ${providerName} session ${sessionId} in: ${projectPath}\x1b[0m\r\n` :
                         `\x1b[36mStarting new ${providerName} session in: ${projectPath}\x1b[0m\r\n`;
@@ -902,6 +930,21 @@ function handleShellConnection(ws) {
                                 shellCommand = `cd "${projectPath}" && cursor-agent --resume="${sessionId}"`;
                             } else {
                                 shellCommand = `cd "${projectPath}" && cursor-agent`;
+                            }
+                        }
+                    } else if (provider === 'codebuddy') {
+                        // Use codebuddy command
+                        if (os.platform() === 'win32') {
+                            if (hasSession && sessionId) {
+                                shellCommand = `Set-Location -Path "${projectPath}"; codebuddy --resume ${sessionId}`;
+                            } else {
+                                shellCommand = `Set-Location -Path "${projectPath}"; codebuddy`;
+                            }
+                        } else {
+                            if (hasSession && sessionId) {
+                                shellCommand = `cd "${projectPath}" && codebuddy --resume ${sessionId} || codebuddy`;
+                            } else {
+                                shellCommand = `cd "${projectPath}" && codebuddy`;
                             }
                         }
                     } else {
@@ -1343,34 +1386,67 @@ app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authentica
       return res.status(500).json({ error: 'Failed to determine project path' });
     }
 
-    // Construct the JSONL file path
-    // Claude stores session files in ~/.claude/projects/[encoded-project-path]/[session-id].jsonl
-    // The encoding replaces /, spaces, ~, and _ with -
-    const encodedPath = projectPath.replace(/[\\/:\s~_]/g, '-');
-    const projectDir = path.join(homeDir, '.claude', 'projects', encodedPath);
-
     // Allow only safe characters in sessionId
     const safeSessionId = String(sessionId).replace(/[^a-zA-Z0-9._-]/g, '');
     if (!safeSessionId) {
       return res.status(400).json({ error: 'Invalid sessionId' });
     }
-    const jsonlPath = path.join(projectDir, `${safeSessionId}.jsonl`);
 
-    // Constrain to projectDir
-    const rel = path.relative(path.resolve(projectDir), path.resolve(jsonlPath));
-    if (rel.startsWith('..') || path.isAbsolute(rel)) {
-      return res.status(400).json({ error: 'Invalid path' });
+    // Try to find the session file in both Claude and CodeBuddy directories
+    // Claude format: -Users-waderli-tools-xxx
+    // CodeBuddy format: Users-waderli-tools-xxx (without leading -)
+    const claudeProjectName = projectName.startsWith('-') ? projectName : `-${projectName}`;
+    const codebuddyProjectName = projectName.startsWith('-') ? projectName.substring(1) : projectName;
+    
+    const candidatePaths = [
+      // Try Claude directory first
+      {
+        dir: path.join(homeDir, '.claude', 'projects', claudeProjectName),
+        provider: 'claude'
+      },
+      // Then try CodeBuddy directory
+      {
+        dir: path.join(homeDir, '.codebuddy', 'projects', codebuddyProjectName),
+        provider: 'codebuddy'
+      }
+    ];
+
+    let fileContent = null;
+    let foundPath = null;
+    let foundProvider = null;
+
+    // Try each candidate path
+    for (const { dir: projectDir, provider } of candidatePaths) {
+      const jsonlPath = path.join(projectDir, `${safeSessionId}.jsonl`);
+      
+      // Constrain to projectDir for security
+      const rel = path.relative(path.resolve(projectDir), path.resolve(jsonlPath));
+      if (rel.startsWith('..') || path.isAbsolute(rel)) {
+        continue; // Skip invalid paths
+      }
+
+      // Try to read the file
+      try {
+        fileContent = await fsPromises.readFile(jsonlPath, 'utf8');
+        foundPath = jsonlPath;
+        foundProvider = provider;
+  
+        break; // Found the file, stop searching
+      } catch (error) {
+        if (error.code === 'ENOENT') {
+          continue; // File not found, try next location
+        }
+        throw error; // Re-throw other errors
+      }
     }
 
-    // Read and parse the JSONL file
-    let fileContent;
-    try {
-      fileContent = await fsPromises.readFile(jsonlPath, 'utf8');
-    } catch (error) {
-      if (error.code === 'ENOENT') {
-        return res.status(404).json({ error: 'Session file not found', path: jsonlPath });
-      }
-      throw error; // Re-throw other errors to be caught by outer try-catch
+    // If file not found in any location, return 404
+    if (!fileContent) {
+      return res.status(404).json({ 
+        error: 'Session file not found',
+        sessionId: safeSessionId,
+        triedPaths: candidatePaths.map(c => path.join(c.dir, `${safeSessionId}.jsonl`))
+      });
     }
     const lines = fileContent.trim().split('\n');
 

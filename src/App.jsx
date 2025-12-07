@@ -77,6 +77,10 @@ function AppContent() {
   // Triggers ChatInterface to reload messages without switching sessions
   const [externalMessageUpdate, setExternalMessageUpdate] = useState(0);
 
+  // Recently Completed Sessions: Track sessions that just completed to ignore immediate file watcher updates
+  // Format: Map<sessionId, {provider, timestamp}>
+  const [recentlyCompletedSessions, setRecentlyCompletedSessions] = useState(new Map());
+
   const { ws, sendMessage, messages } = useWebSocketContext();
   
   // Detect if running as PWA
@@ -171,6 +175,38 @@ function AppContent() {
       const latestMessage = messages[messages.length - 1];
       
       if (latestMessage.type === 'projects_updated') {
+        // CRITICAL: Check for pending session (synchronous check via sessionStorage)
+        // This catches the race condition where session-created has fired but React state hasn't updated yet
+        const pendingSessionId = sessionStorage.getItem('pendingSessionId');
+        if (pendingSessionId) {
+          return;
+        }
+
+        // Check if this update is for a recently completed session (within 3 seconds)
+        // If so, skip the update to prevent immediate refresh after completion
+        if (latestMessage.changedFile && latestMessage.provider) {
+          const changedFileParts = latestMessage.changedFile.split('/');
+          if (changedFileParts.length >= 2) {
+            const filename = changedFileParts[changedFileParts.length - 1];
+            const changedSessionId = filename.replace('.jsonl', '');
+            
+            // Check if this session was recently completed
+            const recentCompletion = recentlyCompletedSessions.get(changedSessionId);
+            if (recentCompletion && recentCompletion.provider === latestMessage.provider) {
+              const timeSinceCompletion = Date.now() - recentCompletion.timestamp;
+              if (timeSinceCompletion < 3000) { // 3 seconds window
+                return;
+              } else {
+                // Clean up old entry
+                setRecentlyCompletedSessions(prev => {
+                  const updated = new Map(prev);
+                  updated.delete(changedSessionId);
+                  return updated;
+                });
+              }
+            }
+          }
+        }
 
         // External Session Update Detection: Check if the changed file is the current session's JSONL
         // If so, and the session is not active, trigger a message reload in ChatInterface
@@ -201,7 +237,17 @@ function AppContent() {
         const hasActiveSession = (selectedSession && activeSessions.has(selectedSession.id)) ||
                                  (activeSessions.size > 0 && Array.from(activeSessions).some(id => id.startsWith('new-session-')));
         
-        if (hasActiveSession) {
+        // Also check if we have a real session ID in activeSessions (for CodeBuddy/Cursor new sessions)
+        const hasActiveRealSession = activeSessions.size > 0 && 
+                                     Array.from(activeSessions).some(id => !id.startsWith('new-session-'));
+        
+        if (hasActiveSession || hasActiveRealSession) {
+          // For new sessions (no selectedSession yet), block all updates to prevent interface refresh
+          // This is especially important for CodeBuddy/Cursor which create session files early
+          if (!selectedSession && (hasActiveSession || hasActiveRealSession)) {
+             return;
+          }
+          
           // Allow updates but be selective: permit additions, prevent changes to existing items
           const updatedProjects = latestMessage.projects;
           const currentProjects = projects;
@@ -332,6 +378,16 @@ function AppContent() {
           }
           return;
         }
+        // Also check CodeBuddy sessions
+        const cbSession = project.codebuddySessions?.find(s => s.id === sessionId);
+        if (cbSession) {
+          setSelectedProject(project);
+          setSelectedSession({ ...cbSession, __provider: 'codebuddy' });
+          if (shouldSwitchTab) {
+            setActiveTab('chat');
+          }
+          return;
+        }
         // Also check Cursor sessions
         const cSession = project.cursorSessions?.find(s => s.id === sessionId);
         if (cSession) {
@@ -406,11 +462,13 @@ function AppContent() {
       navigate('/');
     }
     
-    // Update projects state locally instead of full refresh
+    // Update projects state locally - filter all session types
     setProjects(prevProjects => 
       prevProjects.map(project => ({
         ...project,
         sessions: project.sessions?.filter(session => session.id !== sessionId) || [],
+        cursorSessions: project.cursorSessions?.filter(session => session.id !== sessionId) || [],
+        codebuddySessions: project.codebuddySessions?.filter(session => session.id !== sessionId) || [],
         sessionMeta: {
           ...project.sessionMeta,
           total: Math.max(0, (project.sessionMeta?.total || 0) - 1)
@@ -522,6 +580,29 @@ function AppContent() {
         return newSet;
       });
     }
+  }, []);
+
+  // Mark a session as recently completed to prevent immediate updates
+  const markSessionAsCompleted = useCallback((sessionId, provider) => {
+     setRecentlyCompletedSessions(prev => {
+      const newMap = new Map(prev);
+      newMap.set(sessionId, {
+        provider,
+        timestamp: Date.now()
+      });
+      return newMap;
+    });
+    
+    // Auto-cleanup after 5 seconds to prevent memory leaks
+    setTimeout(() => {
+      setRecentlyCompletedSessions(prev => {
+        const newMap = new Map(prev);
+        if (newMap.has(sessionId)) {
+          newMap.delete(sessionId);
+        }
+        return newMap;
+      });
+    }, 5000);
   }, []);
 
   // replaceTemporarySession: Called when WebSocket provides real session ID for new sessions
@@ -888,6 +969,7 @@ function AppContent() {
           onSessionInactive={markSessionAsInactive}
           onSessionProcessing={markSessionAsProcessing}
           onSessionNotProcessing={markSessionAsNotProcessing}
+          onSessionCompleted={markSessionAsCompleted}
           processingSessions={processingSessions}
           onReplaceTemporarySession={replaceTemporarySession}
           onNavigateToSession={(sessionId) => navigate(`/session/${sessionId}`)}

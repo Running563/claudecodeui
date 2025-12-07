@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ChevronRight, ChevronLeft, Check, GitBranch, User, Mail, LogIn, ExternalLink, Loader2 } from 'lucide-react';
 import ClaudeLogo from './ClaudeLogo';
 import CursorLogo from './CursorLogo';
+import CodeBuddyLogo from './CodeBuddyLogo';
 import LoginModal from './LoginModal';
 import { authenticatedFetch } from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -32,6 +33,13 @@ const Onboarding = ({ onComplete }) => {
     error: null
   });
 
+  const [codebuddyAuthStatus, setCodeBuddyAuthStatus] = useState({
+    authenticated: false,
+    email: null,
+    loading: true,
+    error: null
+  });
+
   const { user } = useAuth();
 
   // Load existing git config on mount
@@ -43,6 +51,7 @@ const Onboarding = ({ onComplete }) => {
   useEffect(() => {
     checkClaudeAuthStatus();
     checkCursorAuthStatus();
+    checkCodeBuddyAuthStatus();
   }, []);
 
   const loadGitConfig = async () => {
@@ -61,12 +70,14 @@ const Onboarding = ({ onComplete }) => {
 
   // Auto-check authentication status periodically when on CLI steps
   useEffect(() => {
-    if (currentStep === 1 || currentStep === 2) {
+    if (currentStep === 1 || currentStep === 2 || currentStep === 3) {
       const interval = setInterval(() => {
         if (currentStep === 1) {
           checkClaudeAuthStatus();
         } else if (currentStep === 2) {
           checkCursorAuthStatus();
+        } else if (currentStep === 3) {
+          checkCodeBuddyAuthStatus();
         }
       }, 3000); // Check every 3 seconds
 
@@ -134,6 +145,36 @@ const Onboarding = ({ onComplete }) => {
     }
   };
 
+  const checkCodeBuddyAuthStatus = async () => {
+    try {
+      const response = await authenticatedFetch('/api/cli/codebuddy/status');
+      if (response.ok) {
+        const data = await response.json();
+        setCodeBuddyAuthStatus({
+          authenticated: data.authenticated,
+          email: data.email,
+          loading: false,
+          error: data.error || null
+        });
+      } else {
+        setCodeBuddyAuthStatus({
+          authenticated: false,
+          email: null,
+          loading: false,
+          error: 'Failed to check authentication status'
+        });
+      }
+    } catch (error) {
+      console.error('Error checking CodeBuddy auth status:', error);
+      setCodeBuddyAuthStatus({
+        authenticated: false,
+        email: null,
+        loading: false,
+        error: error.message
+      });
+    }
+  };
+
   const handleClaudeLogin = () => {
     setLoginProvider('claude');
     setShowLoginModal(true);
@@ -144,12 +185,19 @@ const Onboarding = ({ onComplete }) => {
     setShowLoginModal(true);
   };
 
+  const handleCodeBuddyLogin = () => {
+    setLoginProvider('codebuddy');
+    setShowLoginModal(true);
+  };
+
   const handleLoginComplete = (exitCode) => {
     if (exitCode === 0) {
       if (loginProvider === 'claude') {
         checkClaudeAuthStatus();
       } else if (loginProvider === 'cursor') {
         checkCursorAuthStatus();
+      } else if (loginProvider === 'codebuddy') {
+        checkCodeBuddyAuthStatus();
       }
     }
   };
@@ -246,6 +294,12 @@ const Onboarding = ({ onComplete }) => {
       title: 'Cursor CLI',
       description: 'Connect your Cursor account',
       icon: () => <CursorLogo size={24} />,
+      required: false
+    },
+    {
+      title: 'CodeBuddy CLI',
+      description: 'Connect your CodeBuddy account',
+      icon: () => <CodeBuddyLogo size={24} />,
       required: false
     }
   ];
@@ -445,6 +499,73 @@ const Onboarding = ({ onComplete }) => {
           </div>
         );
 
+      case 3:
+        return (
+          <div className="space-y-6">
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CodeBuddyLogo size={32} />
+              </div>
+              <h2 className="text-2xl font-bold text-foreground mb-2">CodeBuddy CLI</h2>
+              <p className="text-muted-foreground">
+                Connect your CodeBuddy account to enable Tencent Cloud AI-powered features
+              </p>
+            </div>
+
+            {/* Auth Status Card */}
+            <div className="border border-border rounded-lg p-6 bg-card">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-3 h-3 rounded-full ${
+                    codebuddyAuthStatus.loading ? 'bg-gray-400 animate-pulse' :
+                    codebuddyAuthStatus.authenticated ? 'bg-green-500' : 'bg-gray-300'
+                  }`} />
+                  <span className="font-medium text-foreground">
+                    {codebuddyAuthStatus.loading ? 'Checking...' :
+                     codebuddyAuthStatus.authenticated ? 'Connected' : 'Not Connected'}
+                  </span>
+                </div>
+                {codebuddyAuthStatus.authenticated && (
+                  <Check className="w-5 h-5 text-green-500" />
+                )}
+              </div>
+
+              {codebuddyAuthStatus.authenticated && codebuddyAuthStatus.email && (
+                <p className="text-sm text-muted-foreground mb-4">
+                  Signed in as: <span className="text-foreground font-medium">{codebuddyAuthStatus.email}</span>
+                </p>
+              )}
+
+              {!codebuddyAuthStatus.authenticated && (
+                <>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    CodeBuddy CLI can be used directly after installation. Make sure you have installed CodeBuddy and started the HTTP API server.
+                  </p>
+                  <div className="bg-muted p-4 rounded-lg mb-4">
+                    <p className="text-sm font-medium mb-2">Installation:</p>
+                    <code className="text-xs">npm install -g @tencent-ai/codebuddy-code</code>
+                    <p className="text-sm font-medium mt-3 mb-2">Start API Server:</p>
+                    <code className="text-xs">codebuddy --serve --port 8080</code>
+                  </div>
+                  <p className="text-xs text-muted-foreground text-center">
+                    Or check the official documentation for more installation options
+                  </p>
+                </>
+              )}
+
+              {codebuddyAuthStatus.error && !codebuddyAuthStatus.authenticated && (
+                <div className="mt-4 p-3 bg-yellow-100 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-800 rounded-lg">
+                  <p className="text-sm text-yellow-700 dark:text-yellow-400">{codebuddyAuthStatus.error}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="text-center text-sm text-muted-foreground">
+              <p>This step is optional. You can skip and configure it later in Settings.</p>
+            </div>
+          </div>
+        );
+
       default:
         return null;
     }
@@ -456,6 +577,7 @@ const Onboarding = ({ onComplete }) => {
         return gitName.trim() && gitEmail.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(gitEmail);
       case 1:
       case 2:
+      case 3:
         return true; // CLI steps are optional
       default:
         return false;
