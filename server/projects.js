@@ -211,8 +211,9 @@ function decodeCodeBuddyPath(projectName) {
   // - Users-username-dir-project
   // - Users-username-dir-subdir-project  
   // - home-username-dir-project
+  // - data-codes-project
   
-  if (parts.length >= 3 && (parts[0] === 'Users' || parts[0] === 'home' || parts[0] === 'opt')) {
+  if (parts.length >= 3 && (parts[0] === 'Users' || parts[0] === 'home' || parts[0] === 'opt' || parts[0] === 'data' || parts[0] === 'mnt' || parts[0] === 'srv' || parts[0] === 'root' || parts[0] === 'var')) {
     // Take first 3 parts as path components
     const pathParts = parts.slice(0, 3);
     const projectParts = parts.slice(3);
