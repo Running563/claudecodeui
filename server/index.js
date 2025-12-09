@@ -60,8 +60,8 @@ import mime from 'mime-types';
 import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions } from './claude-sdk.js';
 import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
-// Use SDK-style CodeBuddy integration (similar to Cursor CLI)
-import { spawnCodeBuddy, abortCodeBuddySession, isCodeBuddySessionActive, getActiveCodeBuddySessions } from './codebuddy-sdk.js';
+// Use HTTP-based CodeBuddy integration (via codebuddy --serve)
+import { spawnCodeBuddy, abortCodeBuddySession, isCodeBuddySessionActive, getActiveCodeBuddySessions } from './codebuddy-http-client.js';
 import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
 import mcpRoutes from './routes/mcp.js';

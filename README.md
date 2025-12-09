@@ -322,6 +322,40 @@ We welcome contributions! Please follow these guidelines:
 npm install -g @tencent-ai/codebuddy-code
 ```
 
+**Start CodeBuddy HTTP Service**
+
+CodeBuddy Code UI uses the HTTP API provided by CodeBuddy CLI. You need to start the HTTP service separately:
+
+```bash
+# Option 1: Start CodeBuddy HTTP service on default port (3000)
+codebuddy --serve
+
+# Or specify a custom port
+codebuddy --serve --port 3001
+
+# Option 2: Use the convenience script (starts both services automatically)
+./start-with-codebuddy.sh
+```
+
+**Configure Service URL (Optional)**
+
+By default, the UI connects to `http://127.0.0.1:3000`. If you use a different host or port, set these environment variables:
+
+```bash
+# In your shell or .env file
+export CODEBUDDY_HTTP_HOST=127.0.0.1
+export CODEBUDDY_HTTP_PORT=3000
+```
+
+Then restart the UI server:
+```bash
+npm run server
+```
+
+**Verify Connection**
+
+Once the CodeBuddy HTTP service is running, the UI will automatically connect to it when you interact with CodeBuddy projects.
+
 ## Troubleshooting
 
 ### Common Issues & Solutions
@@ -333,6 +367,15 @@ npm install -g @tencent-ai/codebuddy-code
 - Ensure [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) is properly installed
 - Run `claude` command in at least one project directory to initialize
 - Verify `~/.claude/projects/` directory exists and has proper permissions
+
+#### CodeBuddy Connection Error
+**Problem**: "无法连接到 CodeBuddy HTTP 服务" or connection refused errors
+**Solutions**:
+- Ensure CodeBuddy HTTP service is running: `codebuddy --serve --port 3000`
+- Check if the service is accessible: `curl http://127.0.0.1:3000/agent`
+- Verify environment variables `CODEBUDDY_HTTP_HOST` and `CODEBUDDY_HTTP_PORT` match your service
+- Check firewall settings if using a custom host/port
+- Review CodeBuddy service logs for errors
 
 #### File Explorer Issues
 **Problem**: Files not loading, permission errors, empty directories
