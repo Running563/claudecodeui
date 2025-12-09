@@ -1384,8 +1384,6 @@ async function isProjectEmpty(projectName) {
 
 // Delete an empty project
 async function deleteProject(projectName) {
-  const projectDir = path.join(process.env.HOME, '.claude', 'projects', projectName);
-  
   try {
     // First check if the project is empty
     const isEmpty = await isProjectEmpty(projectName);
@@ -1393,13 +1391,64 @@ async function deleteProject(projectName) {
       throw new Error('Cannot delete project with existing sessions');
     }
     
-    // Remove the project directory
-    await fs.rm(projectDir, { recursive: true, force: true });
+    // Delete from all possible locations (Claude, CodeBuddy, Cursor)
+    const deletionPromises = [];
     
-    // Remove from project config
+    // 1. Delete Claude project directory
+    const claudeProjectName = projectName.startsWith('-') ? projectName : `-${projectName}`;
+    const claudeProjectDir = path.join(process.env.HOME, '.claude', 'projects', claudeProjectName);
+    deletionPromises.push(
+      fs.rm(claudeProjectDir, { recursive: true, force: true })
+        .catch(err => {
+          if (err.code !== 'ENOENT') {
+            console.warn(`Failed to delete Claude project directory: ${err.message}`);
+          }
+        })
+    );
+    
+    // 2. Delete CodeBuddy project directory
+    const codebuddyProjectName = projectName.startsWith('-') ? projectName.substring(1) : projectName;
+    const codebuddyProjectDir = path.join(process.env.HOME, '.codebuddy', 'projects', codebuddyProjectName);
+    deletionPromises.push(
+      fs.rm(codebuddyProjectDir, { recursive: true, force: true })
+        .catch(err => {
+          if (err.code !== 'ENOENT') {
+            console.warn(`Failed to delete CodeBuddy project directory: ${err.message}`);
+          }
+        })
+    );
+    
+    // 3. Delete Cursor project directory (if we can determine the project path)
+    try {
+      const actualProjectDir = await extractProjectDirectory(projectName);
+      if (actualProjectDir) {
+        const cwdId = crypto.createHash('md5').update(actualProjectDir).digest('hex');
+        const cursorProjectDir = path.join(os.homedir(), '.cursor', 'chats', cwdId);
+        deletionPromises.push(
+          fs.rm(cursorProjectDir, { recursive: true, force: true })
+            .catch(err => {
+              if (err.code !== 'ENOENT') {
+                console.warn(`Failed to delete Cursor project directory: ${err.message}`);
+              }
+            })
+        );
+      }
+    } catch (err) {
+      // Failed to extract project directory, skip Cursor deletion
+    }
+    
+    // Wait for all deletions to complete
+    await Promise.all(deletionPromises);
+    
+    // Remove from project config (try both naming conventions)
     const config = await loadProjectConfig();
     delete config[projectName];
+    delete config[claudeProjectName];
+    delete config[codebuddyProjectName];
     await saveProjectConfig(config);
+    
+    // Clear cache
+    clearProjectDirectoryCache();
     
     return true;
   } catch (error) {
@@ -1424,7 +1473,6 @@ async function addProjectManually(projectPath, displayName = null) {
   
   // Check if project already exists in config
   const config = await loadProjectConfig();
-  const projectDir = path.join(process.env.HOME, '.claude', 'projects', projectName);
 
   if (config[projectName]) {
     throw new Error(`Project already configured for path: ${absolutePath}`);
