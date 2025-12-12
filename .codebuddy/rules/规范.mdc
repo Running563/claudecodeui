@@ -1,0 +1,9 @@
+---
+description: 
+alwaysApply: true
+enabled: true
+updatedAt: 2025-12-12T16:14:09.917Z
+provider: 
+---
+
+不要执行build，不需要启动项目等，因为我会默认启动项目 npm run dev，并且当前是热更新的。
