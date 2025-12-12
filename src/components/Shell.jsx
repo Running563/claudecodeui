@@ -34,6 +34,9 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   const [isRestarting, setIsRestarting] = useState(false);
   const [lastSessionId, setLastSessionId] = useState(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  
+  // Track if device is mobile for terminal optimizations
+  const isMobileDevice = useRef(window.innerWidth < 768);
 
   const selectedProjectRef = useRef(selectedProject);
   const selectedSessionRef = useRef(selectedSession);
@@ -48,6 +51,16 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     isPlainShellRef.current = isPlainShell;
     onProcessCompleteRef.current = onProcessComplete;
   });
+
+  // Update mobile detection on window resize
+  useEffect(() => {
+    const handleResize = () => {
+      isMobileDevice.current = window.innerWidth < 768;
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const connectWebSocket = useCallback(async () => {
     if (isConnecting || isConnected) return;
@@ -77,31 +90,46 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
         setIsConnecting(false);
 
         setTimeout(() => {
-          if (fitAddon.current && terminal.current) {
-            fitAddon.current.fit();
+          if (terminal.current && fitAddon.current) {
+            const isMobile = isMobileDevice.current;
+            
+            // On mobile, use fit to calculate rows, then force cols to 120
+            // On desktop, use fit addon to calculate optimal dimensions
+            if (isMobile) {
+              try {
+                fitAddon.current.fit();
+                const fittedRows = terminal.current.rows;
+                terminal.current.resize(100, fittedRows);
+              } catch (error) {
+                console.error('[Shell] Error resizing terminal:', error);
+                terminal.current.resize(100, 40);
+              }
+            } else {
+              fitAddon.current.fit();
+            }
+            
+            setTimeout(() => {
+              const cols = terminal.current.cols;
+              const rows = terminal.current.rows;
 
-            // Determine provider: use session's provider, or fall back to localStorage, or default to 'claude'
-            const provider = isPlainShellRef.current 
-              ? 'plain-shell' 
-              : (selectedSessionRef.current?.__provider || localStorage.getItem('selected-provider') || 'claude');
+              const provider = isPlainShellRef.current 
+                ? 'plain-shell' 
+                : (selectedSessionRef.current?.__provider || localStorage.getItem('selected-provider') || 'claude');
 
-            console.log('[Shell] Sending init with provider:', provider, {
-              sessionProvider: selectedSessionRef.current?.__provider,
-              localStorageProvider: localStorage.getItem('selected-provider'),
-              sessionId: selectedSessionRef.current?.id
-            });
+              console.log('[Shell] Sending init:', cols, 'x', rows, 'provider:', provider);
 
-            ws.current.send(JSON.stringify({
-              type: 'init',
-              projectPath: selectedProjectRef.current.fullPath || selectedProjectRef.current.path,
-              sessionId: isPlainShellRef.current ? null : selectedSessionRef.current?.id,
-              hasSession: isPlainShellRef.current ? false : !!selectedSessionRef.current,
-              provider: provider,
-              cols: terminal.current.cols,
-              rows: terminal.current.rows,
-              initialCommand: initialCommandRef.current,
-              isPlainShell: isPlainShellRef.current
-            }));
+              ws.current.send(JSON.stringify({
+                type: 'init',
+                projectPath: selectedProjectRef.current.fullPath || selectedProjectRef.current.path,
+                sessionId: isPlainShellRef.current ? null : selectedSessionRef.current?.id,
+                hasSession: isPlainShellRef.current ? false : !!selectedSessionRef.current,
+                provider: provider,
+                cols: cols,
+                rows: rows,
+                initialCommand: initialCommandRef.current,
+                isPlainShell: isPlainShellRef.current
+              }));
+            }, 50);
           }
         }, 100);
       };
@@ -231,20 +259,26 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
       return;
     }
 
-    console.log('[Shell] Terminal initializing, mounting component');
+    const isMobile = isMobileDevice.current;
+    const scrollbackSize = isMobile ? 2000 : 10000;
 
     terminal.current = new Terminal({
       cursorBlink: true,
-      fontSize: 14,
+      fontSize: isMobile ? 11 : 14,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       allowProposedApi: true,
       allowTransparency: false,
       convertEol: true,
-      scrollback: 10000,
+      scrollback: scrollbackSize,
       tabStopWidth: 4,
       windowsMode: false,
       macOptionIsMeta: true,
       macOptionClickForcesSelection: false,
+      smoothScrollDuration: isMobile ? 0 : undefined,
+      fastScrollModifier: isMobile ? undefined : 'alt',
+      fastScrollSensitivity: isMobile ? 1 : 5,
+      // Mobile: 100 cols (enough for code, minimal horizontal scroll)
+      cols: isMobile ? 100 : undefined,
       theme: {
         background: '#1e1e1e',
         foreground: '#d4d4d4',
@@ -276,22 +310,39 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
         ]
       }
     });
-
+    
     fitAddon.current = new FitAddon();
-    const webglAddon = new WebglAddon();
     const webLinksAddon = new WebLinksAddon();
 
     terminal.current.loadAddon(fitAddon.current);
     terminal.current.loadAddon(webLinksAddon);
-    // Note: ClipboardAddon removed - we handle clipboard operations manually in attachCustomKeyEventHandler
 
-    try {
-      terminal.current.loadAddon(webglAddon);
-    } catch (error) {
-      console.warn('[Shell] WebGL renderer unavailable, using Canvas fallback');
+    // Only use WebGL on desktop for better performance
+    if (!isMobile) {
+      try {
+        const webglAddon = new WebglAddon();
+        terminal.current.loadAddon(webglAddon);
+      } catch (error) {
+        console.warn('[Shell] WebGL unavailable, using Canvas fallback');
+      }
     }
-
-    terminal.current.open(terminalRef.current);
+    
+    try {
+      terminal.current.open(terminalRef.current);
+      
+      // Initial fit for desktop
+      setTimeout(() => {
+        if (fitAddon.current && !isMobile) {
+          try {
+            fitAddon.current.fit();
+          } catch (fitError) {
+            console.error('[Shell] Error fitting terminal:', fitError);
+          }
+        }
+      }, 150);
+    } catch (error) {
+      console.error('[Shell] Error opening terminal:', error);
+    }
 
     terminal.current.attachCustomKeyEventHandler((event) => {
       if ((event.ctrlKey || event.metaKey) && event.key === 'c' && terminal.current.hasSelection()) {
@@ -314,20 +365,26 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
       return true;
     });
 
+    // Desktop resize handling
     setTimeout(() => {
-      if (fitAddon.current) {
-        fitAddon.current.fit();
-        if (terminal.current && ws.current && ws.current.readyState === WebSocket.OPEN) {
-          ws.current.send(JSON.stringify({
-            type: 'resize',
-            cols: terminal.current.cols,
-            rows: terminal.current.rows
-          }));
+      if (fitAddon.current && !isMobile) {
+        try {
+          fitAddon.current.fit();
+          if (terminal.current && ws.current && ws.current.readyState === WebSocket.OPEN) {
+            ws.current.send(JSON.stringify({
+              type: 'resize',
+              cols: terminal.current.cols,
+              rows: terminal.current.rows
+            }));
+          }
+        } catch (error) {
+          console.error('[Shell] Error in resize:', error);
         }
       }
     }, 100);
 
     setIsInitialized(true);
+    
     terminal.current.onData((data) => {
       if (ws.current && ws.current.readyState === WebSocket.OPEN) {
         ws.current.send(JSON.stringify({
@@ -337,16 +394,21 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
       }
     });
 
+    // ResizeObserver for desktop only
     const resizeObserver = new ResizeObserver(() => {
-      if (fitAddon.current && terminal.current) {
+      if (fitAddon.current && terminal.current && !isMobile) {
         setTimeout(() => {
-          fitAddon.current.fit();
-          if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-            ws.current.send(JSON.stringify({
-              type: 'resize',
-              cols: terminal.current.cols,
-              rows: terminal.current.rows
-            }));
+          try {
+            fitAddon.current.fit();
+            if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+              ws.current.send(JSON.stringify({
+                type: 'resize',
+                cols: terminal.current.cols,
+                rows: terminal.current.rows
+              }));
+            }
+          } catch (error) {
+            console.error('[Shell] ResizeObserver error:', error);
           }
         }, 50);
       }
@@ -357,7 +419,6 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     }
 
     return () => {
-      console.log('[Shell] Terminal cleanup, unmounting component');
       resizeObserver.disconnect();
 
       if (ws.current && (ws.current.readyState === WebSocket.OPEN || ws.current.readyState === WebSocket.CONNECTING)) {
@@ -394,12 +455,26 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   }
 
   if (minimal) {
+    const isMobile = isMobileDevice.current;
+    // Calculate terminal width: 100 cols * 6.6px per char (approximate for 11px font)
+    const terminalWidth = isMobile ? 100 * 6.6 : '100%';
+    
     return (
-      <div className="h-full w-full bg-gray-900">
-        <div ref={terminalRef} className="h-full w-full focus:outline-none" style={{ outline: 'none' }} />
+      <div className="h-full w-full bg-gray-900 overflow-auto relative">
+        <div 
+          ref={terminalRef} 
+          className="focus:outline-none absolute inset-0" 
+          style={{ 
+            outline: 'none',
+            width: typeof terminalWidth === 'number' ? `${terminalWidth}px` : '100%'
+          }} 
+        />
       </div>
     );
   }
+
+  const isMobile = isMobileDevice.current;
+  const terminalWidth = isMobile ? 100 * 6.6 : '100%';
 
   return (
     <div className="h-full flex flex-col bg-gray-900 w-full">
@@ -451,8 +526,16 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
         </div>
       </div>
 
-      <div className="flex-1 p-2 overflow-hidden relative">
-        <div ref={terminalRef} className="h-full w-full focus:outline-none" style={{ outline: 'none' }} />
+      <div className="flex-1 overflow-auto relative min-h-0" style={{ padding: '0.5rem' }}>
+        <div 
+          ref={terminalRef} 
+          className="focus:outline-none absolute inset-0" 
+          style={{ 
+            outline: 'none',
+            width: typeof terminalWidth === 'number' ? `${terminalWidth}px` : '100%',
+            margin: '0.5rem'
+          }} 
+        />
 
         {!isInitialized && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-90">

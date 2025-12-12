@@ -854,6 +854,9 @@ function handleShellConnection(ws) {
                 const provider = data.provider || 'claude';
                 const initialCommand = data.initialCommand;
                 const isPlainShell = data.isPlainShell || (!!initialCommand && !hasSession) || provider === 'plain-shell';
+                
+                // Log received dimensions from client
+                console.log('📐 Received dimensions from client:', data.cols, 'x', data.rows);
 
                 ptySessionKey = `${projectPath}_${sessionId || 'default'}`;
 
@@ -863,6 +866,12 @@ function handleShellConnection(ws) {
                     shellProcess = existingSession.pty;
 
                     clearTimeout(existingSession.timeoutId);
+                    
+                    // Resize PTY to match client dimensions on reconnect
+                    if (data.cols && data.rows && shellProcess && shellProcess.resize) {
+                        console.log('📐 Resizing PTY on reconnect:', data.cols, 'x', data.rows);
+                        shellProcess.resize(data.cols, data.rows);
+                    }
 
                     ws.send(JSON.stringify({
                         type: 'output',
@@ -975,7 +984,7 @@ function handleShellConnection(ws) {
                     // Use terminal dimensions from client if provided, otherwise use defaults
                     const termCols = data.cols || 80;
                     const termRows = data.rows || 24;
-                    console.log('📐 Using terminal dimensions:', termCols, 'x', termRows);
+                    console.log('📐 Using terminal dimensions:', termCols, 'x', termRows, data.cols ? '(from client)' : '(default fallback)');
 
                     shellProcess = pty.spawn(shell, shellArgs, {
                         name: 'xterm-256color',
@@ -1098,7 +1107,7 @@ function handleShellConnection(ws) {
             } else if (data.type === 'resize') {
                 // Handle terminal resize
                 if (shellProcess && shellProcess.resize) {
-                    console.log('Terminal resize requested:', data.cols, 'x', data.rows);
+                    console.log('📐 Terminal resize:', data.cols, 'x', data.rows);
                     shellProcess.resize(data.cols, data.rows);
                 }
             }
