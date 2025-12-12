@@ -181,6 +181,17 @@ The application will start at the port you specified in your .env
 5. **Open your browser:**
    - Development: `http://localhost:3001`
 
+#### PM2 Commands (Local Development)
+
+| Command | Description |
+|---------|-------------|
+| `npm run pm2:dev` | Start in development mode |
+| `npm run pm2:prod` | Start in production mode (auto build) |
+| `npm run pm2:stop` | Stop all processes |
+| `npm run pm2:restart` | Restart all processes |
+| `npm run pm2:logs` | View logs |
+| `npm run pm2:status` | View process status |
+
 ## Security & Tools Configuration
 
 **🔒 Important Notice**: All Claude Code tools are **disabled by default**. This prevents potentially harmful operations from running automatically.
