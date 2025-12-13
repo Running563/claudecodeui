@@ -15,6 +15,11 @@ const xtermStyles = `
   .xterm-screen:focus {
     outline: none !important;
   }
+  /* Mobile scroll optimization */
+  .xterm .xterm-viewport {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
 `;
 
 // Virtual keyboard for mobile devices
@@ -346,7 +351,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     }
 
     const isMobile = isMobileDevice.current;
-    const scrollbackSize = isMobile ? 2000 : 10000;
+    const scrollbackSize = isMobile ? 1000 : 10000;
 
     terminal.current = new Terminal({
       cursorBlink: true,
@@ -547,16 +552,16 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     
     return (
       <div className="h-full w-full bg-gray-900 flex flex-col">
-        <div className="flex-1 overflow-auto relative min-h-0">
-          <div 
-            ref={terminalRef} 
-            className="focus:outline-none absolute inset-0" 
-            style={{ 
-              outline: 'none',
-              width: typeof terminalWidth === 'number' ? `${terminalWidth}px` : '100%'
-            }} 
-          />
-        </div>
+        <div className={`flex-1 relative min-h-0 ${isMobile ? 'overflow-hidden' : 'overflow-auto'}`}>
+        <div 
+          ref={terminalRef} 
+          className="focus:outline-none absolute inset-0" 
+          style={{ 
+            outline: 'none',
+            width: typeof terminalWidth === 'number' ? `${terminalWidth}px` : '100%'
+          }} 
+        />
+      </div>
         {isMobile && (
           <VirtualKeyboard onKeyPress={handleVirtualKeyPress} onKeyPressWithEnter={handleVirtualKeyPressWithEnter} isConnected={isConnected} />
         )}
@@ -617,7 +622,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto relative min-h-0" style={{ padding: '0.5rem' }}>
+      <div className={`flex-1 relative min-h-0 ${isMobile ? 'overflow-hidden' : 'overflow-auto'}`} style={{ padding: '0.5rem' }}>
         <div 
           ref={terminalRef} 
           className="focus:outline-none absolute inset-0" 
