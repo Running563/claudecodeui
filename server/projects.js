@@ -1319,6 +1319,7 @@ async function deleteSession(projectName, sessionId) {
     const files = await fs.readdir(claudeProjectDir);
     const jsonlFiles = files.filter(file => file.endsWith('.jsonl'));
     
+    // Check ALL JSONL files - session data may be spread across multiple files
     for (const file of jsonlFiles) {
       const jsonlFile = path.join(claudeProjectDir, file);
       const content = await fs.readFile(jsonlFile, 'utf8');
@@ -1348,7 +1349,7 @@ async function deleteSession(projectName, sessionId) {
         // Write back the filtered content
         await fs.writeFile(jsonlFile, filteredLines.join('\n') + (filteredLines.length > 0 ? '\n' : ''));
         deleted = true;
-        break;
+        // Don't break - continue checking other files as session may span multiple files
       }
     }
   } catch (error) {

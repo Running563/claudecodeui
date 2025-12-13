@@ -222,12 +222,17 @@ function Sidebar({
   // Helper function to get all sessions for a project (initial + additional)
   const getAllSessions = (project) => {
     // Combine Claude, CodeBuddy and Cursor sessions; Sidebar will display icon per row
-    const claudeSessions = [...(project.sessions || []), ...(additionalSessions[project.name] || [])].map(s => ({ ...s, __provider: 'claude' }));
+    // Initial sessions from getProjects API (need to add __provider)
+    const claudeSessions = (project.sessions || []).map(s => ({ ...s, __provider: 'claude' }));
     const codebuddySessions = (project.codebuddySessions || []).map(s => ({ ...s, __provider: 'codebuddy' }));
     const cursorSessions = (project.cursorSessions || []).map(s => ({ ...s, __provider: 'cursor' }));
+    
+    // Additional sessions from loadMoreSessions API already have __provider set
+    const additionalSessionsList = additionalSessions[project.name] || [];
+    
     // Sort by most recent activity/date
     const normalizeDate = (s) => new Date(s.__provider === 'cursor' || s.__provider === 'codebuddy' ? s.createdAt || s.lastActivity : s.lastActivity);
-    return [...claudeSessions, ...codebuddySessions, ...cursorSessions].sort((a, b) => normalizeDate(b) - normalizeDate(a));
+    return [...claudeSessions, ...codebuddySessions, ...cursorSessions, ...additionalSessionsList].sort((a, b) => normalizeDate(b) - normalizeDate(a));
   };
 
   // Helper function to get the last activity date for a project
