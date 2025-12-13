@@ -1367,6 +1367,19 @@ async function deleteSession(projectName, sessionId) {
       await fs.access(sessionFile);
       await fs.unlink(sessionFile);
       deleted = true;
+      
+      // Also remove from session-titles.json
+      const titlesFile = path.join(codebuddyProjectDir, 'session-titles.json');
+      try {
+        const titlesContent = await fs.readFile(titlesFile, 'utf8');
+        const titles = JSON.parse(titlesContent);
+        if (titles[sessionId]) {
+          delete titles[sessionId];
+          await fs.writeFile(titlesFile, JSON.stringify(titles, null, 2));
+        }
+      } catch (e) {
+        // Ignore if titles file doesn't exist or is invalid
+      }
     } catch (error) {
       if (error.code !== 'ENOENT') {
         console.warn(`Error checking CodeBuddy sessions:`, error.message);
