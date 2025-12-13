@@ -16,6 +16,30 @@ export default defineConfig(({ command, mode }) => {
   
   return {
     plugins: [react()],
+    optimizeDeps: {
+      // 强制预打包 react-syntax-highlighter 相关依赖，避免开发时加载大量小文件
+      include: [
+        'react-syntax-highlighter/dist/esm/prism-light',
+        'react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus',
+        'react-syntax-highlighter/dist/esm/languages/prism/javascript',
+        'react-syntax-highlighter/dist/esm/languages/prism/typescript',
+        'react-syntax-highlighter/dist/esm/languages/prism/jsx',
+        'react-syntax-highlighter/dist/esm/languages/prism/tsx',
+        'react-syntax-highlighter/dist/esm/languages/prism/css',
+        'react-syntax-highlighter/dist/esm/languages/prism/json',
+        'react-syntax-highlighter/dist/esm/languages/prism/python',
+        'react-syntax-highlighter/dist/esm/languages/prism/bash',
+        'react-syntax-highlighter/dist/esm/languages/prism/markdown',
+        'react-syntax-highlighter/dist/esm/languages/prism/yaml',
+        'react-syntax-highlighter/dist/esm/languages/prism/sql',
+        'react-syntax-highlighter/dist/esm/languages/prism/java',
+        'react-syntax-highlighter/dist/esm/languages/prism/c',
+        'react-syntax-highlighter/dist/esm/languages/prism/cpp',
+        'react-syntax-highlighter/dist/esm/languages/prism/go',
+        'react-syntax-highlighter/dist/esm/languages/prism/rust',
+        'react-syntax-highlighter/dist/esm/languages/prism/diff',
+      ],
+    },
     server: {
       host: true,  // 监听所有网络接口，允许通过 IP 或域名访问
       allowedHosts: ['localhost', 'waderli-mb1.local'],
