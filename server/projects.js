@@ -762,6 +762,16 @@ async function getSessionsFromDir(projectName, limit = 5, offset = 0, projectsBa
     if (isCodeBuddy) {
       const sessions = [];
       
+      // Load session titles from separate JSON file
+      let sessionTitles = {};
+      const titlesFile = path.join(projectDir, 'session-titles.json');
+      try {
+        const titlesContent = await fs.readFile(titlesFile, 'utf8');
+        sessionTitles = JSON.parse(titlesContent);
+      } catch (e) {
+        // File doesn't exist or is invalid, continue without cached titles
+      }
+      
       for (const { file, mtime } of filesWithStats) {
         const sessionId = file.replace('.jsonl', '');
         const jsonlFile = path.join(projectDir, file);
@@ -772,6 +782,11 @@ async function getSessionsFromDir(projectName, limit = 5, offset = 0, projectsBa
         let lastUserMessage = null;
         let lastAssistantMessage = null;
         let cwd = '';
+        
+        // Priority 1: Check for title in session-titles.json
+        if (sessionTitles[sessionId]) {
+          summary = sessionTitles[sessionId];
+        }
         
         try {
           const fileStream = fsSync.createReadStream(jsonlFile);
@@ -788,11 +803,6 @@ async function getSessionsFromDir(projectName, limit = 5, offset = 0, projectsBa
                 
                 if (entry.cwd) {
                   cwd = entry.cwd;
-                }
-                
-                // Priority 1: Check for explicit summary entry (like Claude)
-                if (entry.type === 'summary' && entry.summary) {
-                  summary = entry.summary;
                 }
                 
                 // Priority 2: Track first user message (for fallback)
@@ -835,7 +845,7 @@ async function getSessionsFromDir(projectName, limit = 5, offset = 0, projectsBa
           console.warn(`Error reading CodeBuddy session ${sessionId}:`, readError.message);
         }
         
-        // Apply Claude's three-tier fallback logic for summary
+        // Apply fallback logic for summary (only if not already set from session-titles.json)
         if (summary === 'New Session') {
           // Prefer last user message, fall back to last assistant message
           const lastMessage = lastUserMessage || lastAssistantMessage;

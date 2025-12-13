@@ -223,26 +223,34 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                 title: cleanTitle
               }));
               
-              // Persist title to JSONL file for durability across refreshes
-              // CodeBuddy stores sessions in ~/.codebuddy/projects/<encoded-path>/<session-id>.jsonl
-              // Project name is the absolute path with / replaced by - and leading - removed
+              // Persist title to a separate JSON file (not JSONL - CodeBuddy CLI doesn't recognize 'summary' type)
+              // Store in session-titles.json in the project directory
               if (currentSessionId && workingDir) {
-                // Convert workingDir to CodeBuddy project name format
-                // e.g., /data/codes/claudecodeui -> data-codes-claudecodeui
                 const projectName = workingDir.replace(/\//g, '-').replace(/^-/, '');
                 const codebuddyProjectDir = path.join(os.homedir(), '.codebuddy', 'projects', projectName);
-                const jsonlPath = path.join(codebuddyProjectDir, `${currentSessionId}.jsonl`);
-                const summaryEntry = JSON.stringify({
-                  type: 'summary',
-                  summary: cleanTitle,
-                  sessionId: currentSessionId,
-                  timestamp: new Date().toISOString()
-                }) + '\n';
+                const titlesFile = path.join(codebuddyProjectDir, 'session-titles.json');
                 
-                // Append summary entry to JSONL file
-                fs.appendFile(jsonlPath, summaryEntry).catch(err => {
-                  console.warn('⚠️  Failed to persist session title:', err.message);
-                });
+                // Use async IIFE since we're in a non-async callback
+                (async () => {
+                  try {
+                    // Read existing titles or create new object
+                    let titles = {};
+                    try {
+                      const content = await fs.readFile(titlesFile, 'utf8');
+                      titles = JSON.parse(content);
+                    } catch (e) {
+                      // File doesn't exist or is invalid, start fresh
+                    }
+                    
+                    // Update title for this session
+                    titles[currentSessionId] = cleanTitle;
+                    
+                    // Write back
+                    await fs.writeFile(titlesFile, JSON.stringify(titles, null, 2));
+                  } catch (err) {
+                    console.warn('⚠️  Failed to persist session title:', err.message);
+                  }
+                })();
               }
             }
             // Don't send as codebuddy-output if it's just a title update
