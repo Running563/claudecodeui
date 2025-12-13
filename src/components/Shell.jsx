@@ -18,7 +18,7 @@ const xtermStyles = `
 `;
 
 // Virtual keyboard for mobile devices
-const VirtualKeyboard = ({ onKeyPress, isConnected }) => {
+const VirtualKeyboard = ({ onKeyPress, onKeyPressWithEnter, isConnected }) => {
   const [pressedKey, setPressedKey] = useState(null);
 
   if (!isConnected) return null;
@@ -32,6 +32,8 @@ const VirtualKeyboard = ({ onKeyPress, isConnected }) => {
     { label: '←', key: '\x1b[D' },
     { label: '→', key: '\x1b[C' },
     { label: 'Enter', key: '\r' },
+    { label: '/clear', key: '/clear', withEnter: true },
+    { label: '/model', key: '/model', withEnter: true },
     { label: 'Ctrl+C', key: '\x03' },
     { label: 'Ctrl+D', key: '\x04' },
   ];
@@ -47,7 +49,11 @@ const VirtualKeyboard = ({ onKeyPress, isConnected }) => {
             onTouchEnd={(e) => {
               e.preventDefault();
               setPressedKey(null);
-              onKeyPress(k.key);
+              if (k.withEnter) {
+                onKeyPressWithEnter(k.key);
+              } else {
+                onKeyPress(k.key);
+              }
             }}
             onTouchCancel={() => setPressedKey(null)}
             className="vk-btn px-3 py-2 rounded text-xs font-medium select-none whitespace-nowrap focus:outline-none"
@@ -262,11 +268,28 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
         data: key
       }));
     }
-    // Focus terminal after key press
-    if (terminal.current) {
-      terminal.current.focus();
+    // On mobile, don't focus terminal to avoid triggering system keyboard
+    // The virtual keyboard handles input instead
+  }, []);
+
+  // Virtual keyboard key press with Enter (sends text, then Enter after 100ms)
+  const handleVirtualKeyPressWithEnter = useCallback((key) => {
+    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({
+        type: 'input',
+        data: key
+      }));
+      setTimeout(() => {
+        if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+          ws.current.send(JSON.stringify({
+            type: 'input',
+            data: '\r'
+          }));
+        }
+      }, 100);
     }
   }, []);
+
 
   const sessionDisplayName = useMemo(() => {
     if (!selectedSession) return null;
@@ -535,7 +558,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
           />
         </div>
         {isMobile && (
-          <VirtualKeyboard onKeyPress={handleVirtualKeyPress} isConnected={isConnected} />
+          <VirtualKeyboard onKeyPress={handleVirtualKeyPress} onKeyPressWithEnter={handleVirtualKeyPressWithEnter} isConnected={isConnected} />
         )}
       </div>
     );
@@ -655,7 +678,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
       </div>
 
       {isMobile && (
-        <VirtualKeyboard onKeyPress={handleVirtualKeyPress} isConnected={isConnected} />
+        <VirtualKeyboard onKeyPress={handleVirtualKeyPress} onKeyPressWithEnter={handleVirtualKeyPressWithEnter} isConnected={isConnected} />
       )}
     </div>
   );
