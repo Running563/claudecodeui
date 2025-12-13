@@ -677,12 +677,24 @@
     hyphens: auto;
   }
 
-  /* Force wrap long URLs and code */
-  .chat-message pre,
-  .chat-message code {
+  /* Force wrap long URLs and inline code (not code blocks) */
+  .chat-message code:not(pre code) {
     white-space: pre-wrap !important;
     word-break: break-all;
     overflow-wrap: break-word;
+  }
+
+  /* Code blocks: horizontal scroll instead of wrap */
+  .chat-message pre {
+    overflow-x: auto;
+    max-width: 100%;
+    padding: 3px 2px !important;
+  }
+
+  .chat-message pre code {
+    white-space: pre !important;
+    word-break: normal;
+    overflow-wrap: normal;
   }
 
   /* Prevent horizontal scroll in chat area */

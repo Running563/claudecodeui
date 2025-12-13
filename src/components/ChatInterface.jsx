@@ -22,6 +22,8 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { useDropzone } from 'react-dropzone';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import TodoList from './TodoList';
 import ClaudeLogo from './ClaudeLogo.jsx';
 import CursorLogo from './CursorLogo.jsx';
@@ -243,6 +245,8 @@ const markdownComponents = {
     const looksMultiline = /[\r\n]/.test(raw);
     const inlineDetected = inline || (node && node.type === 'inlineCode');
     const shouldInline = inlineDetected || !looksMultiline; // fallback to inline if single-line
+    
+    // Inline code
     if (shouldInline) {
       return (
         <code
@@ -255,6 +259,10 @@ const markdownComponents = {
         </code>
       );
     }
+    
+    // Extract language from className (format: language-xxx)
+    const match = /language-([\w-]+)/.exec(className || '');
+    const language = match ? match[1] : '';
     const textToCopy = raw;
 
     const handleCopy = () => {
@@ -291,11 +299,11 @@ const markdownComponents = {
     };
 
     return (
-      <div className="relative group my-2">
+      <div className="relative group">
         <button
           type="button"
           onClick={handleCopy}
-          className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 focus:opacity-100 active:opacity-100 transition-opacity text-xs px-2 py-1 rounded-md bg-gray-700/80 hover:bg-gray-700 text-white border border-gray-600"
+          className="absolute top-0.5 right-1 z-10 opacity-0 group-hover:opacity-100 focus:opacity-100 active:opacity-100 transition-opacity text-xs px-2 py-1 rounded-md bg-gray-700/80 hover:bg-gray-700 text-white border border-gray-600"
           title={copied ? 'Copied' : 'Copy code'}
           aria-label={copied ? 'Copied' : 'Copy code'}
         >
@@ -304,7 +312,6 @@ const markdownComponents = {
               <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
               </svg>
-              Copied
             </span>
           ) : (
             <span className="flex items-center gap-1">
@@ -312,15 +319,30 @@ const markdownComponents = {
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                 <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
               </svg>
-              Copy
             </span>
           )}
         </button>
-        <pre className="bg-gray-900 dark:bg-gray-900 border border-gray-700/40 rounded-lg p-3 overflow-x-auto">
-          <code className={`text-gray-100 dark:text-gray-100 text-sm font-mono ${className || ''}`} {...props}>
-            {children}
-          </code>
-        </pre>
+        {/* Syntax highlighted code */}
+        <SyntaxHighlighter
+          language={language}
+          style={vscDarkPlus}
+          wrapLongLines={false}
+          customStyle={{
+            margin: 0,
+            borderRadius: '0.5rem',
+            fontSize: '0.875rem',
+            padding: language && language !== 'text' ? '2rem 1rem 1rem 1rem' : '1rem',
+            overflowX: 'auto',
+          }}
+          codeTagProps={{
+            style: {
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+              whiteSpace: 'pre',
+            }
+          }}
+        >
+          {raw}
+        </SyntaxHighlighter>
       </div>
     );
   },
