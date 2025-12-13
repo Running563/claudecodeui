@@ -17,6 +17,55 @@ const xtermStyles = `
   }
 `;
 
+// Virtual keyboard for mobile devices
+const VirtualKeyboard = ({ onKeyPress, isConnected }) => {
+  const [pressedKey, setPressedKey] = useState(null);
+
+  if (!isConnected) return null;
+
+  const keys = [
+    { label: 'ESC', key: '\x1b' },
+    { label: 'Tab', key: '\t' },
+    { label: 'S+Tab', key: '\x1b[Z' },
+    { label: '↑', key: '\x1b[A' },
+    { label: '↓', key: '\x1b[B' },
+    { label: '←', key: '\x1b[D' },
+    { label: '→', key: '\x1b[C' },
+    { label: 'Enter', key: '\r' },
+    { label: 'Ctrl+C', key: '\x03' },
+    { label: 'Ctrl+D', key: '\x04' },
+  ];
+
+  return (
+    <div className="flex-shrink-0 bg-gray-800 border-t border-gray-700 px-2 py-2 overflow-x-auto">
+      <div className="flex gap-1.5 min-w-max">
+        {keys.map((k) => (
+          <button
+            key={k.label}
+            type="button"
+            onTouchStart={() => setPressedKey(k.label)}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              setPressedKey(null);
+              onKeyPress(k.key);
+            }}
+            onTouchCancel={() => setPressedKey(null)}
+            className="vk-btn px-3 py-2 rounded text-xs font-medium select-none whitespace-nowrap focus:outline-none"
+            style={{ 
+              minWidth: '40px',
+              WebkitTapHighlightColor: 'transparent',
+              backgroundColor: pressedKey === k.label ? '#4b5563' : '#374151',
+              color: '#fff',
+            }}
+          >
+            {k.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 if (typeof document !== 'undefined') {
   const styleSheet = document.createElement('style');
   styleSheet.type = 'text/css';
@@ -203,6 +252,20 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
     setIsConnected(false);
     setIsConnecting(false);
+  }, []);
+
+  // Virtual keyboard key press handler
+  const handleVirtualKeyPress = useCallback((key) => {
+    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({
+        type: 'input',
+        data: key
+      }));
+    }
+    // Focus terminal after key press
+    if (terminal.current) {
+      terminal.current.focus();
+    }
   }, []);
 
   const sessionDisplayName = useMemo(() => {
@@ -460,15 +523,20 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     const terminalWidth = isMobile ? 100 * 6.6 : '100%';
     
     return (
-      <div className="h-full w-full bg-gray-900 overflow-auto relative">
-        <div 
-          ref={terminalRef} 
-          className="focus:outline-none absolute inset-0" 
-          style={{ 
-            outline: 'none',
-            width: typeof terminalWidth === 'number' ? `${terminalWidth}px` : '100%'
-          }} 
-        />
+      <div className="h-full w-full bg-gray-900 flex flex-col">
+        <div className="flex-1 overflow-auto relative min-h-0">
+          <div 
+            ref={terminalRef} 
+            className="focus:outline-none absolute inset-0" 
+            style={{ 
+              outline: 'none',
+              width: typeof terminalWidth === 'number' ? `${terminalWidth}px` : '100%'
+            }} 
+          />
+        </div>
+        {isMobile && (
+          <VirtualKeyboard onKeyPress={handleVirtualKeyPress} isConnected={isConnected} />
+        )}
       </div>
     );
   }
@@ -585,6 +653,10 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
           </div>
         )}
       </div>
+
+      {isMobile && (
+        <VirtualKeyboard onKeyPress={handleVirtualKeyPress} isConnected={isConnected} />
+      )}
     </div>
   );
 }

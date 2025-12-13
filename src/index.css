@@ -613,7 +613,7 @@
     }
     
     /* Only disable hover states for interactive elements, not containers */
-    button:hover,
+    button:hover:not(.vk-btn),
     [role="button"]:hover,
     .cursor-pointer:hover,
     a:hover,
@@ -635,8 +635,9 @@
     
     /* Keep active states for immediate feedback */
     .active\:scale-\[0\.98\]:active,
-    .active\:scale-95:active {
-      transform: scale(0.98) !important;
+    .active\:scale-95:active,
+    .active\:scale-90:active {
+      transform: scale(0.9) !important;
     }
   }
   
