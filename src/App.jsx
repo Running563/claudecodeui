@@ -981,6 +981,7 @@ function AppContent() {
           autoScrollToBottom={autoScrollToBottom}
           sendByCtrlEnter={sendByCtrlEnter}
           externalMessageUpdate={externalMessageUpdate}
+          onToggleQuickSettings={() => setShowQuickSettings(prev => !prev)}
         />
       </div>
 

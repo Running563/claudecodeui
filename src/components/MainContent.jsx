@@ -58,7 +58,8 @@ function MainContent({
   showThinking,           // Show thinking/reasoning sections
   autoScrollToBottom,     // Auto-scroll to bottom when new messages arrive
   sendByCtrlEnter,        // Send by Ctrl+Enter mode for East Asian language input
-  externalMessageUpdate   // Trigger for external CLI updates to current session
+  externalMessageUpdate,  // Trigger for external CLI updates to current session
+  onToggleQuickSettings   // Toggle quick settings panel
 }) {
   const [editingFile, setEditingFile] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
@@ -494,6 +495,7 @@ function MainContent({
               sendByCtrlEnter={sendByCtrlEnter}
               externalMessageUpdate={externalMessageUpdate}
               onShowAllTasks={tasksEnabled ? () => setActiveTab('tasks') : null}
+              onToggleQuickSettings={onToggleQuickSettings}
             />
           </ErrorBoundary>
         </div>
