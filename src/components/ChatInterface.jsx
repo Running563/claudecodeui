@@ -3513,7 +3513,10 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           // Handle CodeBuddy raw terminal output; strip ANSI and ignore empty control-only payloads
           try {
             const cbraw = String(latestMessage.data ?? '');
-            const cbcleaned = cbraw.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim();
+            const cbcleaned = cbraw
+              .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '') // Remove CSI sequences
+              .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '') // Remove other control chars
+              .trim();
             if (cbcleaned) {
               streamBufferRef.current += (streamBufferRef.current ? `\n${cbcleaned}` : cbcleaned);
               if (!streamTimerRef.current) {

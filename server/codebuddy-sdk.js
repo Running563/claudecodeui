@@ -50,7 +50,9 @@ async function spawnCodeBuddy(command, options = {}, ws) {
 
     if (command && command.trim()) {
       // Provide a prompt (works for both new and resumed sessions)
-      args.push('-p', command);
+      // Sanitize command to prevent shell injection and newline issues
+      const sanitizedCommand = command.replace(/\n/g, ' ').replace(/\r/g, '');
+      args.push('-p', sanitizedCommand);
 
       // Add model flag if specified (only meaningful for new sessions; harmless on resume)
       if (!sessionId && model && model !== 'default') {
@@ -205,7 +207,50 @@ async function spawnCodeBuddy(command, options = {}, ws) {
               }));
           }
         } catch (parseError) {
-          // If not JSON, send as raw text
+          // If not JSON, check for OSC title sequence first
+          // OSC sequence format: ESC ] 0 ; title BEL (where ESC=\x1b=\u001b, BEL=\x07=\u0007)
+          const oscTitleMatch = line.match(/\u001b\]0;(.+?)\u0007/);
+          if (oscTitleMatch && oscTitleMatch[1]) {
+            // Extract title (remove status emoji prefix like ✳ ✓ ✗ ⏳)
+            const rawTitle = oscTitleMatch[1];
+            const cleanTitle = rawTitle.replace(/^[✳✓✗⏳]\s*/, '').trim();
+            if (cleanTitle) {
+              const currentSessionId = capturedSessionId || sessionId;
+              console.log('📝 OSC title detected:', cleanTitle);
+              ws.send(JSON.stringify({
+                type: 'session-title-update',
+                sessionId: currentSessionId,
+                title: cleanTitle
+              }));
+              
+              // Persist title to JSONL file for durability across refreshes
+              // CodeBuddy stores sessions in ~/.codebuddy/projects/<encoded-path>/<session-id>.jsonl
+              // Project name is the absolute path with / replaced by - and leading - removed
+              if (currentSessionId && workingDir) {
+                // Convert workingDir to CodeBuddy project name format
+                // e.g., /data/codes/claudecodeui -> data-codes-claudecodeui
+                const projectName = workingDir.replace(/\//g, '-').replace(/^-/, '');
+                const codebuddyProjectDir = path.join(os.homedir(), '.codebuddy', 'projects', projectName);
+                const jsonlPath = path.join(codebuddyProjectDir, `${currentSessionId}.jsonl`);
+                const summaryEntry = JSON.stringify({
+                  type: 'summary',
+                  summary: cleanTitle,
+                  sessionId: currentSessionId,
+                  timestamp: new Date().toISOString()
+                }) + '\n';
+                
+                // Append summary entry to JSONL file
+                fs.appendFile(jsonlPath, summaryEntry).catch(err => {
+                  console.warn('⚠️  Failed to persist session title:', err.message);
+                });
+              }
+            }
+            // Don't send as codebuddy-output if it's just a title update
+            if (line.trim() === oscTitleMatch[0]) {
+              continue;
+            }
+          }
+          // Send as raw text output
           ws.send(JSON.stringify({
             type: 'codebuddy-output',
             data: line

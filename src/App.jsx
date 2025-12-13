@@ -81,6 +81,9 @@ function AppContent() {
   // Format: Map<sessionId, {provider, timestamp}>
   const [recentlyCompletedSessions, setRecentlyCompletedSessions] = useState(new Map());
 
+  // Track last processed message index to avoid re-processing when useEffect re-runs
+  const lastProcessedMessageIndexRef = React.useRef(-1);
+
   const { ws, sendMessage, messages } = useWebSocketContext();
   
   // Detect if running as PWA
@@ -173,9 +176,101 @@ function AppContent() {
   // Handle WebSocket messages for real-time project updates
   useEffect(() => {
     if (messages.length > 0) {
-      const latestMessage = messages[messages.length - 1];
+      const latestMessageIndex = messages.length - 1;
+      
+      // Skip if we've already processed this message
+      if (latestMessageIndex <= lastProcessedMessageIndexRef.current) {
+        return;
+      }
+      
+      const latestMessage = messages[latestMessageIndex];
+      
+      // Handle session title update from CodeBuddy
+      if (latestMessage.type === 'session-title-update') {
+        // Mark as processed immediately to prevent re-processing
+        lastProcessedMessageIndexRef.current = latestMessageIndex;
+        
+        const newTitle = latestMessage.title;
+        const targetSessionId = latestMessage.sessionId;
+        
+        if (newTitle && targetSessionId) {
+          // Update selectedSession if it matches - only if title actually changed
+          if (selectedSession && selectedSession.id === targetSessionId) {
+            const currentTitle = selectedSession.__provider === 'codebuddy' || selectedSession.__provider === 'cursor' 
+              ? selectedSession.name 
+              : selectedSession.summary;
+            
+            // Only update if title is different to avoid triggering message reload
+            if (currentTitle !== newTitle) {
+              setSelectedSession(prev => {
+                if (!prev) return prev;
+                // Update name for codebuddy/cursor, summary for claude
+                if (prev.__provider === 'codebuddy' || prev.__provider === 'cursor') {
+                  return { ...prev, name: newTitle };
+                } else {
+                  return { ...prev, summary: newTitle };
+                }
+              });
+            }
+          }
+          
+          // Also update the session in projects list for sidebar display
+          // Only update if we actually find and modify a session to avoid unnecessary re-renders
+          setProjects(prevProjects => {
+            let hasChanges = false;
+            const updatedProjects = prevProjects.map(project => {
+              let projectChanged = false;
+              
+              // Check and update sessions (Claude)
+              const updatedSessions = project.sessions?.map(s => {
+                if (s.id === targetSessionId && s.summary !== newTitle) {
+                  projectChanged = true;
+                  return { ...s, summary: newTitle };
+                }
+                return s;
+              });
+              
+              // Check and update codebuddySessions
+              const updatedCodebuddySessions = project.codebuddySessions?.map(s => {
+                if (s.id === targetSessionId && s.name !== newTitle) {
+                  projectChanged = true;
+                  return { ...s, name: newTitle };
+                }
+                return s;
+              });
+              
+              // Check and update cursorSessions
+              const updatedCursorSessions = project.cursorSessions?.map(s => {
+                if (s.id === targetSessionId && s.name !== newTitle) {
+                  projectChanged = true;
+                  return { ...s, name: newTitle };
+                }
+                return s;
+              });
+              
+              if (projectChanged) {
+                hasChanges = true;
+                return {
+                  ...project,
+                  sessions: updatedSessions,
+                  codebuddySessions: updatedCodebuddySessions,
+                  cursorSessions: updatedCursorSessions,
+                };
+              }
+              return project;
+            });
+            
+            // Only return new array if something actually changed
+            return hasChanges ? updatedProjects : prevProjects;
+          });
+        }
+        return;
+      }
       
       if (latestMessage.type === 'projects_updated') {
+        // Mark as processed immediately to prevent re-processing
+        lastProcessedMessageIndexRef.current = latestMessageIndex;
+        
         // CRITICAL: Check for pending session (synchronous check via sessionStorage)
         // This catches the race condition where session-created has fired but React state hasn't updated yet
         const pendingSessionId = sessionStorage.getItem('pendingSessionId');
