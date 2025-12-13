@@ -94,6 +94,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   const [isRestarting, setIsRestarting] = useState(false);
   const [lastSessionId, setLastSessionId] = useState(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [userDisconnected, setUserDisconnected] = useState(false);
   
   // Track if device is mobile for terminal optimizations
   const isMobileDevice = useRef(window.innerWidth < 768);
@@ -246,12 +247,19 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
   const connectToShell = useCallback(() => {
     if (!isInitialized || isConnected || isConnecting) return;
+    setUserDisconnected(false);
     setIsConnecting(true);
     connectWebSocket();
   }, [isInitialized, isConnected, isConnecting, connectWebSocket]);
 
   const disconnectFromShell = useCallback(() => {
-    if (ws.current) {
+    setUserDisconnected(true);
+    
+    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+      // Send disconnect message to server to kill PTY and remove from cache
+      ws.current.send(JSON.stringify({
+        type: 'disconnect'
+      }));
       ws.current.close();
       ws.current = null;
     }
@@ -315,6 +323,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
   const restartShell = () => {
     setIsRestarting(true);
+    setUserDisconnected(false);
 
     if (ws.current) {
       ws.current.close();
@@ -353,7 +362,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     const isMobile = isMobileDevice.current;
     const scrollbackSize = isMobile ? 1000 : 10000;
 
-    terminal.current = new Terminal({
+    const terminalOptions = {
       cursorBlink: true,
       fontSize: isMobile ? 11 : 14,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
@@ -365,11 +374,6 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
       windowsMode: false,
       macOptionIsMeta: true,
       macOptionClickForcesSelection: false,
-      smoothScrollDuration: isMobile ? 0 : undefined,
-      fastScrollModifier: isMobile ? undefined : 'alt',
-      fastScrollSensitivity: isMobile ? 1 : 5,
-      // Mobile: 100 cols (enough for code, minimal horizontal scroll)
-      cols: isMobile ? 100 : undefined,
       theme: {
         background: '#1e1e1e',
         foreground: '#d4d4d4',
@@ -400,7 +404,19 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
           '#0000ff', '#ff00ff', '#00ffff', '#ffffff'
         ]
       }
-    });
+    };
+    
+    // Add mobile-specific options
+    if (isMobile) {
+      terminalOptions.smoothScrollDuration = 0;
+      terminalOptions.fastScrollSensitivity = 1;
+      terminalOptions.cols = 100;
+    } else {
+      terminalOptions.fastScrollModifier = 'alt';
+      terminalOptions.fastScrollSensitivity = 5;
+    }
+    
+    terminal.current = new Terminal(terminalOptions);
     
     fitAddon.current = new FitAddon();
     const webLinksAddon = new WebLinksAddon();
@@ -525,9 +541,9 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   }, [selectedProject?.path || selectedProject?.fullPath, isRestarting]);
 
   useEffect(() => {
-    if (!autoConnect || !isInitialized || isConnecting || isConnected) return;
+    if (!autoConnect || !isInitialized || isConnecting || isConnected || userDisconnected) return;
     connectToShell();
-  }, [autoConnect, isInitialized, isConnecting, isConnected, connectToShell]);
+  }, [autoConnect, isInitialized, isConnecting, isConnected, userDisconnected, connectToShell]);
 
   if (!selectedProject) {
     return (
@@ -644,7 +660,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
             <div className="text-center max-w-sm w-full">
               <button
                 onClick={connectToShell}
-                className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center space-x-2 text-base font-medium w-full sm:w-auto"
+                className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center space-x-2 text-base font-medium w-full sm:w-auto mx-auto"
                 title="Connect to shell"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

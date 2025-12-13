@@ -1110,6 +1110,23 @@ function handleShellConnection(ws) {
                     console.log('📐 Terminal resize:', data.cols, 'x', data.rows);
                     shellProcess.resize(data.cols, data.rows);
                 }
+            } else if (data.type === 'disconnect') {
+                // User explicitly requested disconnect - kill the PTY and remove from cache
+                console.log('🔌 User requested disconnect, killing PTY session:', ptySessionKey);
+                if (ptySessionKey) {
+                    const session = ptySessionsMap.get(ptySessionKey);
+                    if (session) {
+                        if (session.timeoutId) {
+                            clearTimeout(session.timeoutId);
+                        }
+                        if (session.pty && session.pty.kill) {
+                            session.pty.kill();
+                        }
+                        ptySessionsMap.delete(ptySessionKey);
+                        console.log('✅ PTY session killed and removed from cache:', ptySessionKey);
+                    }
+                }
+                shellProcess = null;
             }
         } catch (error) {
             console.error('[ERROR] Shell WebSocket error:', error.message);
