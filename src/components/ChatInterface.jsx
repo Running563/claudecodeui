@@ -451,32 +451,6 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
       ) : (
         /* Claude/Error/Tool messages on the left */
         <div className="w-full">
-          {!isGrouped && (
-            <div className="flex items-center space-x-3 mb-2">
-              {message.type === 'error' ? (
-                <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center text-white text-sm flex-shrink-0">
-                  !
-                </div>
-              ) : message.type === 'tool' ? (
-                <div className="w-8 h-8 bg-gray-600 dark:bg-gray-700 rounded-full flex items-center justify-center text-white text-sm flex-shrink-0">
-                  🔧
-                </div>
-              ) : (
-                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm flex-shrink-0 p-1">
-                  {(localStorage.getItem('selected-provider') || 'claude') === 'cursor' ? (
-                    <CursorLogo className="w-full h-full" />
-                  ) : (localStorage.getItem('selected-provider') || 'claude') === 'codebuddy' ? (
-                    <CodeBuddyLogo className="w-full h-full" />
-                  ) : (
-                    <ClaudeLogo className="w-full h-full" />
-                  )}
-                </div>
-              )}
-              <div className="text-sm font-medium text-gray-900 dark:text-white">
-                {message.type === 'error' ? 'Error' : message.type === 'tool' ? 'Tool' : ((localStorage.getItem('selected-provider') || 'claude') === 'cursor' ? 'Cursor' : (localStorage.getItem('selected-provider') || 'claude') === 'codebuddy' ? 'CodeBuddy' : 'Claude')}
-              </div>
-            </div>
-          )}
           
           <div className="w-full">
             
@@ -1686,6 +1660,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
   const [sessionMessages, setSessionMessages] = useState([]);
   const [isLoadingSessionMessages, setIsLoadingSessionMessages] = useState(false);
   const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
+  const isLoadingMoreMessagesRef = useRef(false); // Ref to immediately block duplicate scroll triggers
+  const pendingScrollRestoreRef = useRef(null); // Pending scroll position to restore after loading more messages
   const [messagesOffset, setMessagesOffset] = useState(0);
   const [hasMoreMessages, setHasMoreMessages] = useState(false);
   const [totalMessages, setTotalMessages] = useState(0);
@@ -2144,6 +2120,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     if (isInitialLoad) {
       setIsLoadingSessionMessages(true);
     } else {
+      // Only set state, ref is managed by handleScroll caller
       setIsLoadingMoreMessages(true);
     }
     
@@ -2176,6 +2153,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
       if (isInitialLoad) {
         setIsLoadingSessionMessages(false);
       } else {
+        // Reset both ref and state
+        isLoadingMoreMessagesRef.current = false;
         setIsLoadingMoreMessages(false);
       }
     }
@@ -2685,41 +2664,97 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     return scrollHeight - scrollTop - clientHeight < 50;
   }, []);
 
-  // Handle scroll events to detect when user manually scrolls up and load more messages
-  const handleScroll = useCallback(async () => {
-    if (scrollContainerRef.current) {
-      const container = scrollContainerRef.current;
-      const nearBottom = isNearBottom();
-      setIsUserScrolledUp(!nearBottom);
+  // Throttle ref to prevent rapid scroll loading (minimum 2 seconds between loads)
+  const lastScrollLoadTimeRef = useRef(0);
+  // Track pull-down gesture for loading more messages
+  const touchStartYRef = useRef(0);
+  const pullDownTriggeredRef = useRef(false);
+
+  // Load more messages when pull-down is triggered
+  const loadMoreMessagesOnPullDown = useCallback(async () => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    
+    const provider = localStorage.getItem('selected-provider') || 'claude';
+    
+    // Throttle: minimum 2 seconds between load requests
+    const now = Date.now();
+    if (now - lastScrollLoadTimeRef.current < 2000) {
+      return;
+    }
+    
+    // Use ref for immediate check to prevent duplicate triggers (state is async)
+    if (hasMoreMessages && !isLoadingMoreMessagesRef.current && selectedSession && selectedProject && provider !== 'cursor') {
+      // IMMEDIATELY set ref and timestamp to block any concurrent scroll events
+      isLoadingMoreMessagesRef.current = true;
+      lastScrollLoadTimeRef.current = now;
       
-      // Check if we should load more messages (scrolled near top)
-      const scrolledNearTop = container.scrollTop < 100;
-      const provider = localStorage.getItem('selected-provider') || 'claude';
+      // Save distance from bottom (this stays constant after prepending content)
+      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
       
-      if (scrolledNearTop && hasMoreMessages && !isLoadingMoreMessages && selectedSession && selectedProject && provider !== 'cursor') {
-        // Save current scroll position
-        const previousScrollHeight = container.scrollHeight;
-        const previousScrollTop = container.scrollTop;
-        
+      try {
         // Load more messages
         const moreMessages = await loadSessionMessages(selectedProject.name, selectedSession.id, true);
         
         if (moreMessages.length > 0) {
+          // Save scroll restore info to ref - will be used by useEffect after chatMessages updates
+          pendingScrollRestoreRef.current = {
+            distanceFromBottom
+          };
+          
           // Prepend new messages to the existing ones
           setSessionMessages(prev => [...moreMessages, ...prev]);
-          
-          // Restore scroll position after DOM update
-          setTimeout(() => {
-            if (scrollContainerRef.current) {
-              const newScrollHeight = scrollContainerRef.current.scrollHeight;
-              const scrollDiff = newScrollHeight - previousScrollHeight;
-              scrollContainerRef.current.scrollTop = previousScrollTop + scrollDiff;
-            }
-          }, 0);
         }
+      } catch (error) {
+        console.error('Error loading more messages:', error);
+        // Reset ref on error so user can retry
+        isLoadingMoreMessagesRef.current = false;
       }
     }
-  }, [isNearBottom, hasMoreMessages, isLoadingMoreMessages, selectedSession, selectedProject, loadSessionMessages]);
+  }, [hasMoreMessages, selectedSession, selectedProject, loadSessionMessages]);
+
+  // Handle scroll events to detect when user manually scrolls up and load more messages
+  const handleScroll = useCallback(() => {
+    if (scrollContainerRef.current) {
+      const nearBottom = isNearBottom();
+      setIsUserScrolledUp(!nearBottom);
+    }
+  }, [isNearBottom]);
+
+  // Handle touch start - record initial Y position
+  const handleTouchStart = useCallback((e) => {
+    touchStartYRef.current = e.touches[0].clientY;
+    pullDownTriggeredRef.current = false;
+  }, []);
+
+  // Handle touch move - detect pull-down gesture at top
+  const handleTouchMove = useCallback((e) => {
+    if (!scrollContainerRef.current || pullDownTriggeredRef.current) return;
+    
+    const container = scrollContainerRef.current;
+    const atTop = container.scrollTop === 0;
+    const touchY = e.touches[0].clientY;
+    const pullDistance = touchY - touchStartYRef.current;
+    
+    // Trigger load when: at top + pulling down more than 50px
+    if (atTop && pullDistance > 50) {
+      pullDownTriggeredRef.current = true;
+      loadMoreMessagesOnPullDown();
+    }
+  }, [loadMoreMessagesOnPullDown]);
+
+  // Handle wheel event for desktop - detect scroll up at top
+  const handleWheel = useCallback((e) => {
+    if (!scrollContainerRef.current) return;
+    
+    const container = scrollContainerRef.current;
+    const atTop = container.scrollTop === 0;
+    
+    // Trigger load when: at top + scrolling up (negative deltaY)
+    if (atTop && e.deltaY < -30) {
+      loadMoreMessagesOnPullDown();
+    }
+  }, [loadMoreMessagesOnPullDown]);
 
   useEffect(() => {
     // Load session messages when session changes
@@ -2866,6 +2901,21 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
   useEffect(() => {
     if (sessionMessages.length > 0) {
       setChatMessages(convertedMessages);
+      
+      // Restore scroll position after loading more messages (maintain distance from bottom)
+      if (pendingScrollRestoreRef.current && scrollContainerRef.current) {
+        const { distanceFromBottom } = pendingScrollRestoreRef.current;
+        // Use requestAnimationFrame to ensure DOM has updated
+        requestAnimationFrame(() => {
+          if (scrollContainerRef.current) {
+            const newScrollHeight = scrollContainerRef.current.scrollHeight;
+            const clientHeight = scrollContainerRef.current.clientHeight;
+            // Restore: scrollTop = scrollHeight - clientHeight - distanceFromBottom
+            scrollContainerRef.current.scrollTop = newScrollHeight - clientHeight - distanceFromBottom;
+          }
+          pendingScrollRestoreRef.current = null;
+        });
+      }
     }
   }, [convertedMessages, sessionMessages]);
 
@@ -3853,9 +3903,19 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     const scrollContainer = scrollContainerRef.current;
     if (scrollContainer) {
       scrollContainer.addEventListener('scroll', handleScroll);
-      return () => scrollContainer.removeEventListener('scroll', handleScroll);
+      // Touch events for mobile pull-down gesture
+      scrollContainer.addEventListener('touchstart', handleTouchStart, { passive: true });
+      scrollContainer.addEventListener('touchmove', handleTouchMove, { passive: true });
+      // Wheel event for desktop scroll-up gesture
+      scrollContainer.addEventListener('wheel', handleWheel, { passive: true });
+      return () => {
+        scrollContainer.removeEventListener('scroll', handleScroll);
+        scrollContainer.removeEventListener('touchstart', handleTouchStart);
+        scrollContainer.removeEventListener('touchmove', handleTouchMove);
+        scrollContainer.removeEventListener('wheel', handleWheel);
+      };
     }
-  }, [handleScroll]);
+  }, [handleScroll, handleTouchStart, handleTouchMove, handleWheel]);
 
   // Initial textarea setup - set to 2 rows height
   useEffect(() => {
