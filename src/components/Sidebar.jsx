@@ -410,8 +410,10 @@ function Sidebar({
   };
 
   const loadMoreSessions = async (project) => {
-    // Check if we can load more sessions
-    const canLoadMore = project.sessionMeta?.hasMore !== false;
+    // Check if we can load more sessions (either Claude or CodeBuddy)
+    const canLoadMoreClaude = project.sessionMeta?.hasMore !== false;
+    const canLoadMoreCodeBuddy = project.codebuddySessionMeta?.hasMore !== false;
+    const canLoadMore = canLoadMoreClaude || canLoadMoreCodeBuddy;
     
     if (!canLoadMore || loadingSessions[project.name]) {
       return;
@@ -420,8 +422,14 @@ function Sidebar({
     setLoadingSessions(prev => ({ ...prev, [project.name]: true }));
 
     try {
-      const currentSessionCount = (project.sessions?.length || 0) + (additionalSessions[project.name]?.length || 0);
-      const response = await api.sessions(project.name, 5, currentSessionCount);
+      // Calculate offset based on all loaded sessions
+      const claudeSessionCount = (project.sessions?.length || 0) + (additionalSessions[project.name]?.length || 0);
+      const codebuddySessionCount = project.codebuddySessions?.length || 0;
+      
+      // Load more from the provider that has more sessions
+      // For now, use the combined offset approach - the API will return sessions from the appropriate provider
+      const currentSessionCount = claudeSessionCount + codebuddySessionCount;
+      const response = await api.sessions(project.name, 10, currentSessionCount);
       
       if (response.ok) {
         const result = await response.json();
@@ -439,6 +447,7 @@ function Sidebar({
         if (result.hasMore === false) {
           // Mark that there are no more sessions to load
           project.sessionMeta = { ...project.sessionMeta, hasMore: false };
+          project.codebuddySessionMeta = { ...project.codebuddySessionMeta, hasMore: false };
         }
       }
     } catch (error) {
@@ -768,7 +777,7 @@ function Sidebar({
                                   <p className="text-xs text-muted-foreground">
                                     {(() => {
                                       const sessionCount = getAllSessions(project).length;
-                                      const hasMore = project.sessionMeta?.hasMore !== false;
+                                      const hasMore = project.sessionMeta?.hasMore !== false || project.codebuddySessionMeta?.hasMore !== false;
                                       const count = hasMore && sessionCount >= 5 ? `${sessionCount}+` : sessionCount;
                                       return `${count} session${count === 1 ? '' : 's'}`;
                                     })()}
@@ -914,7 +923,7 @@ function Sidebar({
                               <div className="text-xs text-muted-foreground">
                                 {(() => {
                                   const sessionCount = getAllSessions(project).length;
-                                  const hasMore = project.sessionMeta?.hasMore !== false;
+                                  const hasMore = project.sessionMeta?.hasMore !== false || project.codebuddySessionMeta?.hasMore !== false;
                                   return hasMore && sessionCount >= 5 ? `${sessionCount}+` : sessionCount;
                                 })()}
                                 {project.fullPath !== project.displayName && (
@@ -1262,7 +1271,7 @@ function Sidebar({
                       )}
 
                       {/* Show More Sessions Button */}
-                      {getAllSessions(project).length > 0 && project.sessionMeta?.hasMore !== false && (
+                      {getAllSessions(project).length > 0 && (project.sessionMeta?.hasMore !== false || project.codebuddySessionMeta?.hasMore !== false) && (
                         <Button
                           variant="ghost"
                           size="sm"

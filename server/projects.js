@@ -700,7 +700,7 @@ async function getSessions(projectName, limit = 5, offset = 0, projectsBaseDir =
     return getSessionsFromDir(projectName, limit, offset, projectsBaseDir);
   }
   
-  // Otherwise, try to find the project in both Claude and CodeBuddy directories
+  // Otherwise, merge sessions from both Claude and CodeBuddy directories
   // Claude and CodeBuddy use different naming conventions:
   // Claude: -Users-waderli-tools-xxx (with leading -)
   // CodeBuddy: Users-waderli-tools-xxx (without leading -)
@@ -711,25 +711,44 @@ async function getSessions(projectName, limit = 5, offset = 0, projectsBaseDir =
   const claudeDir = path.join(process.env.HOME, '.claude', 'projects');
   const codebuddyDir = path.join(process.env.HOME, '.codebuddy', 'projects');
   
-  // Try Claude directory first
+  // Fetch ALL sessions from both providers (without pagination) to merge and sort
+  let claudeSessions = [];
+  let codebuddySessions = [];
+  
+  // Get Claude sessions
   try {
-    const claudeResult = await getSessionsFromDir(claudeProjectName, limit, offset, claudeDir);
-    if (claudeResult.sessions.length > 0 || claudeResult.total > 0) {
-      return claudeResult;
-    }
+    const claudeResult = await getSessionsFromDir(claudeProjectName, 1000, 0, claudeDir);
+    claudeSessions = (claudeResult.sessions || []).map(s => ({ ...s, __provider: 'claude' }));
   } catch (e) {
     // Claude directory doesn't have this project
   }
   
-  // Try CodeBuddy directory
+  // Get CodeBuddy sessions
   try {
-    const codebuddyResult = await getSessionsFromDir(codebuddyProjectName, limit, offset, codebuddyDir);
-    return codebuddyResult;
+    const codebuddyResult = await getSessionsFromDir(codebuddyProjectName, 1000, 0, codebuddyDir);
+    codebuddySessions = (codebuddyResult.sessions || []).map(s => ({ ...s, __provider: 'codebuddy' }));
   } catch (e) {
-    // CodeBuddy directory doesn't have this project either
+    // CodeBuddy directory doesn't have this project
   }
   
-  return { sessions: [], hasMore: false, total: 0 };
+  // Merge and sort by lastActivity (newest first)
+  const allSessions = [...claudeSessions, ...codebuddySessions].sort((a, b) => {
+    const dateA = new Date(a.lastActivity || a.createdAt || 0);
+    const dateB = new Date(b.lastActivity || b.createdAt || 0);
+    return dateB - dateA;
+  });
+  
+  const total = allSessions.length;
+  const paginatedSessions = allSessions.slice(offset, offset + limit);
+  const hasMore = offset + limit < total;
+  
+  return {
+    sessions: paginatedSessions,
+    hasMore,
+    total,
+    offset,
+    limit
+  };
 }
 
 async function getSessionsFromDir(projectName, limit = 5, offset = 0, projectsBaseDir) {
