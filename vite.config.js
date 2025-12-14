@@ -42,7 +42,7 @@ export default defineConfig(({ command, mode }) => {
     },
     server: {
       host: true,  // 监听所有网络接口，允许通过 IP 或域名访问
-      allowedHosts: ['localhost', 'waderli-mb1.local'],
+      allowedHosts: ['localhost', 'waderli-mb1.local', 'dev.piecenote.cn'],
       port: parseInt(env.VITE_PORT) || 5173,
       https: httpsConfig,
       proxy: {
