@@ -4232,7 +4232,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           sessionId: effectiveSessionId, // null for new sessions
           resume: !!effectiveSessionId,
           model: codebuddyModel,
-          toolsSettings: toolsSettings
+          toolsSettings: toolsSettings,
+          permissionMode: permissionMode
         }
       });
     } else {

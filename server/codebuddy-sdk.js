@@ -20,7 +20,7 @@ let activeCodeBuddyProcesses = new Map(); // Track active processes by session I
  */
 async function spawnCodeBuddy(command, options = {}, ws) {
   return new Promise(async (resolve, reject) => {
-    const { sessionId, projectPath, cwd, resume, toolsSettings, skipPermissions, model, images } = options;
+    const { sessionId, projectPath, cwd, resume, toolsSettings, skipPermissions, model, images, permissionMode } = options;
     let capturedSessionId = sessionId; // Track session ID throughout the process
     let sessionCreatedSent = false; // Track if we've already sent session-created event
     let messageBuffer = ''; // Buffer for accumulating assistant messages
@@ -63,10 +63,16 @@ async function spawnCodeBuddy(command, options = {}, ws) {
       args.push('--output-format', 'stream-json');
     }
     
-    // Add skip permissions flag if enabled
+    // Add skip permissions flag if enabled (legacy support)
     if (skipPermissions || settings.skipPermissions) {
-      args.push('-f');
-      console.log('⚠️  Using -f flag (skip permissions)');
+      args.push('-y');
+      console.log('⚠️  Using -y flag (dangerously-skip-permissions)');
+    }
+    
+    // Add permission mode if specified and not default
+    if (permissionMode && permissionMode !== 'default') {
+      args.push('--permission-mode', permissionMode);
+      console.log('🔐 Permission mode:', permissionMode);
     }
     
     // Use cwd (actual project directory) instead of projectPath
