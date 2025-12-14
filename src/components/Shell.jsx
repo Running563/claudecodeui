@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo, useImperativeHandle, forwardRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -19,8 +19,358 @@ const xtermStyles = `
   .xterm .xterm-viewport {
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
+    scroll-behavior: auto !important;
+  }
+  /* Improve mobile touch scrolling */
+  @media (max-width: 767px) {
+    .xterm .xterm-viewport {
+      overflow-y: auto !important;
+      touch-action: pan-y !important;
+    }
+    .xterm .xterm-screen {
+      touch-action: pan-y !important;
+    }
+    /* Hide native scrollbar on mobile */
+    .shell-scroll-container::-webkit-scrollbar {
+      display: none;
+    }
+    .shell-scroll-container {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
   }
 `;
+
+// Vertical scrollbar for mobile terminal (controls xterm viewport)
+const VerticalScrollBar = ({ viewportElement, topOffset = 0, bottomOffset = 108 }) => {
+  const [scrollTop, setScrollTop] = useState(0);
+  const [maxScroll, setMaxScroll] = useState(0);
+  const [clientHeight, setClientHeight] = useState(0);
+  const [scrollHeight, setScrollHeight] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const trackRef = useRef(null);
+  const dragStartRef = useRef({ y: 0, scrollTop: 0 });
+  
+  useEffect(() => {
+    if (!viewportElement) return;
+    
+    const updateDimensions = () => {
+      const max = viewportElement.scrollHeight - viewportElement.clientHeight;
+      setMaxScroll(max > 0 ? max : 0);
+      setClientHeight(viewportElement.clientHeight);
+      setScrollHeight(viewportElement.scrollHeight);
+    };
+    
+    updateDimensions();
+    
+    const handleScroll = () => {
+      setScrollTop(viewportElement.scrollTop);
+    };
+    
+    viewportElement.addEventListener('scroll', handleScroll);
+    
+    // Use MutationObserver to detect content changes
+    const mutationObserver = new MutationObserver(updateDimensions);
+    mutationObserver.observe(viewportElement, { childList: true, subtree: true, characterData: true });
+    
+    // Also update periodically for terminal output
+    const interval = setInterval(updateDimensions, 500);
+    
+    return () => {
+      viewportElement.removeEventListener('scroll', handleScroll);
+      mutationObserver.disconnect();
+      clearInterval(interval);
+    };
+  }, [viewportElement]);
+
+  // Calculate thumb height and position
+  const thumbHeight = scrollHeight > 0 ? Math.max((clientHeight / scrollHeight) * 100, 8) : 100;
+  const thumbPosition = maxScroll > 0 ? (scrollTop / maxScroll) * (100 - thumbHeight) : 0;
+
+  const handleTrackClick = (e) => {
+    if (!trackRef.current || !viewportElement) return;
+    
+    const track = trackRef.current;
+    const rect = track.getBoundingClientRect();
+    const clickPosition = (e.clientY - rect.top) / rect.height;
+    const newScrollTop = clickPosition * maxScroll;
+    
+    viewportElement.scrollTo({
+      top: newScrollTop,
+      behavior: 'smooth'
+    });
+  };
+
+  const handleThumbMouseDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+    dragStartRef.current = {
+      y: e.clientY,
+      scrollTop: viewportElement?.scrollTop || 0
+    };
+  };
+
+  const handleThumbTouchStart = (e) => {
+    e.stopPropagation();
+    setIsDragging(true);
+    const touch = e.touches[0];
+    dragStartRef.current = {
+      y: touch.clientY,
+      scrollTop: viewportElement?.scrollTop || 0
+    };
+  };
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e) => {
+      if (!trackRef.current || !viewportElement) return;
+      
+      const trackHeight = trackRef.current.getBoundingClientRect().height;
+      const deltaY = e.clientY - dragStartRef.current.y;
+      const scrollDelta = (deltaY / trackHeight) * scrollHeight;
+      
+      viewportElement.scrollTop = dragStartRef.current.scrollTop + scrollDelta;
+    };
+
+    const handleTouchMove = (e) => {
+      if (!trackRef.current || !viewportElement) return;
+      
+      const touch = e.touches[0];
+      const trackHeight = trackRef.current.getBoundingClientRect().height;
+      const deltaY = touch.clientY - dragStartRef.current.y;
+      const scrollDelta = (deltaY / trackHeight) * scrollHeight;
+      
+      viewportElement.scrollTop = dragStartRef.current.scrollTop + scrollDelta;
+    };
+
+    const handleMouseUp = () => setIsDragging(false);
+    const handleTouchEnd = () => setIsDragging(false);
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('touchmove', handleTouchMove, { passive: true });
+    document.addEventListener('touchend', handleTouchEnd);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [isDragging, scrollHeight, viewportElement]);
+  
+  if (!viewportElement) return null;
+  
+  return (
+    <div 
+      className="absolute flex items-center justify-center"
+      style={{ 
+        zIndex: 30,
+        top: `${topOffset}px`,
+        bottom: `${bottomOffset}px`,
+        right: 0,
+        width: '15px',
+      }}
+    >
+      <div 
+        ref={trackRef}
+        onClick={handleTrackClick}
+        className="relative h-full cursor-pointer"
+        style={{ 
+          touchAction: 'none',
+          width: '15px',
+          backgroundColor: 'rgba(55, 65, 81, 0.8)',
+        }}
+      >
+        {/* Scrollbar thumb */}
+        <div
+          onMouseDown={handleThumbMouseDown}
+          onTouchStart={handleThumbTouchStart}
+          className="absolute transition-colors duration-150"
+          style={{
+            height: `${Math.max(thumbHeight, 10)}%`,
+            top: `${thumbPosition}%`,
+            cursor: 'grab',
+            touchAction: 'none',
+            minHeight: '48px',
+            left: '2px',
+            right: '2px',
+            backgroundColor: isDragging 
+              ? 'rgba(96, 165, 250, 1)' 
+              : 'rgba(156, 163, 175, 0.9)',
+            boxShadow: isDragging ? '0 0 8px rgba(96, 165, 250, 0.5)' : 'none',
+          }}
+        />
+      </div>
+    </div>
+  );
+};
+
+// Horizontal scrollbar for mobile terminal
+const HorizontalScrollBar = ({ scrollContainerRef, terminalWidth }) => {
+  const [scrollLeft, setScrollLeft] = useState(0);
+  const [maxScroll, setMaxScroll] = useState(0);
+  const [clientWidth, setClientWidth] = useState(0);
+  const [contentWidth, setContentWidth] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const trackRef = useRef(null);
+  const dragStartRef = useRef({ x: 0, scrollLeft: 0 });
+  
+  useEffect(() => {
+    const container = scrollContainerRef?.current;
+    if (!container) return;
+    
+    const updateDimensions = () => {
+      const max = container.scrollWidth - container.clientWidth;
+      setMaxScroll(max > 0 ? max : 0);
+      setClientWidth(container.clientWidth);
+      setContentWidth(container.scrollWidth);
+    };
+    
+    updateDimensions();
+    
+    const handleScroll = () => {
+      setScrollLeft(container.scrollLeft);
+    };
+    
+    container.addEventListener('scroll', handleScroll);
+    
+    const resizeObserver = new ResizeObserver(updateDimensions);
+    resizeObserver.observe(container);
+    
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      resizeObserver.disconnect();
+    };
+  }, [scrollContainerRef, terminalWidth]);
+
+  // Calculate thumb width and position
+  const thumbWidth = contentWidth > 0 ? Math.max((clientWidth / contentWidth) * 100, 10) : 100;
+  const thumbPosition = maxScroll > 0 ? (scrollLeft / maxScroll) * (100 - thumbWidth) : 0;
+
+  const handleTrackClick = (e) => {
+    if (!trackRef.current || !scrollContainerRef?.current) return;
+    
+    const track = trackRef.current;
+    const rect = track.getBoundingClientRect();
+    const clickPosition = (e.clientX - rect.left) / rect.width;
+    const newScrollLeft = clickPosition * maxScroll;
+    
+    scrollContainerRef.current.scrollTo({
+      left: newScrollLeft,
+      behavior: 'smooth'
+    });
+  };
+
+  const handleThumbMouseDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+    dragStartRef.current = {
+      x: e.clientX,
+      scrollLeft: scrollContainerRef?.current?.scrollLeft || 0
+    };
+  };
+
+  const handleThumbTouchStart = (e) => {
+    e.stopPropagation();
+    setIsDragging(true);
+    const touch = e.touches[0];
+    dragStartRef.current = {
+      x: touch.clientX,
+      scrollLeft: scrollContainerRef?.current?.scrollLeft || 0
+    };
+  };
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e) => {
+      if (!trackRef.current || !scrollContainerRef?.current) return;
+      
+      const trackWidth = trackRef.current.getBoundingClientRect().width;
+      const deltaX = e.clientX - dragStartRef.current.x;
+      const scrollDelta = (deltaX / trackWidth) * contentWidth;
+      
+      scrollContainerRef.current.scrollLeft = dragStartRef.current.scrollLeft + scrollDelta;
+    };
+
+    const handleTouchMove = (e) => {
+      if (!trackRef.current || !scrollContainerRef?.current) return;
+      
+      const touch = e.touches[0];
+      const trackWidth = trackRef.current.getBoundingClientRect().width;
+      const deltaX = touch.clientX - dragStartRef.current.x;
+      const scrollDelta = (deltaX / trackWidth) * contentWidth;
+      
+      scrollContainerRef.current.scrollLeft = dragStartRef.current.scrollLeft + scrollDelta;
+    };
+
+    const handleMouseUp = () => setIsDragging(false);
+    const handleTouchEnd = () => setIsDragging(false);
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('touchmove', handleTouchMove, { passive: true });
+    document.addEventListener('touchend', handleTouchEnd);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [isDragging, contentWidth, scrollContainerRef]);
+  
+  if (maxScroll <= 0) return null;
+  
+  return (
+    <div 
+      className="flex-shrink-0 flex items-center"
+      style={{
+        height: '20px',
+        paddingLeft: '0',
+        paddingRight: '15px',
+        paddingTop: '4px',
+        paddingBottom: '4px',
+        backgroundColor: 'transparent',
+      }}
+    >
+      <div 
+        ref={trackRef}
+        onClick={handleTrackClick}
+        className="relative w-full cursor-pointer"
+        style={{ 
+          touchAction: 'none',
+          height: '12px',
+          backgroundColor: 'rgba(55, 65, 81, 0.8)',
+        }}
+      >
+        {/* Scrollbar thumb */}
+        <div
+          onMouseDown={handleThumbMouseDown}
+          onTouchStart={handleThumbTouchStart}
+          className="absolute transition-colors duration-150"
+          style={{
+            width: `${Math.max(thumbWidth, 10)}%`,
+            left: `${thumbPosition}%`,
+            cursor: 'grab',
+            touchAction: 'none',
+            minWidth: '48px',
+            top: '2px',
+            bottom: '2px',
+            backgroundColor: isDragging 
+              ? 'rgba(96, 165, 250, 1)' 
+              : 'rgba(156, 163, 175, 0.9)',
+            boxShadow: isDragging ? '0 0 8px rgba(96, 165, 250, 0.5)' : 'none',
+          }}
+        />
+      </div>
+    </div>
+  );
+};
 
 // Virtual keyboard for mobile devices
 const VirtualKeyboard = ({ onKeyPress, onKeyPressWithEnter, isConnected }) => {
@@ -84,8 +434,9 @@ if (typeof document !== 'undefined') {
   document.head.appendChild(styleSheet);
 }
 
-function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell = false, onProcessComplete, minimal = false, autoConnect = false }) {
+function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell = false, onProcessComplete, minimal = false, autoConnect = false, onShellStateChange }, ref) {
   const terminalRef = useRef(null);
+  const scrollContainerRef = useRef(null);
   const terminal = useRef(null);
   const fitAddon = useRef(null);
   const ws = useRef(null);
@@ -98,6 +449,9 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   
   // Track if device is mobile for terminal optimizations
   const isMobileDevice = useRef(window.innerWidth < 768);
+  
+  // Viewport ref for vertical scrollbar - use state to trigger re-render
+  const [viewportElement, setViewportElement] = useState(null);
 
   const selectedProjectRef = useRef(selectedProject);
   const selectedSessionRef = useRef(selectedSession);
@@ -321,7 +675,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     return sessionDisplayName.slice(0, 50);
   }, [sessionDisplayName]);
 
-  const restartShell = () => {
+  const restartShell = useCallback(() => {
     setIsRestarting(true);
     setUserDisconnected(false);
 
@@ -342,7 +696,31 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     setTimeout(() => {
       setIsRestarting(false);
     }, 200);
-  };
+  }, []);
+
+  // Expose shell control methods and state via ref
+  useImperativeHandle(ref, () => ({
+    connect: connectToShell,
+    disconnect: disconnectFromShell,
+    restart: restartShell,
+    isConnected,
+    isConnecting,
+    isInitialized,
+    isRestarting
+  }), [connectToShell, disconnectFromShell, restartShell, isConnected, isConnecting, isInitialized, isRestarting]);
+
+  // Notify parent of state changes
+  useEffect(() => {
+    if (onShellStateChange) {
+      onShellStateChange({
+        isConnected,
+        isConnecting,
+        isInitialized,
+        isRestarting,
+        sessionDisplayNameShort
+      });
+    }
+  }, [isConnected, isConnecting, isInitialized, isRestarting, sessionDisplayNameShort, onShellStateChange]);
 
   useEffect(() => {
     const currentSessionId = selectedSession?.id || null;
@@ -409,8 +787,9 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     // Add mobile-specific options
     if (isMobile) {
       terminalOptions.smoothScrollDuration = 0;
-      terminalOptions.fastScrollSensitivity = 1;
+      terminalOptions.fastScrollSensitivity = 3;
       terminalOptions.cols = 100;
+      terminalOptions.scrollSensitivity = 3;
     } else {
       terminalOptions.fastScrollModifier = 'alt';
       terminalOptions.fastScrollSensitivity = 5;
@@ -492,6 +871,16 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
     setIsInitialized(true);
     
+    // Store viewport ref for vertical scrollbar
+    if (isMobile) {
+      setTimeout(() => {
+        const viewport = terminalRef.current?.querySelector('.xterm-viewport');
+        if (viewport) {
+          setViewportElement(viewport);
+        }
+      }, 200);
+    }
+    
     terminal.current.onData((data) => {
       if (ws.current && ws.current.readyState === WebSocket.OPEN) {
         ws.current.send(JSON.stringify({
@@ -527,6 +916,8 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
     return () => {
       resizeObserver.disconnect();
+      
+      setViewportElement(null);
 
       if (ws.current && (ws.current.readyState === WebSocket.OPEN || ws.current.readyState === WebSocket.CONNECTING)) {
         ws.current.close();
@@ -567,20 +958,29 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     const terminalWidth = isMobile ? 100 * 6.6 : '100%';
     
     return (
-      <div className="h-full w-full bg-gray-900 flex flex-col">
-        <div className={`flex-1 relative min-h-0 ${isMobile ? 'overflow-hidden' : 'overflow-auto'}`}>
+      <div className="h-full w-full bg-gray-900 flex flex-col relative">
         <div 
-          ref={terminalRef} 
-          className="focus:outline-none absolute inset-0" 
-          style={{ 
-            outline: 'none',
-            width: typeof terminalWidth === 'number' ? `${terminalWidth}px` : '100%'
-          }} 
-        />
-      </div>
+          ref={scrollContainerRef}
+          className={`flex-1 relative min-h-0 shell-scroll-container ${isMobile ? 'overflow-x-auto' : 'overflow-auto'}`}
+          style={isMobile ? { touchAction: 'pan-x', marginRight: '15px' } : undefined}
+        >
+          <div 
+            ref={terminalRef} 
+            className="focus:outline-none absolute inset-0" 
+            style={{ 
+              outline: 'none',
+              width: typeof terminalWidth === 'number' ? `${terminalWidth}px` : '100%',
+              touchAction: isMobile ? 'pan-y' : 'auto'
+            }} 
+          />
+        </div>
         {isMobile && (
-          <VirtualKeyboard onKeyPress={handleVirtualKeyPress} onKeyPressWithEnter={handleVirtualKeyPressWithEnter} isConnected={isConnected} />
+          <>
+            <HorizontalScrollBar scrollContainerRef={scrollContainerRef} terminalWidth={terminalWidth} />
+            <VirtualKeyboard onKeyPress={handleVirtualKeyPress} onKeyPressWithEnter={handleVirtualKeyPressWithEnter} isConnected={isConnected} />
+          </>
         )}
+        {isMobile && <VerticalScrollBar viewportElement={viewportElement} topOffset={0} bottomOffset={64} />}
       </div>
     );
   }
@@ -589,63 +989,71 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   const terminalWidth = isMobile ? 100 * 6.6 : '100%';
 
   return (
-    <div className="h-full flex flex-col bg-gray-900 w-full">
-      <div className="flex-shrink-0 bg-gray-800 border-b border-gray-700 px-4 py-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-            {selectedSession && (
-              <span className="text-xs text-blue-300">
-                ({sessionDisplayNameShort}...)
-              </span>
-            )}
-            {!selectedSession && (
-              <span className="text-xs text-gray-400">(New Session)</span>
-            )}
-            {!isInitialized && (
-              <span className="text-xs text-yellow-400">(Initializing...)</span>
-            )}
-            {isRestarting && (
-              <span className="text-xs text-blue-400">(Restarting...)</span>
-            )}
-          </div>
-          <div className="flex items-center space-x-3">
-            {isConnected && (
+    <div className="h-full flex flex-col bg-gray-900 w-full relative">
+      {/* Desktop toolbar - hidden on mobile since controls are in MainContent header */}
+      {!isMobile && (
+        <div className="flex-shrink-0 bg-gray-800 border-b border-gray-700 px-4 py-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+              {selectedSession && (
+                <span className="text-xs text-blue-300">
+                  ({sessionDisplayNameShort}...)
+                </span>
+              )}
+              {!selectedSession && (
+                <span className="text-xs text-gray-400">(New Session)</span>
+              )}
+              {!isInitialized && (
+                <span className="text-xs text-yellow-400">(Initializing...)</span>
+              )}
+              {isRestarting && (
+                <span className="text-xs text-blue-400">(Restarting...)</span>
+              )}
+            </div>
+            <div className="flex items-center space-x-3">
+              {isConnected && (
+                <button
+                  onClick={disconnectFromShell}
+                  className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 flex items-center space-x-1"
+                  title="Disconnect from shell"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  <span>Disconnect</span>
+                </button>
+              )}
+
               <button
-                onClick={disconnectFromShell}
-                className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 flex items-center space-x-1"
-                title="Disconnect from shell"
+                onClick={restartShell}
+                disabled={isRestarting || isConnected}
+                className="text-xs text-gray-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1"
+                title="Restart Shell (disconnect first)"
               >
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
-                <span>Disconnect</span>
+                <span>Restart</span>
               </button>
-            )}
-
-            <button
-              onClick={restartShell}
-              disabled={isRestarting || isConnected}
-              className="text-xs text-gray-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1"
-              title="Restart Shell (disconnect first)"
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              <span>Restart</span>
-            </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      <div className={`flex-1 relative min-h-0 ${isMobile ? 'overflow-hidden' : 'overflow-auto'}`} style={{ padding: '0.5rem' }}>
+      <div 
+        ref={scrollContainerRef}
+        className={`flex-1 relative min-h-0 shell-scroll-container ${isMobile ? 'overflow-x-auto' : 'overflow-auto'}`} 
+        style={{ ...(isMobile ? { touchAction: 'pan-x', marginRight: '15px' } : { padding: '0.5rem' }) }}
+      >
         <div 
           ref={terminalRef} 
           className="focus:outline-none absolute inset-0" 
           style={{ 
             outline: 'none',
             width: typeof terminalWidth === 'number' ? `${terminalWidth}px` : '100%',
-            margin: '0.5rem'
+            margin: isMobile ? 0 : '0.5rem',
+            touchAction: isMobile ? 'pan-y' : 'auto'
           }} 
         />
 
@@ -699,10 +1107,14 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
       </div>
 
       {isMobile && (
-        <VirtualKeyboard onKeyPress={handleVirtualKeyPress} onKeyPressWithEnter={handleVirtualKeyPressWithEnter} isConnected={isConnected} />
+        <>
+          <HorizontalScrollBar scrollContainerRef={scrollContainerRef} terminalWidth={terminalWidth} />
+          <VirtualKeyboard onKeyPress={handleVirtualKeyPress} onKeyPressWithEnter={handleVirtualKeyPressWithEnter} isConnected={isConnected} />
+        </>
       )}
+      {isMobile && <VerticalScrollBar viewportElement={viewportElement} topOffset={0} bottomOffset={64} />}
     </div>
   );
 }
 
-export default Shell;
+export default forwardRef(Shell);

@@ -1384,7 +1384,34 @@ function Sidebar({
         <div className="md:hidden p-4 pb-20 border-t border-border/50 space-y-3">
           <button
             className="w-full h-14 bg-muted/50 hover:bg-muted/70 rounded-2xl flex items-center justify-start gap-4 px-4 active:scale-[0.98] transition-all duration-150"
-            onClick={() => window.location.reload(true)}
+            onClick={async () => {
+              // 清除 Cache Storage（Service Worker 缓存）
+              if ('caches' in window) {
+                const cacheNames = await caches.keys();
+                await Promise.all(cacheNames.map(name => caches.delete(name)));
+              }
+              // 注销 Service Worker
+              if ('serviceWorker' in navigator) {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(registrations.map(reg => reg.unregister()));
+              }
+              // 注意：不清除 sessionStorage 和 localStorage，保留登录信息和会话状态
+              
+              // Cordova WebView: 使用 cordova-plugin-cache 清除缓存（如果可用）
+              if (window.CacheClear) {
+                window.CacheClear(() => {
+                  window.location.reload();
+                }, (err) => {
+                  console.warn('CacheClear failed:', err);
+                  window.location.reload();
+                });
+              } else {
+                // 通用方案：直接跳转到带时间戳的新 URL
+                const url = new URL(window.location.href);
+                url.searchParams.set('_t', Date.now());
+                window.location.replace(url.toString());
+              }
+            }}
           >
             <div className="w-10 h-10 rounded-2xl bg-background/80 flex items-center justify-center">
               <RefreshCw className="w-5 h-5 text-muted-foreground" />

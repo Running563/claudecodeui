@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, forwardRef } from 'react';
 import Shell from './Shell.jsx';
 
 /**
@@ -17,8 +17,9 @@ import Shell from './Shell.jsx';
  * @param {boolean} showHeader - Whether to show custom header (default: true)
  * @param {boolean} compact - Use compact layout (default: false)
  * @param {boolean} minimal - Use minimal mode: no header, no overlays, auto-connect (default: false)
+ * @param {function} onShellStateChange - Callback when shell state changes (isConnected, isConnecting, etc.)
  */
-function StandaloneShell({
+const StandaloneShell = forwardRef(function StandaloneShell({
   project,
   session = null,
   command = null,
@@ -30,8 +31,9 @@ function StandaloneShell({
   className = "",
   showHeader = true,
   compact = false,
-  minimal = false
-}) {
+  minimal = false,
+  onShellStateChange = null
+}, ref) {
   const [isCompleted, setIsCompleted] = useState(false);
 
   const shouldUsePlainShell = isPlainShell !== null ? isPlainShell : (command !== null);
@@ -89,6 +91,7 @@ function StandaloneShell({
       {/* Shell component wrapper */}
       <div className="flex-1 w-full min-h-0">
         <Shell
+          ref={ref}
           selectedProject={project}
           selectedSession={session}
           initialCommand={command}
@@ -96,10 +99,11 @@ function StandaloneShell({
           onProcessComplete={handleProcessComplete}
           minimal={minimal}
           autoConnect={minimal ? true : autoConnect}
+          onShellStateChange={onShellStateChange}
         />
       </div>
     </div>
   );
-}
+});
 
 export default StandaloneShell;
