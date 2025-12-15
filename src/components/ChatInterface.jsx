@@ -309,6 +309,10 @@ const markdownComponents = {
     const language = match ? match[1] : '';
     const textToCopy = raw;
 
+    const [isExpanded, setIsExpanded] = React.useState(false);
+    const codeContainerRef = React.useRef(null);
+    const [needsExpandButton, setNeedsExpandButton] = React.useState(false);
+
     const handleCopy = () => {
       const doSet = () => {
         setCopied(true);
@@ -342,51 +346,121 @@ const markdownComponents = {
       } catch {}
     };
 
+    // Check if code block needs expand button (only on mobile)
+    React.useEffect(() => {
+      const checkHeight = () => {
+        if (codeContainerRef.current) {
+          const isMobile = window.innerWidth < 640; // sm breakpoint
+          const scrollHeight = codeContainerRef.current.scrollHeight;
+          const maxHeight = 300; // 移动端默认最大高度
+          setNeedsExpandButton(isMobile && scrollHeight > maxHeight);
+        }
+      };
+      
+      checkHeight();
+      window.addEventListener('resize', checkHeight);
+      return () => window.removeEventListener('resize', checkHeight);
+    }, [raw]);
+
     return (
       <div className="relative group">
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="absolute top-0.5 right-1 z-10 opacity-0 group-hover:opacity-100 focus:opacity-100 active:opacity-100 transition-opacity text-xs px-2 py-1 rounded-md bg-gray-700/80 hover:bg-gray-700 text-white border border-gray-600"
-          title={copied ? 'Copied' : 'Copy code'}
-          aria-label={copied ? 'Copied' : 'Copy code'}
-        >
-          {copied ? (
-            <span className="flex items-center gap-1">
-              <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-            </span>
-          ) : (
-            <span className="flex items-center gap-1">
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
-              </svg>
-            </span>
+        <div className="absolute top-0.5 right-1 z-10 flex items-center gap-1">
+          {/* 展开/收起按钮 (仅移动端且内容超过最大高度时显示) */}
+          {needsExpandButton && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                setIsExpanded(!isExpanded);
+                // 立即移除焦点,避免焦点状态样式
+                e.currentTarget.blur();
+              }}
+              className="code-expand-btn sm:hidden text-xs px-2 py-1 rounded-md bg-gray-700/90 text-white border border-gray-600"
+              style={{ WebkitTapHighlightColor: 'transparent' }}
+              title={isExpanded ? '收起' : '展开'}
+              aria-label={isExpanded ? '收起' : '展开'}
+            >
+              <span className="flex items-center gap-1">
+                {isExpanded ? (
+                  <>
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="18 15 12 9 6 15"></polyline>
+                    </svg>
+                    <span className="text-[10px]">收起</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                    <span className="text-[10px]">展开</span>
+                  </>
+                )}
+              </span>
+            </button>
           )}
-        </button>
-        {/* Syntax highlighted code */}
-        <SyntaxHighlighter
-          language={language}
-          style={vscDarkPlus}
-          wrapLongLines={false}
-          customStyle={{
-            margin: 0,
-            borderRadius: '0.5rem',
-            fontSize: '0.875rem',
-            padding: language && language !== 'text' ? '2rem 1rem 1rem 1rem' : '1rem',
-            overflowX: 'auto',
-          }}
-          codeTagProps={{
-            style: {
-              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-              whiteSpace: 'pre',
-            }
-          }}
-        >
-          {raw}
-        </SyntaxHighlighter>
+          {/* 复制按钮 */}
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="opacity-0 group-hover:opacity-100 focus:opacity-100 active:opacity-100 transition-opacity text-xs px-2 py-1 rounded-md bg-gray-700/80 hover:bg-gray-700 text-white border border-gray-600"
+            title={copied ? 'Copied' : 'Copy code'}
+            aria-label={copied ? 'Copied' : 'Copy code'}
+          >
+            {copied ? (
+              <span className="flex items-center gap-1">
+                <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1">
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
+                </svg>
+              </span>
+            )}
+          </button>
+        </div>
+        {/* Syntax highlighted code with mobile max-height */}
+        <div className="relative">
+          <div 
+            ref={codeContainerRef}
+            className={`overflow-hidden transition-all duration-300 ${
+              !isExpanded && needsExpandButton ? 'max-h-[300px] sm:max-h-none' : ''
+            }`}
+          >
+            <SyntaxHighlighter
+              language={language}
+              style={vscDarkPlus}
+              wrapLongLines={false}
+              customStyle={{
+                margin: 0,
+                borderRadius: '0.5rem',
+                fontSize: '0.875rem',
+                padding: language && language !== 'text' ? '2rem 1rem 1rem 1rem' : '1rem',
+                overflowX: 'auto',
+              }}
+              codeTagProps={{
+                style: {
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                  whiteSpace: 'pre',
+                }
+              }}
+            >
+              {raw}
+            </SyntaxHighlighter>
+          </div>
+          {/* 渐变遮罩 - 仅在移动端未展开时显示 */}
+          {!isExpanded && needsExpandButton && (
+            <div className="sm:hidden absolute bottom-0 left-0 right-0 h-24 pointer-events-none rounded-b-lg" 
+                 style={{
+                   background: 'linear-gradient(to top, rgba(17, 24, 39, 0.95) 0%, rgba(17, 24, 39, 0.85) 25%, rgba(17, 24, 39, 0.5) 50%, transparent 100%)'
+                 }}
+            />
+          )}
+        </div>
       </div>
     );
   },
@@ -2557,7 +2631,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
 
   const convertSessionMessages = (rawMessages) => {
     const converted = [];
-    const toolResults = new Map(); // Map tool_use_id to tool result
+    const toolResults = new Map(); // Map tool_use_id or callId to tool result
     
     // First pass: collect all tool results
     for (const msg of rawMessages) {
@@ -2578,6 +2652,17 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           }
         }
       }
+      
+      // Handle function_call_result type (CodeBuddy format)
+      if (msg.type === 'function_call_result') {
+        const resultContent = msg.output?.text || msg.output || '';
+        toolResults.set(msg.callId, {
+          content: resultContent,
+          isError: msg.status === 'error',
+          timestamp: new Date(msg.timestamp || Date.now()),
+          toolUseResult: msg.providerData?.toolResult || null
+        });
+      }
     }
     
     // Second pass: process messages and attach tool results to tool uses
@@ -2585,6 +2670,36 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
       // Support both Claude format (nested message) and CodeBuddy format (flat)
       const role = msg.message?.role || msg.role;
       const content = msg.message?.content || msg.content;
+      
+      // Handle function_call type (CodeBuddy format)
+      if (msg.type === 'function_call') {
+        const toolResult = toolResults.get(msg.callId);
+        const displayText = msg.providerData?.argumentsDisplayText || '';
+        
+        converted.push({
+          type: 'assistant',
+          content: '',
+          timestamp: msg.timestamp || new Date().toISOString(),
+          isToolUse: true,
+          toolName: msg.name || 'Unknown Tool',
+          toolId: msg.callId,
+          toolInput: msg.arguments || '{}',
+          toolResult: toolResult ? {
+            content: typeof toolResult.content === 'string' ? toolResult.content : JSON.stringify(toolResult.content),
+            isError: toolResult.isError,
+            toolUseResult: toolResult.toolUseResult
+          } : null,
+          toolError: toolResult?.isError || false,
+          toolResultTimestamp: toolResult?.timestamp || new Date(),
+          displayText: displayText
+        });
+        continue;
+      }
+      
+      // Skip function_call_result messages as they are handled in first pass
+      if (msg.type === 'function_call_result') {
+        continue;
+      }
       
       // Handle user messages
       if (role === 'user' && content) {
@@ -2658,6 +2773,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                 timestamp: msg.timestamp || new Date().toISOString(),
                 isToolUse: true,
                 toolName: part.name,
+                toolId: part.id,
                 toolInput: JSON.stringify(part.input),
                 toolResult: toolResult ? {
                   content: typeof toolResult.content === 'string' ? toolResult.content : JSON.stringify(toolResult.content),

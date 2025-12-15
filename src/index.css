@@ -613,7 +613,7 @@
     }
     
     /* Only disable hover states for interactive elements, not containers */
-    button:hover:not(.vk-btn),
+    button:hover:not(.vk-btn):not(.code-expand-btn),
     [role="button"]:hover,
     .cursor-pointer:hover,
     a:hover,
@@ -806,6 +806,19 @@
   /* Ensure buttons don't show white backgrounds in dark mode */
   .dark button:focus {
     --tw-ring-offset-color: rgb(31 41 55); /* gray-800 */
+  }
+  
+  /* Code expand/collapse button - global styles (non-touch devices) */
+  .code-expand-btn,
+  .code-expand-btn:hover,
+  .code-expand-btn:focus,
+  .code-expand-btn:active,
+  .code-expand-btn:focus-visible {
+    background-color: rgba(55, 65, 81, 0.9) !important; /* bg-gray-700/90 */
+    color: white !important;
+    outline: none !important;
+    box-shadow: none !important;
+    border-color: rgb(75, 85, 99) !important; /* border-gray-600 */
   }
   
   /* Fix mobile select dropdown styling */
