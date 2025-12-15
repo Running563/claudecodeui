@@ -1724,6 +1724,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
   const streamBufferRef = useRef('');
   const streamTimerRef = useRef(null);
   const commandQueryTimerRef = useRef(null);
+  // Pending tool results queue (for handling race conditions)
+  const pendingToolResultsRef = useRef(new Map());
   const [debouncedInput, setDebouncedInput] = useState('');
   const [showFileDropdown, setShowFileDropdown] = useState(false);
   const [fileList, setFileList] = useState([]);
@@ -3057,8 +3059,87 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
         case 'claude-response':
           const messageData = latestMessage.data.message || latestMessage.data;
           
-          // Handle Cursor streaming format (content_block_delta / content_block_stop)
+          // Debug log for CodeBuddy messages
+          console.log('📨 claude-response received:', messageData?.type, messageData);
+          
+          // Handle Cursor streaming format (content_block_start / content_block_delta / content_block_stop)
           if (messageData && typeof messageData === 'object' && messageData.type) {
+            // Handle content_block_start for tool_use (from CodeBuddy)
+            if (messageData.type === 'content_block_start' && messageData.content_block) {
+              const contentBlock = messageData.content_block;
+              if (contentBlock.type === 'tool_use') {
+                const toolId = contentBlock.id;
+                // Check if we have a pending result for this tool
+                const pendingResult = pendingToolResultsRef.current.get(toolId);
+                
+                // Add tool use message (with pending result if available)
+                const toolInput = contentBlock.input ? JSON.stringify(contentBlock.input, null, 2) : '';
+                setChatMessages(prev => [...prev, {
+                  type: 'assistant',
+                  content: '',
+                  timestamp: new Date(),
+                  isToolUse: true,
+                  toolName: contentBlock.name,
+                  toolInput: toolInput,
+                  toolId: toolId,
+                  toolResult: pendingResult || null
+                }]);
+                
+                // Remove from pending queue if we used it
+                if (pendingResult) {
+                  console.log('✅ Applied pending result for:', toolId);
+                  pendingToolResultsRef.current.delete(toolId);
+                }
+              }
+              return;
+            }
+            
+            // Handle tool_result (from CodeBuddy)
+            if (messageData.type === 'tool_result') {
+              // Convert content to string if it's an array or object
+              let resultContent = messageData.content;
+              if (Array.isArray(resultContent)) {
+                // Extract text from content array (common format: [{type: 'text', text: '...'}])
+                resultContent = resultContent
+                  .map(item => item.text || (typeof item === 'string' ? item : JSON.stringify(item)))
+                  .join('\n');
+              } else if (typeof resultContent === 'object' && resultContent !== null) {
+                resultContent = JSON.stringify(resultContent, null, 2);
+              }
+              
+              const toolUseId = messageData.tool_use_id;
+              const toolResultData = {
+                content: resultContent,
+                isError: messageData.is_error,
+                timestamp: new Date()
+              };
+              
+              console.log('📥 Received tool_result:', toolUseId, 'content:', String(resultContent).slice(0, 100));
+              
+              // Store in pending queue first
+              pendingToolResultsRef.current.set(toolUseId, toolResultData);
+              
+              // Try to apply the result immediately
+              setChatMessages(prev => {
+                const toolUseIndex = prev.findIndex(msg => msg.isToolUse && msg.toolId === toolUseId);
+                if (toolUseIndex !== -1) {
+                  console.log('✅ Matched tool_use:', prev[toolUseIndex].toolName, toolUseId);
+                  // Remove from pending queue since we found a match
+                  pendingToolResultsRef.current.delete(toolUseId);
+                  const updated = [...prev];
+                  updated[toolUseIndex] = {
+                    ...updated[toolUseIndex],
+                    toolResult: toolResultData
+                  };
+                  return updated;
+                }
+                // If not found, keep in pending queue and return unchanged
+                console.log('⏳ Tool use not found yet, queued:', toolUseId);
+                return prev;
+              });
+              return;
+            }
+            
             if (messageData.type === 'content_block_delta' && messageData.delta?.text) {
               // Decode HTML entities and buffer deltas
               const decodedText = decodeHtmlEntities(messageData.delta.text);
@@ -3083,8 +3164,41 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
               }
               return;
             }
-            if (messageData.type === 'content_block_stop' || messageData.type === 'message_stop') {
+            if (messageData.type === 'content_block_stop') {
               // Flush any buffered text and mark streaming message complete
+              // NOTE: Don't clear loading state here - CodeBuddy sends multiple content_block_stop
+              // (one per tool call). Loading state is cleared in codebuddy-result/codebuddy-complete.
+              if (streamTimerRef.current) {
+                clearTimeout(streamTimerRef.current);
+                streamTimerRef.current = null;
+              }
+              const chunk = streamBufferRef.current;
+              streamBufferRef.current = '';
+              if (chunk) {
+                setChatMessages(prev => {
+                  const updated = [...prev];
+                  const last = updated[updated.length - 1];
+                  if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
+                    last.content = (last.content || '') + chunk;
+                  } else {
+                    updated.push({ type: 'assistant', content: chunk, timestamp: new Date(), isStreaming: true });
+                  }
+                  return updated;
+                });
+              }
+              setChatMessages(prev => {
+                const updated = [...prev];
+                const last = updated[updated.length - 1];
+                if (last && last.type === 'assistant' && last.isStreaming) {
+                  last.isStreaming = false;
+                }
+                return updated;
+              });
+              return;
+            }
+            if (messageData.type === 'message_stop') {
+              // message_stop indicates the entire message is complete
+              // Flush any buffered text
               if (streamTimerRef.current) {
                 clearTimeout(streamTimerRef.current);
                 streamTimerRef.current = null;
@@ -3112,7 +3226,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                 return updated;
               });
               
-              // Clear loading state
+              // Clear loading state only on message_stop (not content_block_stop)
               setIsLoading(false);
               setCanAbortSession(false);
               
