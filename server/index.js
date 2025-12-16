@@ -74,6 +74,8 @@ import agentRoutes from './routes/agent.js';
 import projectsRoutes from './routes/projects.js';
 import cliAuthRoutes from './routes/cli-auth.js';
 import userRoutes from './routes/user.js';
+import terminalsRoutes from './routes/terminals.js';
+import { quickTerminals } from './routes/terminals.js';
 import { initializeDatabase } from './database/db.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 
@@ -270,6 +272,9 @@ app.use('/api/cli', authenticateToken, cliAuthRoutes);
 
 // User API Routes (protected)
 app.use('/api/user', authenticateToken, userRoutes);
+
+// Terminals API Routes (protected)
+app.use('/api/terminals', authenticateToken, terminalsRoutes);
 
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);
@@ -853,12 +858,16 @@ function handleShellConnection(ws) {
                 const hasSession = data.hasSession;
                 const provider = data.provider || 'claude';
                 const initialCommand = data.initialCommand;
-                const isPlainShell = data.isPlainShell || (!!initialCommand && !hasSession) || provider === 'plain-shell';
+                const isQuickTerminal = provider === 'quick-terminal';
+                const isPlainShell = data.isPlainShell || (!!initialCommand && !hasSession) || provider === 'plain-shell' || isQuickTerminal;
                 
                 // Log received dimensions from client
                 console.log('📐 Received dimensions from client:', data.cols, 'x', data.rows);
 
-                ptySessionKey = `${projectPath}_${sessionId || 'default'}`;
+                // Different PTY session key format for quick terminals
+                ptySessionKey = isQuickTerminal 
+                    ? `terminal_${sessionId}_${projectPath}`
+                    : `${projectPath}_${sessionId || 'default'}`;
 
                 const existingSession = ptySessionsMap.get(ptySessionKey);
                 if (existingSession) {
@@ -873,10 +882,13 @@ function handleShellConnection(ws) {
                         shellProcess.resize(data.cols, data.rows);
                     }
 
-                    ws.send(JSON.stringify({
-                        type: 'output',
-                        data: `\x1b[36m[Reconnected to existing session]\x1b[0m\r\n`
-                    }));
+                    // Only show reconnection message for non-quick terminals
+                    if (!isQuickTerminal) {
+                        ws.send(JSON.stringify({
+                            type: 'output',
+                            data: `\x1b[36m[Reconnected to existing session]\x1b[0m\r\n`
+                        }));
+                    }
 
                     if (existingSession.buffer && existingSession.buffer.length > 0) {
                         console.log(`📜 Sending ${existingSession.buffer.length} buffered messages`);
@@ -895,14 +907,17 @@ function handleShellConnection(ws) {
 
                 console.log('[INFO] Starting shell in:', projectPath);
                 console.log('📋 Session info:', hasSession ? `Resume session ${sessionId}` : (isPlainShell ? 'Plain shell mode' : 'New session'));
-                console.log('🤖 Provider:', isPlainShell ? 'plain-shell' : provider);
+                console.log('🤖 Provider:', isQuickTerminal ? 'quick-terminal' : (isPlainShell ? 'plain-shell' : provider));
                 if (initialCommand) {
                     console.log('⚡ Initial command:', initialCommand);
                 }
 
                 // First send a welcome message
                 let welcomeMsg;
-                if (isPlainShell) {
+                if (isQuickTerminal) {
+                    // Quick terminal: no welcome message, clean start
+                    welcomeMsg = '';
+                } else if (isPlainShell) {
                     welcomeMsg = `\x1b[36mStarting terminal in: ${projectPath}\x1b[0m\r\n`;
                 } else {
                     const providerName = provider === 'cursor' ? 'Cursor' : (provider === 'codebuddy' ? 'CodeBuddy' : 'Claude');
@@ -911,15 +926,24 @@ function handleShellConnection(ws) {
                         `\x1b[36mStarting new ${providerName} session in: ${projectPath}\x1b[0m\r\n`;
                 }
 
-                ws.send(JSON.stringify({
-                    type: 'output',
-                    data: welcomeMsg
-                }));
+                if (welcomeMsg) {
+                    ws.send(JSON.stringify({
+                        type: 'output',
+                        data: welcomeMsg
+                    }));
+                }
 
                 try {
                     // Prepare the shell command adapted to the platform and provider
                     let shellCommand;
-                    if (isPlainShell) {
+                    if (isQuickTerminal) {
+                        // Quick terminal mode - just start an interactive shell in the directory
+                        if (os.platform() === 'win32') {
+                            shellCommand = `Set-Location -Path "${projectPath}"`;
+                        } else {
+                            shellCommand = `cd "${projectPath}" && exec $SHELL`;
+                        }
+                    } else if (isPlainShell) {
                         // Plain shell mode - just run the initial command in the project directory
                         if (os.platform() === 'win32') {
                             shellCommand = `Set-Location -Path "${projectPath}"; ${initialCommand}`;
@@ -1022,6 +1046,19 @@ function handleShellConnection(ws) {
                         } else {
                             session.buffer.shift();
                             session.buffer.push(data);
+                        }
+                        
+                        // Update quick terminal metadata if applicable
+                        if (isQuickTerminal && sessionId) {
+                            const terminal = quickTerminals.get(sessionId);
+                            if (terminal) {
+                                terminal.lastActivity = Date.now();
+                                // Simple command extraction from input (best effort)
+                                const cleanData = data.replace(/\x1b\[[0-9;]*m/g, '').trim();
+                                if (cleanData && !cleanData.startsWith('\r') && cleanData.length < 100) {
+                                    terminal.lastCommand = cleanData;
+                                }
+                            }
                         }
 
                         if (session.ws && session.ws.readyState === WebSocket.OPEN) {

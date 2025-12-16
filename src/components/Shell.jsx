@@ -373,12 +373,28 @@ const HorizontalScrollBar = ({ scrollContainerRef, terminalWidth }) => {
 };
 
 // Virtual keyboard for mobile devices
-const VirtualKeyboard = ({ onKeyPress, onKeyPressWithEnter, isConnected }) => {
+const VirtualKeyboard = ({ onKeyPress, onKeyPressWithEnter, isConnected, isQuickTerminal }) => {
   const [pressedKey, setPressedKey] = useState(null);
 
   if (!isConnected) return null;
 
-  const keys = [
+  // Different key layouts for AI session vs quick terminal
+  const keys = isQuickTerminal ? [
+    // Quick Terminal: Basic navigation + clear screen
+    { label: 'ESC', key: '\x1b' },
+    { label: 'Tab', key: '\t' },
+    { label: '↑', key: '\x1b[A' },
+    { label: '↓', key: '\x1b[B' },
+    { label: '←', key: '\x1b[D' },
+    { label: '→', key: '\x1b[C' },
+    { label: 'Home', key: '\x1b[H' },
+    { label: 'End', key: '\x1b[F' },
+    { label: 'Del', key: '\x1b[3~' },
+    { label: '⌫', key: '\x7f' }, // Backspace
+    { label: 'Enter', key: '\r' },
+    { label: 'Clear', key: 'clear', withEnter: true },
+  ] : [
+    // AI Session: Full keyboard with AI commands
     { label: 'ESC', key: '\x1b' },
     { label: 'Tab', key: '\t' },
     { label: 'S+Tab', key: '\x1b[Z' },
@@ -449,6 +465,9 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   
   // Track if device is mobile for terminal optimizations
   const isMobileDevice = useRef(window.innerWidth < 768);
+  
+  // Check if this is a quick terminal (not AI session)
+  const isQuickTerminal = selectedSession?.__provider === 'quick-terminal';
   
   // Viewport ref for vertical scrollbar - use state to trigger re-render
   const [viewportElement, setViewportElement] = useState(null);
@@ -977,7 +996,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
         {isMobile && (
           <>
             <HorizontalScrollBar scrollContainerRef={scrollContainerRef} terminalWidth={terminalWidth} />
-            <VirtualKeyboard onKeyPress={handleVirtualKeyPress} onKeyPressWithEnter={handleVirtualKeyPressWithEnter} isConnected={isConnected} />
+            <VirtualKeyboard onKeyPress={handleVirtualKeyPress} onKeyPressWithEnter={handleVirtualKeyPressWithEnter} isConnected={isConnected} isQuickTerminal={isQuickTerminal} />
           </>
         )}
         {isMobile && <VerticalScrollBar viewportElement={viewportElement} topOffset={0} bottomOffset={64} />}
@@ -1109,7 +1128,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
       {isMobile && (
         <>
           <HorizontalScrollBar scrollContainerRef={scrollContainerRef} terminalWidth={terminalWidth} />
-          <VirtualKeyboard onKeyPress={handleVirtualKeyPress} onKeyPressWithEnter={handleVirtualKeyPressWithEnter} isConnected={isConnected} />
+          <VirtualKeyboard onKeyPress={handleVirtualKeyPress} onKeyPressWithEnter={handleVirtualKeyPressWithEnter} isConnected={isConnected} isQuickTerminal={isQuickTerminal} />
         </>
       )}
       {isMobile && <VerticalScrollBar viewportElement={viewportElement} topOffset={0} bottomOffset={64} />}

@@ -1,8 +1,8 @@
 import React from 'react';
-import { MessageSquare, Folder, Terminal, GitBranch, Globe, CheckSquare } from 'lucide-react';
+import { MessageSquare, Folder, Terminal, GitBranch, Globe, CheckSquare, MonitorPlay } from 'lucide-react';
 import { useTasksSettings } from '../contexts/TasksSettingsContext';
 
-function MobileNav({ activeTab, setActiveTab, isInputFocused }) {
+function MobileNav({ activeTab, setActiveTab, isInputFocused, onOpenTerminals }) {
   const { tasksEnabled } = useTasksSettings();
   const navItems = [
     {
@@ -25,12 +25,11 @@ function MobileNav({ activeTab, setActiveTab, isInputFocused }) {
       icon: GitBranch,
       onClick: () => setActiveTab('git')
     },
-    // Conditionally add tasks tab if enabled
-    ...(tasksEnabled ? [{
-      id: 'tasks',
-      icon: CheckSquare,
-      onClick: () => setActiveTab('tasks')
-    }] : [])
+    {
+      id: 'terminals',
+      icon: MonitorPlay,
+      onClick: () => setActiveTab('terminals')
+    }
   ];
 
   return (

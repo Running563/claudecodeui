@@ -26,6 +26,9 @@ import MainContent from './components/MainContent';
 import MobileNav from './components/MobileNav';
 import Settings from './components/Settings';
 import QuickSettingsPanel from './components/QuickSettingsPanel';
+import TerminalListView from './components/TerminalListView';
+import DirectoryPickerModal from './components/DirectoryPickerModal';
+import TerminalDetailView from './components/TerminalDetailView';
 
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
@@ -63,6 +66,11 @@ function AppContent() {
   const [autoScrollToBottom, setAutoScrollToBottom] = useLocalStorage('autoScrollToBottom', true);
   const [sendByCtrlEnter, setSendByCtrlEnter] = useLocalStorage('sendByCtrlEnter', false);
   const [sidebarVisible, setSidebarVisible] = useLocalStorage('sidebarVisible', true);
+  
+  // Quick Terminals State
+  const [showDirectoryPicker, setShowDirectoryPicker] = useState(false);
+  const [selectedTerminal, setSelectedTerminal] = useState(null);
+  
   // Session Protection System: Track sessions with active conversations to prevent
   // automatic project updates from interrupting ongoing chats. When a user sends
   // a message, the session is marked as "active" and project updates are paused
@@ -720,6 +728,90 @@ function AppContent() {
     }
   }, []);
 
+  // Quick Terminals Functions
+  const handleCreateTerminal = useCallback(() => {
+    setShowDirectoryPicker(true);
+  }, []);
+
+  const handleDirectorySelected = useCallback(async (workingDir) => {
+    try {
+      const token = localStorage.getItem('auth-token');
+      const response = await fetch('/api/terminals', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ workingDir })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSelectedTerminal(data.terminal);
+        setShowDirectoryPicker(false);
+      } else {
+        alert('创建终端失败');
+      }
+    } catch (error) {
+      console.error('Create terminal error:', error);
+      alert('创建终端失败');
+    }
+  }, []);
+
+  const handleSelectTerminal = useCallback((terminal) => {
+    setSelectedTerminal(terminal);
+  }, []);
+
+  const handleTerminalBack = useCallback(() => {
+    setSelectedTerminal(null);
+    setActiveTab('terminals');
+  }, []);
+
+  const handleTerminalDelete = useCallback(async (terminalId) => {
+    try {
+      const token = localStorage.getItem('auth-token');
+      await fetch(`/api/terminals/${terminalId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      setSelectedTerminal(null);
+      setActiveTab('terminals');
+    } catch (error) {
+      console.error('Delete terminal error:', error);
+      alert('删除失败');
+    }
+  }, []);
+
+  const handleTerminalClone = useCallback(async (terminalId) => {
+    try {
+      const token = localStorage.getItem('auth-token');
+      const response = await fetch(`/api/terminals/${terminalId}/clone`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        // Clear current terminal first to disconnect Shell WebSocket
+        setSelectedTerminal(null);
+        // Then set the new cloned terminal after a small delay
+        setTimeout(() => {
+          setSelectedTerminal(data.terminal);
+        }, 100);
+      } else {
+        alert('复制失败');
+      }
+    } catch (error) {
+      console.error('Clone terminal error:', error);
+      alert('复制失败');
+    }
+  }, []);
+
   // Version Upgrade Modal Component
   const VersionUpgradeModal = () => {
     const [isUpdating, setIsUpdating] = useState(false);
@@ -1048,36 +1140,50 @@ function AppContent() {
 
       {/* Main Content Area - Flexible */}
       <div className={`flex-1 flex flex-col min-w-0 ${isMobile && !isInputFocused ? 'pb-mobile-nav' : ''}`}>
-        <MainContent
-          selectedProject={selectedProject}
-          selectedSession={selectedSession}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          ws={ws}
-          sendMessage={sendMessage}
-          messages={messages}
-          isMobile={isMobile}
-          isPWA={isPWA}
-          onMenuClick={() => setSidebarOpen(true)}
-          isLoading={isLoadingProjects}
-          onInputFocusChange={setIsInputFocused}
-          onSessionActive={markSessionAsActive}
-          onSessionInactive={markSessionAsInactive}
-          onSessionProcessing={markSessionAsProcessing}
-          onSessionNotProcessing={markSessionAsNotProcessing}
-          onSessionCompleted={markSessionAsCompleted}
-          processingSessions={processingSessions}
-          onReplaceTemporarySession={replaceTemporarySession}
-          onNavigateToSession={(sessionId) => navigate(`/session/${sessionId}`)}
-          onShowSettings={() => setShowSettings(true)}
-          autoExpandTools={autoExpandTools}
-          showRawParameters={showRawParameters}
-          showThinking={showThinking}
-          autoScrollToBottom={autoScrollToBottom}
-          sendByCtrlEnter={sendByCtrlEnter}
-          externalMessageUpdate={externalMessageUpdate}
-          onToggleQuickSettings={() => setShowQuickSettings(prev => !prev)}
-        />
+        {selectedTerminal ? (
+          <TerminalDetailView
+            terminal={selectedTerminal}
+            onBack={handleTerminalBack}
+            onDelete={handleTerminalDelete}
+            onClone={handleTerminalClone}
+          />
+        ) : activeTab === 'terminals' ? (
+          <TerminalListView
+            onSelectTerminal={handleSelectTerminal}
+            onCreateNew={handleCreateTerminal}
+          />
+        ) : (
+          <MainContent
+            selectedProject={selectedProject}
+            selectedSession={selectedSession}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            ws={ws}
+            sendMessage={sendMessage}
+            messages={messages}
+            isMobile={isMobile}
+            isPWA={isPWA}
+            onMenuClick={() => setSidebarOpen(true)}
+            isLoading={isLoadingProjects}
+            onInputFocusChange={setIsInputFocused}
+            onSessionActive={markSessionAsActive}
+            onSessionInactive={markSessionAsInactive}
+            onSessionProcessing={markSessionAsProcessing}
+            onSessionNotProcessing={markSessionAsNotProcessing}
+            onSessionCompleted={markSessionAsCompleted}
+            processingSessions={processingSessions}
+            onReplaceTemporarySession={replaceTemporarySession}
+            onNavigateToSession={(sessionId) => navigate(`/session/${sessionId}`)}
+            onShowSettings={() => setShowSettings(true)}
+            autoExpandTools={autoExpandTools}
+            showRawParameters={showRawParameters}
+            showThinking={showThinking}
+            autoScrollToBottom={autoScrollToBottom}
+            sendByCtrlEnter={sendByCtrlEnter}
+            externalMessageUpdate={externalMessageUpdate}
+            onToggleQuickSettings={() => setShowQuickSettings(prev => !prev)}
+          />
+        )}
       </div>
 
       {/* Mobile Bottom Navigation */}
@@ -1113,6 +1219,14 @@ function AppContent() {
         onClose={() => setShowSettings(false)}
         projects={projects}
         initialTab={settingsInitialTab}
+      />
+
+      {/* Directory Picker Modal */}
+      <DirectoryPickerModal
+        isOpen={showDirectoryPicker}
+        onClose={() => setShowDirectoryPicker(false)}
+        onSelect={handleDirectorySelected}
+        currentProject={selectedProject}
       />
 
       {/* Version Upgrade Modal */}
