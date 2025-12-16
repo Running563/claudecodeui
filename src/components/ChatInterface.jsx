@@ -4463,7 +4463,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           resume: !!effectiveSessionId,
           model: codebuddyModel,
           toolsSettings: toolsSettings,
-          permissionMode: permissionMode
+          permissionMode: permissionMode,
+          images: uploadedImages // Pass images to backend (reserved for future CLI support)
         }
       });
     } else {

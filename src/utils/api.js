@@ -3,20 +3,30 @@ export const authenticatedFetch = (url, options = {}) => {
   const isPlatform = import.meta.env.VITE_IS_PLATFORM === 'true';
   const token = localStorage.getItem('auth-token');
 
-  const defaultHeaders = {
-    'Content-Type': 'application/json',
-  };
+  // Check if headers is explicitly provided (even if empty object)
+  // If empty object is passed, don't set Content-Type (for FormData uploads)
+  const hasExplicitHeaders = 'headers' in options;
+  const isEmptyHeaders = hasExplicitHeaders && Object.keys(options.headers || {}).length === 0;
+
+  const headers = {};
+  
+  // Only set Content-Type if not explicitly overridden with empty headers
+  if (!isEmptyHeaders) {
+    headers['Content-Type'] = 'application/json';
+  }
 
   if (!isPlatform && token) {
-    defaultHeaders['Authorization'] = `Bearer ${token}`;
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  // Merge with provided headers (if any non-empty headers provided)
+  if (options.headers && !isEmptyHeaders) {
+    Object.assign(headers, options.headers);
   }
 
   return fetch(url, {
     ...options,
-    headers: {
-      ...defaultHeaders,
-      ...options.headers,
-    },
+    headers,
   });
 };
 
