@@ -10,6 +10,82 @@ const spawnFunction = crossSpawn;
 let activeCodeBuddyProcesses = new Map(); // Track active processes by session ID
 
 /**
+ * Error type classification for user-friendly error messages
+ */
+const ERROR_TYPES = {
+  // Authentication/API errors
+  AUTH: {
+    patterns: [/api[_-]?key/i, /authentication/i, /unauthorized/i, /invalid.*key/i, /ANTHROPIC_API_KEY/i],
+    userMessage: 'API 认证失败。请检查您的 API 密钥配置。',
+    type: 'auth'
+  },
+  // Rate limiting
+  RATE_LIMIT: {
+    patterns: [/rate[_-]?limit/i, /too many requests/i, /429/i, /quota/i],
+    userMessage: 'API 请求频率过高，请稍后重试。',
+    type: 'rate_limit'
+  },
+  // Network errors
+  NETWORK: {
+    patterns: [/network/i, /connection/i, /ECONNREFUSED/i, /ETIMEDOUT/i, /ENOTFOUND/i, /socket/i],
+    userMessage: '网络连接失败。请检查您的网络连接。',
+    type: 'network'
+  },
+  // Permission errors
+  PERMISSION: {
+    patterns: [/permission denied/i, /EACCES/i, /not allowed/i],
+    userMessage: '权限不足。请检查文件或目录权限。',
+    type: 'permission'
+  },
+  // File/Path errors
+  FILE: {
+    patterns: [/ENOENT/i, /no such file/i, /file not found/i, /directory not found/i],
+    userMessage: '找不到指定的文件或目录。',
+    type: 'file'
+  },
+  // Model errors
+  MODEL: {
+    patterns: [/model/i, /invalid.*model/i, /not available/i],
+    userMessage: '模型不可用或配置错误。',
+    type: 'model'
+  },
+  // Session errors
+  SESSION: {
+    patterns: [/session/i, /conversation/i, /context/i],
+    userMessage: '会话出现问题。',
+    type: 'session'
+  }
+};
+
+/**
+ * Classifies error message and returns user-friendly information
+ * @param {string} errorMessage - Raw error message from stderr
+ * @returns {{type: string, userMessage: string, rawMessage: string}}
+ */
+function classifyError(errorMessage) {
+  const normalizedError = errorMessage.trim();
+  
+  for (const [key, errorType] of Object.entries(ERROR_TYPES)) {
+    for (const pattern of errorType.patterns) {
+      if (pattern.test(normalizedError)) {
+        return {
+          type: errorType.type,
+          userMessage: errorType.userMessage,
+          rawMessage: normalizedError
+        };
+      }
+    }
+  }
+  
+  // Default: unknown error
+  return {
+    type: 'unknown',
+    userMessage: '发生了一个错误。',
+    rawMessage: normalizedError
+  };
+}
+
+/**
  * Spawns a CodeBuddy CLI process to handle a query
  * Modeled after Cursor CLI behavior
  * 
@@ -52,6 +128,8 @@ async function spawnCodeBuddy(command, options = {}, ws) {
       // Provide a prompt (works for both new and resumed sessions)
       // Sanitize command to prevent shell injection and newline issues
       const sanitizedCommand = command.replace(/\n/g, ' ').replace(/\r/g, '');
+      // Note: -p is shorthand for --print, so we use it with the prompt
+      // The prompt follows -p directly as its argument
       args.push('-p', sanitizedCommand);
 
       // Add model flag if specified (only meaningful for new sessions; harmless on resume)
@@ -59,12 +137,22 @@ async function spawnCodeBuddy(command, options = {}, ws) {
         args.push('--model', model);
       }
 
-      // Request streaming JSON output (--print is required for --output-format to work)
-      args.push('--print');
+      // Request streaming JSON output
+      // Note: -p already enables print mode, so we just need --output-format
       args.push('--output-format', 'stream-json');
       
       // Increase max turns to allow longer conversations with many tool calls
       args.push('--max-turns', '1000');
+    }
+    
+    // Add tool restrictions if specified (Issue 5 fix)
+    if (settings.allowedTools && settings.allowedTools.length > 0) {
+      args.push('--allowedTools', settings.allowedTools.join(','));
+      console.log('🔧 Allowed tools:', settings.allowedTools.join(','));
+    }
+    if (settings.disallowedTools && settings.disallowedTools.length > 0) {
+      args.push('--disallowedTools', settings.disallowedTools.join(','));
+      console.log('🚫 Disallowed tools:', settings.disallowedTools.join(','));
     }
     
     // Add skip permissions flag for non-interactive mode
@@ -116,7 +204,12 @@ async function spawnCodeBuddy(command, options = {}, ws) {
         NODE_OPTIONS: '--no-warnings',
         // Disable interactive prompts
         CI: 'true',
-        TERM: 'dumb'
+        TERM: 'dumb',
+        // Prevent color output from interfering with JSON parsing (Issue 4 fix)
+        NO_COLOR: '1',
+        FORCE_COLOR: '0',
+        // Signal headless mode to CodeBuddy
+        CODEBUDDY_HEADLESS: '1'
       }
     });
     
@@ -148,30 +241,46 @@ async function spawnCodeBuddy(command, options = {}, ws) {
             case 'system':
               if (response.subtype === 'init') {
                 // Capture session ID
-                if (response.session_id && !capturedSessionId) {
-                  capturedSessionId = response.session_id;
-                  console.log('📝 Captured NEW session ID:', capturedSessionId);
+                if (response.session_id) {
+                  const newSessionId = response.session_id;
                   
-                  // Update process key with captured session ID
-                  if (processKey !== capturedSessionId) {
-                    activeCodeBuddyProcesses.delete(processKey);
-                    activeCodeBuddyProcesses.set(capturedSessionId, codebuddyProcess);
-                  }
-                  
-                  // Set session ID on writer (for API endpoint compatibility)
-                  if (ws.setSessionId && typeof ws.setSessionId === 'function') {
-                    ws.setSessionId(capturedSessionId);
-                  }
-
-                  // Send session-created event only once for new sessions
-                  if (!sessionId && !sessionCreatedSent) {
-                    sessionCreatedSent = true;
+                  // Issue 3 fix: Detect session resume failure
+                  // If we requested a specific session but got a different one, resume failed
+                  if (sessionId && !sessionId.startsWith('temp-') && sessionId !== newSessionId) {
+                    console.warn('⚠️ Session resume failed! Requested:', sessionId, 'Got:', newSessionId);
                     ws.send(JSON.stringify({
-                      type: 'session-created',
-                      sessionId: capturedSessionId,
-                      model: response.model,
-                      cwd: response.cwd
+                      type: 'session-resume-failed',
+                      requestedSessionId: sessionId,
+                      newSessionId: newSessionId,
+                      message: 'Unable to resume the requested session. A new session has been created.'
                     }));
+                  }
+                  
+                  if (!capturedSessionId) {
+                    capturedSessionId = newSessionId;
+                    console.log('📝 Captured NEW session ID:', capturedSessionId);
+                    
+                    // Update process key with captured session ID
+                    if (processKey !== capturedSessionId) {
+                      activeCodeBuddyProcesses.delete(processKey);
+                      activeCodeBuddyProcesses.set(capturedSessionId, codebuddyProcess);
+                    }
+                    
+                    // Set session ID on writer (for API endpoint compatibility)
+                    if (ws.setSessionId && typeof ws.setSessionId === 'function') {
+                      ws.setSessionId(capturedSessionId);
+                    }
+
+                    // Send session-created event only once for new sessions
+                    if (!sessionId && !sessionCreatedSent) {
+                      sessionCreatedSent = true;
+                      ws.send(JSON.stringify({
+                        type: 'session-created',
+                        sessionId: capturedSessionId,
+                        model: response.model,
+                        cwd: response.cwd
+                      }));
+                    }
                   }
                 }
                 
@@ -323,7 +432,9 @@ async function spawnCodeBuddy(command, options = {}, ws) {
         } catch (parseError) {
           // If not JSON, check for OSC title sequence first
           // OSC sequence format: ESC ] 0 ; title BEL (where ESC=\x1b=\u001b, BEL=\x07=\u0007)
-          const oscTitleMatch = line.match(/\u001b\]0;(.+?)\u0007/);
+          // Issue 6 fix: Improved OSC title sequence regex
+          // Supports both BEL (\x07) and ST (\x9c) terminators
+          const oscTitleMatch = line.match(/\u001b\]0;([^\u0007\u009c]+)[\u0007\u009c]/);
           if (oscTitleMatch && oscTitleMatch[1]) {
             // Extract title (remove status emoji prefix like ✳ ✓ ✗ ⏳)
             const rawTitle = oscTitleMatch[1];
@@ -379,12 +490,24 @@ async function spawnCodeBuddy(command, options = {}, ws) {
       }
     });
     
-    // Handle stderr
+    // Handle stderr with error classification for user-friendly messages
     codebuddyProcess.stderr.on('data', (data) => {
-      console.error('❌ CodeBuddy CLI stderr:', data.toString());
+      const rawError = data.toString();
+      console.error('❌ CodeBuddy CLI stderr:', rawError);
+      
+      // Classify error for user-friendly display
+      const classifiedError = classifyError(rawError);
+      
       ws.send(JSON.stringify({
         type: 'codebuddy-error',
-        error: data.toString()
+        error: rawError,
+        errorType: classifiedError.type,
+        userMessage: classifiedError.userMessage,
+        // Include technical details for debugging
+        details: {
+          raw: classifiedError.rawMessage,
+          classified: classifiedError.type !== 'unknown'
+        }
       }));
     });
     

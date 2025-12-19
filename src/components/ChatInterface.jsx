@@ -3167,6 +3167,31 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           }
           break;
 
+        case 'session-resume-failed':
+          // Issue 3 fix: Handle session resume failure notification from backend
+          console.warn('⚠️ Session resume failed:', {
+            requested: latestMessage.requestedSessionId,
+            created: latestMessage.newSessionId,
+            message: latestMessage.message
+          });
+          
+          // Show a warning message to the user
+          setChatMessages(prev => [...prev, {
+            type: 'system',
+            content: `注意: 无法恢复之前的会话，已创建新会话。${latestMessage.message || ''}`,
+            isWarning: true,
+            timestamp: new Date()
+          }]);
+          
+          // Update the pending session ID to the new one
+          if (latestMessage.newSessionId) {
+            sessionStorage.setItem('pendingSessionId', latestMessage.newSessionId);
+            if (onReplaceTemporarySession) {
+              onReplaceTemporarySession(latestMessage.newSessionId);
+            }
+          }
+          break;
+
         case 'token-budget':
           // Token budget now fetched via API after message completion instead of WebSocket
           // This case is kept for compatibility but does nothing
@@ -3224,9 +3249,12 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
               }
               
               const toolUseId = messageData.tool_use_id;
+              // Issue 8 fix: Use consistent toolUseResult structure for tool results
               const toolResultData = {
-                content: resultContent,
-                isError: messageData.is_error,
+                toolUseResult: {
+                  content: resultContent,
+                  isError: messageData.is_error
+                },
                 timestamp: new Date()
               };
               
@@ -3704,11 +3732,23 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           break;
 
         case 'codebuddy-error':
+          // Use classified error message if available for user-friendly display
+          const errorMessage = latestMessage.userMessage || latestMessage.error || 'Unknown error';
+          const errorDetails = latestMessage.details?.raw || latestMessage.error;
+          const errorType = latestMessage.errorType || 'unknown';
+          
           setChatMessages(prev => [...prev, {
             type: 'error',
-            content: `CodeBuddy error: ${latestMessage.error || 'Unknown error'}`,
+            content: `CodeBuddy error: ${errorMessage}`,
+            errorType: errorType,
+            errorDetails: errorDetails !== errorMessage ? errorDetails : null,
             timestamp: new Date()
           }]);
+          
+          // Log technical details for debugging
+          if (errorDetails) {
+            console.error('CodeBuddy error details:', { type: errorType, details: errorDetails });
+          }
           break;
           
         case 'codebuddy-result':
@@ -3834,6 +3874,35 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
             setIsLoading(false);
             setCanAbortSession(false);
             setClaudeStatus(null);
+            
+            // Issue 9 fix: Clean up pending tool results to prevent memory leaks
+            if (pendingToolResultsRef.current.size > 0) {
+              console.log('🧹 Cleaning up pending tool results:', pendingToolResultsRef.current.size);
+              pendingToolResultsRef.current.clear();
+            }
+            
+            // Issue 10 fix: Flush any remaining stream buffer content
+            if (streamTimerRef.current) {
+              clearTimeout(streamTimerRef.current);
+              streamTimerRef.current = null;
+            }
+            if (streamBufferRef.current) {
+              const finalChunk = streamBufferRef.current;
+              streamBufferRef.current = '';
+              if (finalChunk.trim()) {
+                setChatMessages(prev => {
+                  const updated = [...prev];
+                  const last = updated[updated.length - 1];
+                  if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
+                    last.content = (last.content || '') + finalChunk;
+                    last.isStreaming = false;
+                  } else {
+                    updated.push({ type: 'assistant', content: finalChunk, timestamp: new Date(), isStreaming: false });
+                  }
+                  return updated;
+                });
+              }
+            }
           }
 
           // Always mark the completed session as inactive and not processing
