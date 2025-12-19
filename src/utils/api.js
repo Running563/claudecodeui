@@ -8,19 +8,38 @@ export const authenticatedFetch = (url, options = {}) => {
   const hasExplicitHeaders = 'headers' in options;
   const isEmptyHeaders = hasExplicitHeaders && Object.keys(options.headers || {}).length === 0;
 
-  const headers = {};
-  
-  // Only set Content-Type if not explicitly overridden with empty headers
-  if (!isEmptyHeaders) {
-    headers['Content-Type'] = 'application/json';
+  // For FormData uploads (empty headers), we must NOT set Content-Type
+  // The browser will automatically set it with the correct boundary
+  if (isEmptyHeaders) {
+    // Create a new options object without the headers property
+    const { headers: _ignoredHeaders, ...restOptions } = options;
+    
+    // Only add Authorization header for non-platform mode
+    if (!isPlatform && token) {
+      return fetch(url, {
+        ...restOptions,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          // DO NOT set Content-Type here - let browser handle it for FormData
+        },
+      });
+    }
+    
+    // No auth needed, let browser handle everything
+    return fetch(url, restOptions);
   }
+
+  // For regular requests, set Content-Type and merge headers
+  const headers = {
+    'Content-Type': 'application/json',
+  };
 
   if (!isPlatform && token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  // Merge with provided headers (if any non-empty headers provided)
-  if (options.headers && !isEmptyHeaders) {
+  // Merge with provided headers
+  if (options.headers) {
     Object.assign(headers, options.headers);
   }
 

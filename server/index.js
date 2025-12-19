@@ -56,6 +56,7 @@ import { spawn } from 'child_process';
 import pty from 'node-pty';
 import fetch from 'node-fetch';
 import mime from 'mime-types';
+import multer from 'multer';
 
 import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions } from './claude-sdk.js';
@@ -225,7 +226,99 @@ const wss = new WebSocketServer({
 // Make WebSocket server available to routes
 app.locals.wss = wss;
 
+// CORS must be applied BEFORE any route handlers
 app.use(cors());
+
+// Configure multer for image uploads (before express.json middleware)
+const imageUploadStorage = multer.diskStorage({
+    destination: async (req, file, cb) => {
+        const uploadDir = path.join(os.tmpdir(), 'claude-ui-uploads', String(req.user?.id || 'anonymous'));
+        await fsPromises.mkdir(uploadDir, { recursive: true });
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+        cb(null, uniqueSuffix + '-' + sanitizedName);
+    }
+});
+
+const imageUploadFilter = (req, file, cb) => {
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+    if (allowedMimes.includes(file.mimetype)) {
+        cb(null, true);
+    } else {
+        cb(new Error('Invalid file type. Only JPEG, PNG, GIF, WebP, and SVG are allowed.'));
+    }
+};
+
+const imageUpload = multer({
+    storage: imageUploadStorage,
+    fileFilter: imageUploadFilter,
+    limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB
+        files: 5
+    }
+});
+
+// Image upload endpoint - MUST be defined BEFORE express.json() middleware
+// because multer needs to handle multipart/form-data before JSON parsing
+app.post('/api/projects/:projectName/upload-images', authenticateToken, (req, res, next) => {
+    // Use multer with error handling
+    imageUpload.array('images', 5)(req, res, (err) => {
+        if (err) {
+            console.error('Image upload error:', err.message);
+            if (err instanceof multer.MulterError) {
+                if (err.code === 'LIMIT_FILE_SIZE') {
+                    return res.status(400).json({ error: 'File too large. Maximum size is 5MB.' });
+                }
+                if (err.code === 'LIMIT_FILE_COUNT') {
+                    return res.status(400).json({ error: 'Too many files. Maximum is 5 files.' });
+                }
+                return res.status(400).json({ error: `Upload error: ${err.message}` });
+            }
+            return res.status(400).json({ error: err.message });
+        }
+        next();
+    });
+}, async (req, res) => {
+    if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ error: 'No image files provided' });
+    }
+
+    try {
+        // Process uploaded images
+        const processedImages = await Promise.all(
+            req.files.map(async (file) => {
+                // Read file and convert to base64
+                const buffer = await fsPromises.readFile(file.path);
+                const base64 = buffer.toString('base64');
+                const mimeType = file.mimetype;
+
+                // Clean up temp file immediately
+                await fsPromises.unlink(file.path);
+
+                return {
+                    name: file.originalname,
+                    data: `data:${mimeType};base64,${base64}`,
+                    size: file.size,
+                    mimeType: mimeType
+                };
+            })
+        );
+
+        res.json({ images: processedImages });
+    } catch (error) {
+        console.error('Error processing images:', error);
+        // Clean up any remaining files
+        if (req.files) {
+            await Promise.all(req.files.map(f => fsPromises.unlink(f.path).catch(() => { })));
+        }
+        res.status(500).json({ error: 'Failed to process images' });
+    }
+});
+
+// JSON body parser (AFTER image upload endpoint)
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
@@ -1345,91 +1438,6 @@ Agent instructions:`;
         });
     } catch (error) {
         console.error('Endpoint error:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// Image upload endpoint
-app.post('/api/projects/:projectName/upload-images', authenticateToken, async (req, res) => {
-    try {
-        const multer = (await import('multer')).default;
-        const path = (await import('path')).default;
-        const fs = (await import('fs')).promises;
-        const os = (await import('os')).default;
-
-        // Configure multer for image uploads
-        const storage = multer.diskStorage({
-            destination: async (req, file, cb) => {
-                const uploadDir = path.join(os.tmpdir(), 'claude-ui-uploads', String(req.user.id));
-                await fs.mkdir(uploadDir, { recursive: true });
-                cb(null, uploadDir);
-            },
-            filename: (req, file, cb) => {
-                const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-                const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-                cb(null, uniqueSuffix + '-' + sanitizedName);
-            }
-        });
-
-        const fileFilter = (req, file, cb) => {
-            const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
-            if (allowedMimes.includes(file.mimetype)) {
-                cb(null, true);
-            } else {
-                cb(new Error('Invalid file type. Only JPEG, PNG, GIF, WebP, and SVG are allowed.'));
-            }
-        };
-
-        const upload = multer({
-            storage,
-            fileFilter,
-            limits: {
-                fileSize: 5 * 1024 * 1024, // 5MB
-                files: 5
-            }
-        });
-
-        // Handle multipart form data
-        upload.array('images', 5)(req, res, async (err) => {
-            if (err) {
-                return res.status(400).json({ error: err.message });
-            }
-
-            if (!req.files || req.files.length === 0) {
-                return res.status(400).json({ error: 'No image files provided' });
-            }
-
-            try {
-                // Process uploaded images
-                const processedImages = await Promise.all(
-                    req.files.map(async (file) => {
-                        // Read file and convert to base64
-                        const buffer = await fs.readFile(file.path);
-                        const base64 = buffer.toString('base64');
-                        const mimeType = file.mimetype;
-
-                        // Clean up temp file immediately
-                        await fs.unlink(file.path);
-
-                        return {
-                            name: file.originalname,
-                            data: `data:${mimeType};base64,${base64}`,
-                            size: file.size,
-                            mimeType: mimeType
-                        };
-                    })
-                );
-
-                res.json({ images: processedImages });
-            } catch (error) {
-                console.error('Error processing images:', error);
-                // Clean up any remaining files
-                await Promise.all(req.files.map(f => fs.unlink(f.path).catch(() => { })));
-                res.status(500).json({ error: 'Failed to process images' });
-            }
-        });
-    } catch (error) {
-        console.error('Error in image upload endpoint:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

@@ -4433,7 +4433,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
         });
         
         if (!response.ok) {
-          throw new Error('Failed to upload images');
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to upload images');
         }
         
         const result = await response.json();

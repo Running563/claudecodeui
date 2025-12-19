@@ -104,6 +104,9 @@ async function spawnCodeBuddy(command, options = {}, ws) {
     // This matches CodeBuddy SDK behavior: isNewSession: !sessionId && !!command
     const isNewSession = !sessionId && !!command;
     
+    // Check if we have images to send
+    const hasImages = images && Array.isArray(images) && images.length > 0;
+    
     // Use tools settings passed from frontend, or defaults
     const settings = toolsSettings || {
       allowedTools: [],
@@ -124,18 +127,77 @@ async function spawnCodeBuddy(command, options = {}, ws) {
       capturedSessionId = null; // Reset to allow new session
     }
 
-    if (command && command.trim()) {
-      // Provide a prompt (works for both new and resumed sessions)
+    // Build stdin input message for stream-json format (used when images are present)
+    let stdinInput = null;
+    
+    if (hasImages) {
+      // When images are present, use --input-format stream-json
+      // Build the content array with text and images
+      const contentArray = [];
+      
+      // Add text content if present
+      if (command && command.trim()) {
+        contentArray.push({
+          type: 'text',
+          text: command.trim()
+        });
+      }
+      
+      // Add images
+      for (const image of images) {
+        // Image data from frontend is in format: "data:image/png;base64,XXXXX"
+        // We need to extract the raw base64 and media type
+        let mediaType = 'image/png';
+        let base64Data = '';
+        
+        if (image.data) {
+          const dataUrlMatch = image.data.match(/^data:([^;]+);base64,(.+)$/);
+          if (dataUrlMatch) {
+            mediaType = dataUrlMatch[1];
+            base64Data = dataUrlMatch[2];
+          } else {
+            // Assume it's already raw base64
+            base64Data = image.data;
+            mediaType = image.mimeType || 'image/png';
+          }
+        }
+        
+        if (base64Data) {
+          contentArray.push({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: mediaType,
+              data: base64Data
+            }
+          });
+          console.log('🖼️  Adding image:', image.name || 'unnamed', 'type:', mediaType, 'size:', base64Data.length);
+        }
+      }
+      
+      // Build the JSON message for stdin
+      stdinInput = JSON.stringify({
+        type: 'user',
+        message: {
+          role: 'user',
+          content: contentArray
+        }
+      });
+      
+      // Use stream-json input/output format
+      args.push('-p');  // Enable print mode
+      args.push('--input-format', 'stream-json');
+      args.push('--output-format', 'stream-json');
+      args.push('--max-turns', '1000');
+      
+      console.log('📨 Using stream-json input with', images.length, 'image(s)');
+    } else if (command && command.trim()) {
+      // No images - use simple -p with command
       // Sanitize command to prevent shell injection and newline issues
       const sanitizedCommand = command.replace(/\n/g, ' ').replace(/\r/g, '');
       // Note: -p is shorthand for --print, so we use it with the prompt
       // The prompt follows -p directly as its argument
       args.push('-p', sanitizedCommand);
-
-      // Add model flag if specified (only meaningful for new sessions; harmless on resume)
-      if (!sessionId && model && model !== 'default') {
-        args.push('--model', model);
-      }
 
       // Request streaming JSON output
       // Note: -p already enables print mode, so we just need --output-format
@@ -143,6 +205,11 @@ async function spawnCodeBuddy(command, options = {}, ws) {
       
       // Increase max turns to allow longer conversations with many tool calls
       args.push('--max-turns', '1000');
+    }
+
+    // Add model flag if specified (only meaningful for new sessions; harmless on resume)
+    if (!sessionId && model && model !== 'default') {
+      args.push('--model', model);
     }
     
     // Add tool restrictions if specified (Issue 5 fix)
@@ -192,6 +259,9 @@ async function spawnCodeBuddy(command, options = {}, ws) {
     console.log('🤖 Spawning CodeBuddy CLI:', codebuddyCmd, args.join(' '));
     console.log('📁 Working directory:', workingDir);
     console.log('🔑 Session info - Input sessionId:', sessionId, 'Resume:', resume);
+    if (hasImages) {
+      console.log('🖼️  Images count:', images.length);
+    }
     
     const codebuddyProcess = spawnFunction(codebuddyCmd, args, {
       cwd: workingDir,
@@ -213,8 +283,14 @@ async function spawnCodeBuddy(command, options = {}, ws) {
       }
     });
     
-    // Close stdin immediately to prevent process from waiting for input
-    // This is important for --print mode which should be non-interactive
+    // Handle stdin - write image data if present, then close
+    if (stdinInput) {
+      // Write the JSON message to stdin
+      codebuddyProcess.stdin.write(stdinInput);
+      codebuddyProcess.stdin.write('\n');  // JSONL format requires newline
+      console.log('📤 Wrote stream-json input to stdin, length:', stdinInput.length);
+    }
+    // Close stdin to signal end of input
     codebuddyProcess.stdin.end();
     
     // Store process reference for potential abort
@@ -223,6 +299,7 @@ async function spawnCodeBuddy(command, options = {}, ws) {
       ? capturedSessionId 
       : `process-${Date.now()}`;
     activeCodeBuddyProcesses.set(processKey, codebuddyProcess);
+    
     
     // Handle stdout (streaming JSON responses)
     codebuddyProcess.stdout.on('data', (data) => {
