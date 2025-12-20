@@ -3459,8 +3459,14 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           pendingScrollRestoreRef.current = null;
         });
       }
+    } else if (sessionMessages.length === 0 && convertedMessages.length === 0) {
+      // Clear chatMessages when switching to an empty session
+      // Only clear if we're not in a loading or system session change state
+      if (!isLoadingSessionMessages && !isSystemSessionChange) {
+        setChatMessages([]);
+      }
     }
-  }, [convertedMessages, sessionMessages]);
+  }, [convertedMessages, sessionMessages, isLoadingSessionMessages, isSystemSessionChange]);
 
   // Notify parent when input focus changes
   useEffect(() => {

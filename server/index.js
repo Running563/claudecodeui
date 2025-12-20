@@ -1497,12 +1497,18 @@ app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authentica
       }
     }
 
-    // If file not found in any location, return 404
+    // If file not found in any location, return default empty usage instead of 404
+    // This is normal for new sessions that haven't been saved yet
     if (!fileContent) {
-      return res.status(404).json({ 
-        error: 'Session file not found',
-        sessionId: safeSessionId,
-        triedPaths: candidatePaths.map(c => path.join(c.dir, `${safeSessionId}.jsonl`))
+      const parsedContextWindow = parseInt(process.env.CONTEXT_WINDOW, 10);
+      const contextWindow = Number.isFinite(parsedContextWindow) ? parsedContextWindow : 160000;
+      
+      return res.json({
+        inputTokens: 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+        contextWindow: contextWindow,
+        percentage: 0
       });
     }
     const lines = fileContent.trim().split('\n');
