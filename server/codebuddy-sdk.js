@@ -311,7 +311,7 @@ async function spawnCodeBuddy(command, options = {}, ws) {
           const response = JSON.parse(line);
           
           // Debug log all message types
-          console.log('📨 CodeBuddy message:', response.type, response.subtype || '');
+          // console.log('📨 CodeBuddy message:', response.type, response.subtype || '');
           
           // Handle different message types
           switch (response.type) {
@@ -398,7 +398,7 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                         is_error: contentBlock.is_error
                       }
                     }));
-                    console.log('📤 Sending tool result to frontend:', contentBlock.tool_use_id, 'content length:', String(resultContent).length);
+                    // console.log('📤 Sending tool result to frontend:', contentBlock.tool_use_id, 'content length:', String(resultContent).length);
                   }
                 }
               }
@@ -406,7 +406,7 @@ async function spawnCodeBuddy(command, options = {}, ws) {
               
             case 'assistant':
               // Handle assistant message - may have different content structures
-              console.log('📝 Assistant message content:', JSON.stringify(response.message?.content || response).slice(0, 500));
+              // console.log('📝 Assistant message content:', JSON.stringify(response.message?.content || response).slice(0, 500));
               
               if (response.message && response.message.content) {
                 for (const contentBlock of response.message.content) {
@@ -426,7 +426,7 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                         }
                       }
                     };
-                    console.log('📤 Sending text delta to frontend:', contentBlock.text.slice(0, 100));
+                    // console.log('📤 Sending text delta to frontend:', contentBlock.text.slice(0, 100));
                     ws.send(JSON.stringify(textMessage));
                   } else if (contentBlock.type === 'tool_use') {
                     // Forward tool use as claude-response for frontend compatibility
@@ -467,7 +467,7 @@ async function spawnCodeBuddy(command, options = {}, ws) {
               
             case 'result':
               // Session complete
-              console.log('📋 CodeBuddy result:', JSON.stringify(response).slice(0, 500));
+              // console.log('📋 CodeBuddy result:', JSON.stringify(response).slice(0, 500));
               
               // Send final message if we have buffered content
               if (messageBuffer) {
