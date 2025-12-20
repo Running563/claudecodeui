@@ -1404,7 +1404,8 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                     }`}>
                       {(() => {
                         // Handle array content (e.g., [{type: 'image', source: {...}}])
-                        const rawContent = message.toolResult.content;
+                        // Support both data structures: legacy (toolResult.content) and new (toolResult.toolUseResult.content)
+                        const rawContent = message.toolResult?.toolUseResult?.content || message.toolResult?.content;
                         const content = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
                         
                         // Get structured tool result data if available
@@ -1422,10 +1423,13 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                             );
                           }
                           
-                          // Use structured tool result if available (renderer info from CLI)
-                          if (toolData?.renderer?.type === 'code' && toolData?.content) {
-                            const language = toolData.renderer.context?.language || 'text';
-                            const title = stripAnsi(toolData.title || 'File content');
+                          // Try to get content from structured result first, then fall back to rawContent
+                          const readContent = toolData?.content || rawContent;
+                          
+                          // Use structured tool result if available (renderer info from CLI) or plain content
+                          if (readContent && (toolData?.renderer?.type === 'code' || typeof readContent === 'string')) {
+                            const language = toolData?.renderer?.context?.language || 'text';
+                            const title = stripAnsi(toolData?.title || 'File content');
                             return (
                               <div>
                                 <div className="flex items-center gap-2 mb-3">
@@ -1445,7 +1449,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                                     }}
                                     showLineNumbers={true}
                                   >
-                                    {stripAnsi(toolData.content)}
+                                    {stripAnsi(String(readContent))}
                                   </SyntaxHighlighter>
                                 </div>
                               </div>
@@ -5928,7 +5932,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
       {/* Tool Result Modal */}
       {toolResultModal && (() => {
         const { message, toolName } = toolResultModal;
-        const rawContent = message.toolResult?.content;
+        // Support both data structures: legacy (toolResult.content) and new (toolResult.toolUseResult.content)
+        const rawContent = message.toolResult?.toolUseResult?.content || message.toolResult?.content;
         const content = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
         const toolData = message.toolResult?.toolUseResult;
 
@@ -5967,33 +5972,38 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
               <div className="flex-1 overflow-y-auto p-3 md:p-4">
                 {(() => {
                   // Read tool with syntax highlighting
-                  if (toolName === 'Read' && toolData?.renderer?.type === 'code' && toolData?.content) {
-                    const language = toolData.renderer.context?.language || 'text';
-                    const title = stripAnsi(toolData.title || 'File content');
-                    return (
-                      <div>
-                        <div className="flex items-center gap-2 mb-3 md:mb-4">
-                          <span className="text-sm md:text-base font-medium text-gray-900 dark:text-gray-100">{title}</span>
+                  if (toolName === 'Read') {
+                    // Try to get content from structured result first, then fall back to rawContent
+                    const readContent = toolData?.content || rawContent;
+                    const language = toolData?.renderer?.context?.language || 'text';
+                    const title = stripAnsi(toolData?.title || 'File content');
+                    
+                    if (readContent && (toolData?.renderer?.type === 'code' || typeof readContent === 'string')) {
+                      return (
+                        <div>
+                          <div className="flex items-center gap-2 mb-3 md:mb-4">
+                            <span className="text-sm md:text-base font-medium text-gray-900 dark:text-gray-100">{title}</span>
+                          </div>
+                          <div className="bg-gray-800 dark:bg-gray-900 border border-gray-600/30 dark:border-gray-700 rounded-lg overflow-hidden">
+                            <SyntaxHighlighter
+                              language={language}
+                              style={vscDarkPlus}
+                              customStyle={{
+                                margin: 0,
+                                padding: '0.75rem',
+                                fontSize: '0.75rem',
+                                lineHeight: '1.5',
+                                maxHeight: '70vh',
+                                overflowY: 'auto'
+                              }}
+                              showLineNumbers={true}
+                            >
+                              {stripAnsi(String(readContent))}
+                            </SyntaxHighlighter>
+                          </div>
                         </div>
-                        <div className="bg-gray-800 dark:bg-gray-900 border border-gray-600/30 dark:border-gray-700 rounded-lg overflow-hidden">
-                          <SyntaxHighlighter
-                            language={language}
-                            style={vscDarkPlus}
-                            customStyle={{
-                              margin: 0,
-                              padding: '0.75rem',
-                              fontSize: '0.75rem',
-                              lineHeight: '1.5',
-                              maxHeight: '70vh',
-                              overflowY: 'auto'
-                            }}
-                            showLineNumbers={true}
-                          >
-                            {stripAnsi(toolData.content)}
-                          </SyntaxHighlighter>
-                        </div>
-                      </div>
-                    );
+                      );
+                    }
                   }
 
                   // Grep/Glob content mode - display full search results

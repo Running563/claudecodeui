@@ -1077,16 +1077,6 @@ function Sidebar({
                                           {messageCount}
                                         </Badge>
                                       )}
-                                  {/* Provider tiny icon */}
-                                  <span className="ml-1 opacity-70">
-                                    {isCodeBuddySession ? (
-                                      <CodeBuddyLogo className="w-3 h-3" />
-                                    ) : isCursorSession ? (
-                                      <CursorLogo className="w-3 h-3" />
-                                    ) : (
-                                      <ClaudeLogo className="w-3 h-3" />
-                                    )}
-                                  </span>
                                     </div>
                                   </div>
                                   {/* Mobile delete button */}
@@ -1137,16 +1127,6 @@ function Sidebar({
                                           {messageCount}
                                         </Badge>
                                       )}
-                                      {/* Provider tiny icon */}
-                                      <span className="ml-1 opacity-70">
-                                        {isCodeBuddySession ? (
-                                          <CodeBuddyLogo className="w-3 h-3" />
-                                        ) : isCursorSession ? (
-                                          <CursorLogo className="w-3 h-3" />
-                                        ) : (
-                                          <ClaudeLogo className="w-3 h-3" />
-                                        )}
-                                      </span>
                                     </div>
                                   </div>
                                 </div>
