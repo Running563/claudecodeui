@@ -808,18 +808,20 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
     >
       {message.type === 'user' ? (
         /* User message bubble on the right */
-        <div className="flex items-end space-x-0 sm:space-x-3 w-full sm:w-auto sm:max-w-[85%] md:max-w-md lg:max-w-lg xl:max-w-xl">
-          <div className="bg-blue-600 text-white rounded-2xl rounded-br-md px-3 sm:px-4 py-2 shadow-sm flex-1 sm:flex-initial">
-            <UserMessageContent message={message} selectedProject={selectedProject} />
-            <div className="text-xs text-blue-100 mt-1 text-right">
-              {new Date(message.timestamp).toLocaleTimeString()}
+        <div className="flex flex-col items-end w-full sm:w-auto sm:max-w-[85%] md:max-w-md lg:max-w-lg xl:max-w-xl">
+          <div className="flex items-end space-x-0 sm:space-x-3 w-full justify-end">
+            <div className="bg-blue-600 text-white rounded-2xl rounded-br-md px-3 sm:px-4 py-2 shadow-sm flex-1 sm:flex-initial">
+              <UserMessageContent message={message} selectedProject={selectedProject} />
             </div>
+            {!isGrouped && (
+              <div className="hidden sm:flex w-8 h-8 bg-blue-600 rounded-full items-center justify-center text-white text-sm flex-shrink-0">
+                U
+              </div>
+            )}
           </div>
-          {!isGrouped && (
-            <div className="hidden sm:flex w-8 h-8 bg-blue-600 rounded-full items-center justify-center text-white text-sm flex-shrink-0">
-              U
-            </div>
-          )}
+          <div className={`text-xs text-gray-500 dark:text-gray-400 mt-1 ${!isGrouped ? 'sm:mr-11' : ''}`}>
+            {new Date(message.timestamp).toLocaleTimeString()}
+          </div>
         </div>
       ) : (
         /* Claude/Error/Tool messages on the left */
