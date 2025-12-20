@@ -7,6 +7,104 @@ import { addProjectManually } from '../projects.js';
 
 const router = express.Router();
 
+/**
+ * Truncate session messages up to a specific timestamp
+ * PUT /api/projects/:name/sessions/:sessionId/truncate
+ * 
+ * Body: { keepUntilTimestamp: ISO timestamp string }
+ * 
+ * Deletes all messages after the specified timestamp in the session's JSONL file
+ */
+router.put('/:name/sessions/:sessionId/truncate', async (req, res) => {
+  try {
+    const { name: projectName, sessionId } = req.params;
+    const { keepUntilTimestamp } = req.body;
+
+    if (!keepUntilTimestamp) {
+      return res.status(400).json({ error: 'keepUntilTimestamp is required' });
+    }
+
+    const cutoffTime = new Date(keepUntilTimestamp);
+    if (isNaN(cutoffTime.getTime())) {
+      return res.status(400).json({ error: 'Invalid timestamp format' });
+    }
+
+    // Determine JSONL file path based on provider
+    // Try Claude first, then CodeBuddy
+    const claudeProjectName = projectName.startsWith('-') ? projectName : `-${projectName}`;
+    const claudeDir = path.join(os.homedir(), '.claude', 'projects', claudeProjectName);
+    const codebuddyProjectName = projectName.startsWith('-') ? projectName.substring(1) : projectName;
+    const codebuddyDir = path.join(os.homedir(), '.codebuddy', 'projects', codebuddyProjectName);
+
+    let jsonlFile = null;
+    let provider = null;
+
+    // Check Claude first
+    try {
+      await fs.access(claudeDir);
+      jsonlFile = path.join(claudeDir, `${sessionId}.jsonl`);
+      provider = 'claude';
+      // Check if the session file exists in Claude directory
+      try {
+        await fs.access(jsonlFile);
+      } catch (fileErr) {
+        // File doesn't exist in Claude, try CodeBuddy
+        throw new Error('Session file not in Claude directory');
+      }
+    } catch (err) {
+      // Try CodeBuddy
+      try {
+        await fs.access(codebuddyDir);
+        jsonlFile = path.join(codebuddyDir, `${sessionId}.jsonl`);
+        provider = 'codebuddy';
+      } catch (err2) {
+        return res.status(404).json({ error: 'Project directory not found' });
+      }
+    }
+
+    // Read JSONL file
+    let fileContent;
+    try {
+      fileContent = await fs.readFile(jsonlFile, 'utf-8');
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        return res.status(404).json({ error: 'Session file not found', path: jsonlFile });
+      }
+      throw err;
+    }
+
+    // Parse messages
+    const lines = fileContent.trim().split('\n').filter(line => line.trim());
+    const allMessages = lines.map(line => JSON.parse(line));
+
+    // Filter messages: keep only those with timestamp <= cutoffTime
+    const filteredMessages = allMessages.filter(msg => {
+      if (!msg.timestamp) return true; // Keep messages without timestamp
+      const messageTime = new Date(msg.timestamp);
+      return messageTime <= cutoffTime;
+    });
+
+    const deletedCount = allMessages.length - filteredMessages.length;
+
+    // Write back to file
+    const newContent = filteredMessages.map(msg => JSON.stringify(msg)).join('\n') + (filteredMessages.length > 0 ? '\n' : '');
+    await fs.writeFile(jsonlFile, newContent, 'utf-8');
+
+    res.json({
+      success: true,
+      deletedCount,
+      keptCount: filteredMessages.length,
+      provider
+    });
+
+  } catch (error) {
+    console.error('Error truncating session:', error);
+    res.status(500).json({
+      error: error.message || 'Failed to truncate session'
+    });
+  }
+});
+
 // Configure allowed workspace root (defaults to user's home directory)
 const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || os.homedir();
 

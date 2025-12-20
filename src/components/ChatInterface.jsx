@@ -763,7 +763,7 @@ const InlineImagePreview = memo(({ base64Data, onClick }) => (
 InlineImagePreview.displayName = 'InlineImagePreview';
 
 // Memoized message component to prevent unnecessary re-renders
-const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFileOpen, onShowSettings, autoExpandTools, showRawParameters, showThinking, selectedProject, setImagePreview, setToolResultModal }) => {
+const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFileOpen, onShowSettings, autoExpandTools, showRawParameters, showThinking, selectedProject, setImagePreview, setToolResultModal, onEditMessage }) => {
   const isGrouped = prevMessage && prevMessage.type === message.type &&
                    ((prevMessage.type === 'assistant') ||
                     (prevMessage.type === 'user') ||
@@ -806,8 +806,25 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
     >
       {message.type === 'user' ? (
         /* User message bubble on the right */
-        <div className="flex flex-col items-end w-full sm:w-auto sm:max-w-[85%] md:max-w-2xl lg:max-w-3xl xl:max-w-4xl">
-          <div className="flex items-end w-full justify-end">
+        <div className="flex flex-col items-end w-full sm:w-auto sm:max-w-[85%] md:max-w-2xl lg:max-w-3xl xl:max-w-4xl group/usermsg">
+          <div className="flex items-end gap-2 w-full justify-end">
+            {/* Edit button - appears on hover */}
+            {onEditMessage && (
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onEditMessage(index);
+                }}
+                className="opacity-0 group-hover/usermsg:opacity-100 transition-opacity p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 flex-shrink-0 self-end mb-2"
+                title="Edit message"
+                aria-label="Edit message"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </button>
+            )}
             <div className="bg-blue-600 text-white rounded-2xl rounded-br-md px-3 sm:px-4 py-2 shadow-sm flex-1 sm:flex-initial">
               <UserMessageContent message={message} selectedProject={selectedProject} />
             </div>
@@ -2143,6 +2160,10 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
   const [currentSessionId, setCurrentSessionId] = useState(selectedSession?.id || null);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [sessionMessages, setSessionMessages] = useState([]);
+  
+  // Edit message states
+  const [editingMessageIndex, setEditingMessageIndex] = useState(null);
+  const [originalInput, setOriginalInput] = useState('');
   const [isLoadingSessionMessages, setIsLoadingSessionMessages] = useState(false);
   const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
   const isLoadingMoreMessagesRef = useRef(false); // Ref to immediately block duplicate scroll triggers
@@ -4823,9 +4844,103 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     noKeyboard: true
   });
 
+  // Handle edit message
+  const handleEditMessage = useCallback((messageIndex) => {
+    // Prevent editing if already in edit mode or loading
+    if (editingMessageIndex !== null || isLoading) return;
+    
+    const message = chatMessages[messageIndex];
+    if (!message || message.type !== 'user') return;
+
+    // Save original input in case user cancels
+    setOriginalInput(input);
+    
+    // Fill input with message content
+    setInput(message.content || '');
+    
+    // Mark this message as being edited
+    setEditingMessageIndex(messageIndex);
+    
+    // Focus the input
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [chatMessages, input, editingMessageIndex, isLoading]);
+
+  // Cancel editing
+  const handleCancelEdit = useCallback(() => {
+    // Restore original input
+    setInput(originalInput);
+    setEditingMessageIndex(null);
+    setOriginalInput('');
+  }, [originalInput]);
+
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
     if (!input.trim() || isLoading || !selectedProject) return;
+
+    // Store editing state in local variable to avoid async state issues
+    const wasEditing = editingMessageIndex !== null;
+
+    // If editing a message, truncate first
+    if (wasEditing) {
+      const messageToEdit = chatMessages[editingMessageIndex];
+      if (!messageToEdit || !messageToEdit.timestamp) {
+        console.error('Cannot edit message: missing timestamp');
+        setEditingMessageIndex(null);
+        return;
+      }
+
+      try {
+        // We need to find the message BEFORE the one being edited
+        // to use as the truncation point
+        const messageBeforeEdit = editingMessageIndex > 0 
+          ? chatMessages[editingMessageIndex - 1] 
+          : null;
+
+        if (messageBeforeEdit && messageBeforeEdit.timestamp) {
+          // Convert timestamp to ISO string
+          let timestampISO = messageBeforeEdit.timestamp;
+          if (typeof timestampISO === 'number') {
+            timestampISO = new Date(timestampISO).toISOString();
+          } else if (timestampISO instanceof Date) {
+            timestampISO = timestampISO.toISOString();
+          }
+
+          // Truncate backend messages (keep messages up to and including the one before)
+          const response = await authenticatedFetch(
+            `/api/projects/${encodeURIComponent(selectedProject.name)}/sessions/${currentSessionId}/truncate`,
+            {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                keepUntilTimestamp: timestampISO
+              })
+            }
+          );
+
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to truncate session');
+          }
+        }
+
+        // Truncate frontend messages - keep messages BEFORE the one being edited
+        const truncatedMessages = chatMessages.slice(0, editingMessageIndex);
+        setChatMessages(truncatedMessages);
+        
+      } catch (error) {
+        console.error('Failed to truncate messages:', error);
+        setChatMessages(prev => [...prev, {
+          type: 'error',
+          content: `Failed to edit message: ${error.message}`,
+          timestamp: new Date()
+        }]);
+        setEditingMessageIndex(null);
+        setOriginalInput('');
+        return;
+      }
+    }
 
     // Upload images first if any
     let uploadedImages = [];
@@ -4970,6 +5085,12 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     setImageErrors(new Map());
     setIsTextareaExpanded(false);
 
+    // Clear editing state after message is sent
+    if (wasEditing) {
+      setEditingMessageIndex(null);
+      setOriginalInput('');
+    }
+
     // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -4979,7 +5100,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     if (selectedProject) {
       safeLocalStorage.removeItem(`draft_input_${selectedProject.name}`);
     }
-  }, [input, isLoading, selectedProject, attachedImages, currentSessionId, selectedSession, provider, permissionMode, onSessionActive, cursorModel, codebuddyModel, sendMessage, setInput, setAttachedImages, setUploadingImages, setImageErrors, setIsTextareaExpanded, textareaRef, setChatMessages, setIsLoading, setCanAbortSession, setClaudeStatus, setIsUserScrolledUp, scrollToBottom]);
+  }, [input, isLoading, selectedProject, attachedImages, currentSessionId, selectedSession, provider, permissionMode, onSessionActive, cursorModel, codebuddyModel, sendMessage, setInput, setAttachedImages, setUploadingImages, setImageErrors, setIsTextareaExpanded, textareaRef, setChatMessages, setIsLoading, setCanAbortSession, setClaudeStatus, setIsUserScrolledUp, scrollToBottom, chatMessages, editingMessageIndex, setEditingMessageIndex, setOriginalInput]);
 
   // Store handleSubmit in ref so handleCustomCommand can access it
   useEffect(() => {
@@ -5507,6 +5628,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                   selectedProject={selectedProject}
                   setImagePreview={setImagePreview}
                   setToolResultModal={setToolResultModal}
+                  onEditMessage={handleEditMessage}
                 />
               );
             })}
@@ -5797,8 +5919,31 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
             frequentCommands={commandQuery ? [] : frequentCommands}
           />
 
-          <div {...getRootProps()} className={`relative bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-600 focus-within:ring-2 focus-within:ring-blue-500 dark:focus-within:ring-blue-500 focus-within:border-blue-500 transition-all duration-200 overflow-hidden ${isTextareaExpanded ? 'chat-input-expanded' : ''}`}>
+          {/* Editing message indicator */}
+          {editingMessageIndex !== null && (
+            <div className="mb-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg px-4 py-2 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm text-amber-800 dark:text-amber-200">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                <span>Editing message - all messages after this will be deleted when you send</span>
+              </div>
+              <button
+                onClick={handleCancelEdit}
+                className="text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 font-medium text-sm transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
+          <div className={`relative bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-600 focus-within:ring-2 focus-within:ring-blue-500 dark:focus-within:ring-blue-500 focus-within:border-blue-500 transition-all duration-200 overflow-hidden ${isTextareaExpanded ? 'chat-input-expanded' : ''}`}>
             <input {...getInputProps()} />
+            {/* Dropzone area - wrapped in a separate div to avoid interfering with buttons */}
+            <div {...getRootProps()} className="absolute inset-0 pointer-events-none">
+              <div className="pointer-events-auto absolute inset-0" style={{ left: '48px', right: '64px' }}></div>
+            </div>
+            
             <textarea
               ref={textareaRef}
               value={input}
@@ -5821,14 +5966,17 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
               }}
               placeholder={`Type / for commands, @ for files, or ask ${provider === 'cursor' ? 'Cursor' : provider === 'codebuddy' ? 'CodeBuddy' : 'Claude'} anything...`}
               disabled={isLoading}
-              className="chat-input-placeholder block w-full pl-12 pr-20 sm:pr-40 py-1.5 sm:py-4 bg-transparent rounded-2xl focus:outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 disabled:opacity-50 resize-none min-h-[50px] sm:min-h-[80px] max-h-[40vh] sm:max-h-[300px] overflow-y-auto text-sm sm:text-base leading-[21px] sm:leading-6 transition-all duration-200"
+              className="chat-input-placeholder block w-full pl-12 pr-20 sm:pr-40 py-1.5 sm:py-4 bg-transparent rounded-2xl focus:outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 disabled:opacity-50 resize-none min-h-[50px] sm:min-h-[80px] max-h-[40vh] sm:max-h-[300px] overflow-y-auto text-sm sm:text-base leading-[21px] sm:leading-6 transition-all duration-200 relative z-10"
               style={{ height: '50px' }}
             />
             {/* Image upload button */}
             <button
               type="button"
-              onClick={open}
-              className="absolute left-2 top-1/2 transform -translate-y-1/2 p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                open();
+              }}
+              className="absolute left-2 top-1/2 transform -translate-y-1/2 p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors z-20"
               title="Attach images"
             >
               <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -5837,26 +5985,62 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
             </button>
             
             {/* Mic button - HIDDEN */}
-            <div className="absolute right-16 sm:right-16 top-1/2 transform -translate-y-1/2" style={{ display: 'none' }}>
+            <div className="absolute right-16 sm:right-16 top-1/2 transform -translate-y-1/2 z-20" style={{ display: 'none' }}>
               <MicButton
                 onTranscript={handleTranscript}
                 className="w-10 h-10 sm:w-10 sm:h-10"
               />
             </div>
 
-            {/* Send button */}
+            {/* Send button with explicit click handler to prevent dropzone interference */}
             <button
-              type="submit"
-              disabled={!input.trim() || isLoading}
-              onMouseDown={(e) => {
+              type="button"
+              onClick={(e) => {
+                console.log('[Send Button] Click detected', { 
+                  hasInput: !!input.trim(), 
+                  isLoading, 
+                  inputLength: input.length,
+                  disabled: !input.trim() || isLoading 
+                });
                 e.preventDefault();
-                handleSubmit(e);
+                e.stopPropagation();
+                
+                // Check if button should be disabled
+                if (!input.trim() || isLoading) {
+                  console.warn('[Send Button] Click ignored - button is disabled');
+                  return;
+                }
+                
+                // Manually trigger form submit
+                const fakeEvent = { preventDefault: () => {} };
+                handleSubmit(fakeEvent);
               }}
               onTouchStart={(e) => {
-                e.preventDefault();
-                handleSubmit(e);
+                // Prevent touch delay and ensure immediate response on mobile
+                console.log('[Send Button] Touch start');
+                e.stopPropagation();
               }}
-              className="absolute right-2 top-1/2 transform -translate-y-1/2 w-12 h-12 sm:w-12 sm:h-12 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed rounded-full flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:ring-offset-gray-800"
+              onTouchEnd={(e) => {
+                console.log('[Send Button] Touch end', { 
+                  hasInput: !!input.trim(), 
+                  isLoading 
+                });
+                e.preventDefault();
+                e.stopPropagation();
+                
+                // Check if button should be disabled
+                if (!input.trim() || isLoading) {
+                  console.warn('[Send Button] Touch ignored - button is disabled');
+                  return;
+                }
+                
+                // Manually trigger form submit on touch
+                const fakeEvent = { preventDefault: () => {} };
+                handleSubmit(fakeEvent);
+              }}
+              disabled={!input.trim() || isLoading}
+              className="absolute right-2 top-1/2 transform -translate-y-1/2 w-12 h-12 sm:w-12 sm:h-12 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed rounded-full flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:ring-offset-gray-800 z-20"
+              style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
             >
               <svg 
                 className="w-4 h-4 sm:w-5 sm:h-5 text-white transform rotate-90" 
