@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Key, Plus, Trash2, Eye, EyeOff, Copy, Check, Github, ExternalLink } from 'lucide-react';
-import { useVersionCheck } from '../hooks/useVersionCheck';
+
 import { version } from '../../package.json';
 import { authenticatedFetch } from '../utils/api';
 
@@ -20,8 +20,7 @@ function CredentialsSettings() {
   const [copiedKey, setCopiedKey] = useState(null);
   const [newlyCreatedKey, setNewlyCreatedKey] = useState(null);
 
-  // Version check hook
-  const { updateAvailable, latestVersion, releaseInfo } = useVersionCheck('siteboon', 'claudecodeui');
+  
 
   useEffect(() => {
     fetchData();
@@ -388,30 +387,7 @@ function CredentialsSettings() {
         </div>
       </div>
 
-      {/* Version Information */}
-      <div className="pt-6 border-t border-border/50">
-        <div className="flex items-center justify-between text-xs italic text-muted-foreground/60">
-          <a
-            href={releaseInfo?.htmlUrl || 'https://github.com/siteboon/claudecodeui/releases'}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-muted-foreground transition-colors"
-          >
-            v{version}
-          </a>
-          {updateAvailable && latestVersion && (
-            <a
-              href={releaseInfo?.htmlUrl || 'https://github.com/siteboon/claudecodeui/releases'}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-2 py-0.5 bg-green-500/10 text-green-600 dark:text-green-400 rounded-full hover:bg-green-500/20 transition-colors not-italic font-medium"
-            >
-              <span className="text-[10px]">Update available: v{latestVersion}</span>
-              <ExternalLink className="h-2.5 w-2.5" />
-            </a>
-          )}
-        </div>
-      </div>
+      
     </div>
   );
 }
