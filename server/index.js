@@ -1586,7 +1586,8 @@ app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authentica
         const entry = JSON.parse(lines[i]);
 
         // Only count assistant messages which have usage data
-        if (entry.type === 'assistant' && entry.message?.usage) {
+        // Handle both Claude format (type='assistant') and CodeBuddy format (type='message', role='assistant')
+        if ((entry.type === 'assistant' || (entry.type === 'message' && entry.role === 'assistant')) && entry.message?.usage) {
           const usage = entry.message.usage;
 
           // Use token counts from latest assistant message only

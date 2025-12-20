@@ -4263,6 +4263,23 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
             setIsLoading(false);
             setCanAbortSession(false);
             setClaudeStatus(null);
+
+            // Fetch updated token usage after message completes (same as Claude)
+            if (selectedProject && selectedSession?.id) {
+              const fetchUpdatedTokenUsage = async () => {
+                try {
+                  const url = `/api/projects/${selectedProject.name}/sessions/${selectedSession.id}/token-usage`;
+                  const response = await authenticatedFetch(url);
+                  if (response.ok) {
+                    const data = await response.json();
+                    setTokenBudget(data);
+                  }
+                } catch (error) {
+                  console.error('Failed to fetch updated token usage:', error);
+                }
+              };
+              fetchUpdatedTokenUsage();
+            }
             
             // Issue 9 fix: Clean up pending tool results to prevent memory leaks
             if (pendingToolResultsRef.current.size > 0) {
