@@ -712,6 +712,59 @@ app.get('/api/projects/:projectName/files/content', authenticateToken, async (re
     }
 });
 
+// Serve temporary image files (for chat image display)
+// Only allows access to .tmp/images/ directories for security
+app.get('/api/temp-image', authenticateToken, async (req, res) => {
+    try {
+        const { path: imagePath } = req.query;
+
+        if (!imagePath) {
+            return res.status(400).json({ error: 'Invalid image path' });
+        }
+
+        // Security: only allow paths containing .tmp/images/
+        if (!imagePath.includes('.tmp/images/') && !imagePath.includes('.tmp\\images\\')) {
+            return res.status(403).json({ error: 'Access denied: only temp images allowed' });
+        }
+
+        const resolved = path.resolve(imagePath);
+
+        // Additional security: verify the path still contains .tmp/images after resolution
+        if (!resolved.includes('.tmp/images/') && !resolved.includes('.tmp\\images\\')) {
+            return res.status(403).json({ error: 'Access denied: path traversal detected' });
+        }
+
+        // Check if file exists
+        try {
+            await fsPromises.access(resolved);
+        } catch (error) {
+            return res.status(404).json({ error: 'Image not found' });
+        }
+
+        // Get file extension and set appropriate content type
+        const mimeType = mime.lookup(resolved) || 'image/png';
+        res.setHeader('Content-Type', mimeType);
+        res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+
+        // Stream the file
+        const fileStream = fs.createReadStream(resolved);
+        fileStream.pipe(res);
+
+        fileStream.on('error', (error) => {
+            console.error('Error streaming temp image:', error);
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'Error reading image' });
+            }
+        });
+
+    } catch (error) {
+        console.error('Error serving temp image:', error);
+        if (!res.headersSent) {
+            res.status(500).json({ error: error.message });
+        }
+    }
+});
+
 // Save file content endpoint
 app.put('/api/projects/:projectName/file', authenticateToken, async (req, res) => {
     try {

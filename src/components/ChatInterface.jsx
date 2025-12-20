@@ -22,6 +22,62 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { useDropzone } from 'react-dropzone';
+
+// ============================================================================
+// Utility Functions for Image Handling and Text Processing
+// ============================================================================
+
+/**
+ * Strips ANSI escape sequences (terminal color codes) from a string
+ * @param {string} str - String that may contain ANSI codes
+ * @returns {string} - Clean string without ANSI codes
+ */
+const stripAnsi = (str) => {
+  if (typeof str !== 'string') return str;
+  // Remove ANSI escape sequences using regex
+  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+};
+
+/**
+ * Extracts base64 image data from tool result content
+ * Handles both array format and string format
+ * @param {any} content - Tool result content (can be array, string, or object)
+ * @returns {string|null} - Base64 data URL or null if no image found
+ */
+const extractBase64FromContent = (content) => {
+  // Parse JSON string if needed
+  if (typeof content === 'string') {
+    try {
+      if (content.startsWith('[') || content.startsWith('{')) {
+        content = JSON.parse(content);
+      }
+    } catch (e) {
+      // Not valid JSON, check if it's already a data URL
+      const match = content.match(/data:image\/[^;]+;base64,([A-Za-z0-9+/=]+)/);
+      return match ? match[0] : null;
+    }
+  }
+  
+  // Check if content is array with image object
+  if (Array.isArray(content)) {
+    const imageItem = content.find(item => item?.type === 'image');
+    if (imageItem?.source?.type === 'base64') {
+      const mediaType = imageItem.source.media_type || 'image/png';
+      return `data:${mediaType};base64,${imageItem.source.data}`;
+    }
+  }
+  
+  return null;
+};
+
+/**
+ * Checks if tool result content contains image data
+ * @param {any} content - Tool result content
+ * @returns {boolean}
+ */
+const hasImageContent = (content) => {
+  return Array.isArray(content) && content.some(item => item?.type === 'image');
+};
 // 直接从 dist 路径导入 PrismLight，避免引入主包导致加载所有语言
 import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
 import vscDarkPlus from 'react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus';
@@ -474,6 +530,83 @@ const markdownComponents = {
       {children}
     </a>
   ),
+  img: ({ src, alt }) => {
+    // Handle tool result images that have absolute file paths
+    // These need to be fetched with authentication
+    const [blobUrl, setBlobUrl] = React.useState(null);
+    const [loading, setLoading] = React.useState(true);
+    const [error, setError] = React.useState(false);
+
+    React.useEffect(() => {
+      // Check if this is a temporary image path
+      if (!src || !src.includes('.tmp/images/')) {
+        // Regular image, use as-is (e.g., base64 data URLs)
+        setBlobUrl(src);
+        setLoading(false);
+        return;
+      }
+
+      // Fetch the image with authentication
+      const loadImage = async () => {
+        try {
+          setLoading(true);
+          const response = await authenticatedFetch(`/api/temp-image?path=${encodeURIComponent(src)}`);
+          if (response.ok) {
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            setBlobUrl(url);
+            setError(false);
+          } else {
+            console.error('Failed to load image:', src, response.status);
+            setError(true);
+          }
+        } catch (err) {
+          console.error('Error loading image:', src, err);
+          setError(true);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      loadImage();
+
+      // Cleanup blob URL
+      return () => {
+        if (blobUrl && blobUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(blobUrl);
+        }
+      };
+    }, [src]);
+
+    if (loading) {
+      return (
+        <div className="inline-flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+          <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          Loading image...
+        </div>
+      );
+    }
+
+    if (error || !blobUrl) {
+      return (
+        <div className="inline-block text-sm text-red-600 dark:text-red-400">
+          Failed to load image: {alt || src}
+        </div>
+      );
+    }
+
+    return (
+      <img
+        src={blobUrl}
+        alt={alt || 'Image'}
+        className="rounded-lg max-w-full h-auto my-2 cursor-pointer hover:opacity-90 transition-opacity"
+        onClick={() => window.open(blobUrl, '_blank')}
+      />
+    );
+  },
   p: ({ children }) => <div className="mb-2 last:mb-0">{children}</div>,
   // GFM tables
   table: ({ children }) => (
@@ -494,8 +627,145 @@ const markdownComponents = {
   )
 };
 
+// Component to render user message content with image path detection
+const UserMessageContent = memo(({ message, selectedProject }) => {
+  const [imagePaths, setImagePaths] = useState([]);
+  const [displayContent, setDisplayContent] = useState(message.content);
+  const [imageBlobs, setImageBlobs] = useState({});
+
+  useEffect(() => {
+    // Parse image paths from content like:
+    // "[Images provided at the following paths:]\n1. /path/to/image.png"
+    // Format from claude-sdk.js: `\n\n[Images provided at the following paths:]\n${paths.map((p, i) => `${i + 1}. ${p}`).join('\n')}`
+    const content = message.content || '';
+    
+    // Match the entire image section including the leading newlines
+    const imagePathRegex = /\n?\n?\[Images provided at the following paths:\]\n([\s\S]*?)$/;
+    const match = content.match(imagePathRegex);
+    
+    if (match) {
+      // Extract paths from format "1. /path/to/image.png"
+      const pathsText = match[1];
+      // Find all absolute paths in the text
+      const pathMatches = pathsText.match(/\/[^\s\n]+/g) || [];
+      const paths = pathMatches.filter(p => p.includes('.tmp/images/'));
+      
+      console.log('[UserMessageContent] Found image paths:', paths);
+      
+      setImagePaths(paths);
+      // Remove the image paths section from display content
+      setDisplayContent(content.replace(match[0], '').trim());
+    } else {
+      setImagePaths([]);
+      setDisplayContent(content);
+    }
+  }, [message.content]);
+
+  // Fetch images with authentication and create blob URLs
+  useEffect(() => {
+    if (imagePaths.length === 0) return;
+
+    const loadImages = async () => {
+      const blobs = {};
+      for (const imagePath of imagePaths) {
+        try {
+          const response = await authenticatedFetch(`/api/temp-image?path=${encodeURIComponent(imagePath)}`);
+          if (response.ok) {
+            const blob = await response.blob();
+            blobs[imagePath] = URL.createObjectURL(blob);
+          } else {
+            console.error(`Failed to load image ${imagePath}:`, response.status);
+          }
+        } catch (error) {
+          console.error(`Error loading image ${imagePath}:`, error);
+        }
+      }
+      setImageBlobs(blobs);
+    };
+
+    loadImages();
+
+    // Cleanup blob URLs on unmount
+    return () => {
+      Object.values(imageBlobs).forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [imagePaths]);
+
+  // Build image URLs for paths (use temp-image API for .tmp/images paths)
+  const getImageUrl = (imagePath) => {
+    return imageBlobs[imagePath] || '';
+  };
+
+  return (
+    <>
+      <div className="text-sm whitespace-pre-wrap break-words">
+        {displayContent}
+      </div>
+      {/* Show images from message.images (newly uploaded) */}
+      {message.images && message.images.length > 0 && (
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          {message.images.map((img, idx) => (
+            <img
+              key={idx}
+              src={img.data}
+              alt={img.name}
+              className="rounded-lg max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
+              onClick={() => window.open(img.data, '_blank')}
+            />
+          ))}
+        </div>
+      )}
+      {/* Show images from parsed paths (from history) */}
+      {imagePaths.length > 0 && !message.images?.length && (
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          {imagePaths.map((imagePath, idx) => {
+            const blobUrl = imageBlobs[imagePath];
+            // Only render if blob URL is ready
+            if (!blobUrl) return null;
+            
+            return (
+              <img
+                key={idx}
+                src={blobUrl}
+                alt={`Image ${idx + 1}`}
+                className="rounded-lg max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity bg-blue-500/20"
+                onClick={() => window.open(blobUrl, '_blank')}
+              />
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+});
+
+// ============================================================================
+// Image Preview Component (Reusable)
+// ============================================================================
+
+/**
+ * Inline image preview component for tool results
+ * @param {string} base64Data - Base64 data URL
+ * @param {Function} onClick - Click handler for full-screen preview
+ */
+const InlineImagePreview = memo(({ base64Data, onClick }) => (
+  <div>
+    <div className="flex items-center gap-2 mb-3">
+      <span className="font-medium">Image Preview</span>
+    </div>
+    <img
+      src={base64Data}
+      alt="Tool result preview"
+      className="rounded-lg max-w-full max-h-96 h-auto cursor-pointer hover:opacity-90 transition-opacity border border-green-200 dark:border-green-700"
+      onClick={onClick}
+    />
+  </div>
+));
+
+InlineImagePreview.displayName = 'InlineImagePreview';
+
 // Memoized message component to prevent unnecessary re-renders
-const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFileOpen, onShowSettings, autoExpandTools, showRawParameters, showThinking, selectedProject }) => {
+const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFileOpen, onShowSettings, autoExpandTools, showRawParameters, showThinking, selectedProject, setImagePreview, setToolResultModal }) => {
   const isGrouped = prevMessage && prevMessage.type === message.type &&
                    ((prevMessage.type === 'assistant') ||
                     (prevMessage.type === 'user') ||
@@ -540,22 +810,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
         /* User message bubble on the right */
         <div className="flex items-end space-x-0 sm:space-x-3 w-full sm:w-auto sm:max-w-[85%] md:max-w-md lg:max-w-lg xl:max-w-xl">
           <div className="bg-blue-600 text-white rounded-2xl rounded-br-md px-3 sm:px-4 py-2 shadow-sm flex-1 sm:flex-initial">
-            <div className="text-sm whitespace-pre-wrap break-words">
-              {message.content}
-            </div>
-            {message.images && message.images.length > 0 && (
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                {message.images.map((img, idx) => (
-                  <img
-                    key={idx}
-                    src={img.data}
-                    alt={img.name}
-                    className="rounded-lg max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
-                    onClick={() => window.open(img.data, '_blank')}
-                  />
-                ))}
-              </div>
-            )}
+            <UserMessageContent message={message} selectedProject={selectedProject} />
             <div className="text-xs text-blue-100 mt-1 text-right">
               {new Date(message.timestamp).toLocaleTimeString()}
             </div>
@@ -603,15 +858,15 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                             })()}
                           </div>
                           {message.toolResult && (
-                            <a
-                              href={`#tool-result-${message.toolId}`}
+                            <button
+                              onClick={() => setToolResultModal({ message, toolName: message.toolName })}
                               className="flex-shrink-0 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium transition-colors flex items-center gap-1"
                             >
                               <span>results</span>
                               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                               </svg>
-                            </a>
+                            </button>
                           )}
                         </div>
                       </div>
@@ -644,21 +899,35 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                       </span>
                     </div>
                   </div>
-                  {onShowSettings && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onShowSettings();
-                      }}
-                      className="p-2 rounded-lg hover:bg-white/60 dark:hover:bg-gray-800/60 transition-all duration-200 group/btn backdrop-blur-sm"
-                      title="Tool Settings"
-                    >
-                      <svg className="w-4 h-4 text-gray-600 dark:text-gray-400 group-hover/btn:text-blue-600 dark:group-hover/btn:text-blue-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {message.toolResult && (
+                      <button
+                        onClick={() => setToolResultModal({ message, toolName: message.toolName })}
+                        className="px-3 py-1.5 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 font-medium transition-colors rounded-lg flex items-center gap-1.5 border border-blue-200 dark:border-blue-800"
+                        title="View tool result"
+                      >
+                        <span>results</span>
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      </button>
+                    )}
+                    {onShowSettings && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onShowSettings();
+                        }}
+                        className="p-2 rounded-lg hover:bg-white/60 dark:hover:bg-gray-800/60 transition-all duration-200 group/btn backdrop-blur-sm"
+                        title="Tool Settings"
+                      >
+                        <svg className="w-4 h-4 text-gray-600 dark:text-gray-400 group-hover/btn:text-blue-600 dark:group-hover/btn:text-blue-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {message.toolInput && message.toolName === 'Edit' && (() => {
                   try {
@@ -1015,7 +1284,22 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                           <div className="mt-2 text-sm text-blue-700 dark:text-blue-300">
                             Read{' '}
                             <button
-                              onClick={() => onFileOpen && onFileOpen(input.file_path)}
+                              onClick={() => {
+                                // Check if it's an image file
+                                const isImage = /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(input.file_path);
+                                
+                                if (isImage && message.toolResult?.content) {
+                                  // Use cached base64 data for images
+                                  const base64Data = extractBase64FromContent(message.toolResult.content);
+                                  if (base64Data) {
+                                    setImagePreview({ url: base64Data, filename });
+                                    return;
+                                  }
+                                }
+                                
+                                // For text files, show in modal using cached content
+                                setToolResultModal({ message, toolName: message.toolName });
+                              }}
                               className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline font-mono"
                             >
                               {filename}
@@ -1124,7 +1408,55 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                         : 'text-green-900 dark:text-green-100'
                     }`}>
                       {(() => {
-                        const content = String(message.toolResult.content || '');
+                        // Handle array content (e.g., [{type: 'image', source: {...}}])
+                        const rawContent = message.toolResult.content;
+                        const content = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
+                        
+                        // Get structured tool result data if available
+                        const toolData = message.toolResult?.toolUseResult;
+                        
+                        // Special handling for Read tool with image files (base64 data)
+                        if (message.toolName === 'Read' && !message.toolResult.isError) {
+                          const base64Data = extractBase64FromContent(rawContent);
+                          if (base64Data) {
+                            return (
+                              <InlineImagePreview
+                                base64Data={base64Data}
+                                onClick={() => setImagePreview({ url: base64Data, filename: 'image' })}
+                              />
+                            );
+                          }
+                          
+                          // Use structured tool result if available (renderer info from CLI)
+                          if (toolData?.renderer?.type === 'code' && toolData?.content) {
+                            const language = toolData.renderer.context?.language || 'text';
+                            const title = stripAnsi(toolData.title || 'File content');
+                            return (
+                              <div>
+                                <div className="flex items-center gap-2 mb-3">
+                                  <span className="font-medium">{title}</span>
+                                </div>
+                                <div className="bg-gray-800 dark:bg-gray-900 border border-gray-600/30 dark:border-gray-700 rounded-lg overflow-hidden">
+                                  <SyntaxHighlighter
+                                    language={language}
+                                    style={vscDarkPlus}
+                                    customStyle={{
+                                      margin: 0,
+                                      padding: '1rem',
+                                      fontSize: '0.75rem',
+                                      lineHeight: '1.5',
+                                      maxHeight: '24rem',
+                                      overflowY: 'auto'
+                                    }}
+                                    showLineNumbers={true}
+                                  >
+                                    {stripAnsi(toolData.content)}
+                                  </SyntaxHighlighter>
+                                </div>
+                              </div>
+                            );
+                          }
+                        }
                         
                         // Special handling for TodoWrite/TodoRead results
                         if ((message.toolName === 'TodoWrite' || message.toolName === 'TodoRead') &&
@@ -1190,6 +1522,26 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                         if ((message.toolName === 'Grep' || message.toolName === 'Glob') && message.toolResult?.toolUseResult) {
                           const toolData = message.toolResult.toolUseResult;
 
+                          // Handle content mode - display full search results with content
+                          if (toolData.content && Array.isArray(toolData.content) && toolData.content.length > 0) {
+                            const cleanContent = toolData.content.map(line => stripAnsi(line));
+                            const title = stripAnsi(toolData.title || `Found ${toolData.content.length} lines`);
+                            return (
+                              <div>
+                                <div className="flex items-center gap-2 mb-3">
+                                  <span className="font-medium">{title}</span>
+                                </div>
+                                <div className="bg-gray-800 dark:bg-gray-900 border border-gray-600/30 dark:border-gray-700 rounded-lg overflow-hidden max-h-96 overflow-y-auto">
+                                  <pre className="p-4 text-xs font-mono">
+                                    <code className="text-gray-100 dark:text-gray-200 whitespace-pre">
+                                      {cleanContent.join('\n')}
+                                    </code>
+                                  </pre>
+                                </div>
+                              </div>
+                            );
+                          }
+
                           // Handle files_with_matches mode or any tool result with filenames array
                           if (toolData.filenames && Array.isArray(toolData.filenames) && toolData.filenames.length > 0) {
                             return (
@@ -1201,15 +1553,16 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                                 </div>
                                 <div className="space-y-1 max-h-96 overflow-y-auto">
                                   {toolData.filenames.map((filePath, index) => {
-                                    const fileName = filePath.split('/').pop();
-                                    const dirPath = filePath.substring(0, filePath.lastIndexOf('/'));
+                                    const cleanPath = stripAnsi(filePath);
+                                    const fileName = cleanPath.split('/').pop();
+                                    const dirPath = cleanPath.substring(0, cleanPath.lastIndexOf('/'));
 
                                     return (
                                       <div
                                         key={index}
                                         onClick={() => {
                                           if (onFileOpen) {
-                                            onFileOpen(filePath);
+                                            onFileOpen(cleanPath);
                                           }
                                         }}
                                         className="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-green-100/50 dark:hover:bg-green-800/20 cursor-pointer transition-colors"
@@ -1568,6 +1921,8 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                   const input = JSON.parse(message.toolInput);
                   if (input.file_path) {
                     const filename = input.file_path.split('/').pop();
+                    const isImage = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(filename);
+                    
                     return (
                       <div className="bg-gray-50/50 dark:bg-gray-800/30 border-l-2 border-gray-400 dark:border-gray-500 pl-3 py-2 my-2">
                         <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
@@ -1576,7 +1931,21 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                           </svg>
                           <span className="font-medium">Read</span>
                           <button
-                            onClick={() => onFileOpen && onFileOpen(input.file_path)}
+                            onClick={() => {
+                              if (isImage) {
+                                // For images, use cached base64 data
+                                const base64Data = message.toolResult?.content 
+                                  ? extractBase64FromContent(message.toolResult.content)
+                                  : null;
+                                
+                                if (base64Data) {
+                                  setImagePreview({ url: base64Data, filename });
+                                }
+                              } else {
+                                // For text files, show in modal using cached content
+                                setToolResultModal({ message, toolName: message.toolName });
+                              }
+                            }}
                             className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-mono transition-colors"
                           >
                             {filename}
@@ -1807,6 +2176,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
   const [selectedFileIndex, setSelectedFileIndex] = useState(-1);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [atSymbolPosition, setAtSymbolPosition] = useState(-1);
+  const [imagePreview, setImagePreview] = useState(null); // { url: string, filename: string }
+  const [toolResultModal, setToolResultModal] = useState(null); // { message: object, toolName: string }
   const [canAbortSession, setCanAbortSession] = useState(false);
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const scrollPositionRef = useRef({ height: 0, top: 0 });
@@ -2685,7 +3056,15 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           toolId: msg.callId,
           toolInput: msg.arguments || '{}',
           toolResult: toolResult ? {
-            content: typeof toolResult.content === 'string' ? toolResult.content : JSON.stringify(toolResult.content),
+            content: (() => {
+              // Keep array if it contains image data, otherwise convert to string
+              if (hasImageContent(toolResult.content)) {
+                return toolResult.content;
+              }
+              return typeof toolResult.content === 'string' 
+                ? toolResult.content 
+                : JSON.stringify(toolResult.content);
+            })(),
             isError: toolResult.isError,
             toolUseResult: toolResult.toolUseResult
           } : null,
@@ -2776,7 +3155,15 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                 toolId: part.id,
                 toolInput: JSON.stringify(part.input),
                 toolResult: toolResult ? {
-                  content: typeof toolResult.content === 'string' ? toolResult.content : JSON.stringify(toolResult.content),
+                  content: (() => {
+                    // Keep array if it contains image data, otherwise convert to string
+                    if (hasImageContent(toolResult.content)) {
+                      return toolResult.content;
+                    }
+                    return typeof toolResult.content === 'string' 
+                      ? toolResult.content 
+                      : JSON.stringify(toolResult.content);
+                  })(),
                   isError: toolResult.isError,
                   toolUseResult: toolResult.toolUseResult
                 } : null,
@@ -3237,16 +3624,18 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
             
             // Handle tool_result (from CodeBuddy)
             if (messageData.type === 'tool_result') {
-              // Convert content to string if it's an array or object
+              // Keep content array if it contains images, otherwise convert to string
               let resultContent = messageData.content;
-              if (Array.isArray(resultContent)) {
+              
+              if (Array.isArray(resultContent) && !hasImageContent(resultContent)) {
                 // Extract text from content array (common format: [{type: 'text', text: '...'}])
                 resultContent = resultContent
                   .map(item => item.text || (typeof item === 'string' ? item : JSON.stringify(item)))
                   .join('\n');
-              } else if (typeof resultContent === 'object' && resultContent !== null) {
+              } else if (typeof resultContent === 'object' && resultContent !== null && !hasImageContent(resultContent)) {
                 resultContent = JSON.stringify(resultContent, null, 2);
               }
+              // If hasImageContent, keep resultContent as-is (the array with image objects)
               
               const toolUseId = messageData.tool_use_id;
               // Issue 8 fix: Use consistent toolUseResult structure for tool results
@@ -5115,6 +5504,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                   showRawParameters={showRawParameters}
                   showThinking={showThinking}
                   selectedProject={selectedProject}
+                  setImagePreview={setImagePreview}
+                  setToolResultModal={setToolResultModal}
                 />
               );
             })}
@@ -5492,6 +5883,225 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           </div>
         </form>
       </div>
+
+      {/* Image Preview Modal */}
+      {imagePreview && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => {
+            // Only revoke blob URLs, not data URLs
+            if (imagePreview.url.startsWith('blob:')) {
+              URL.revokeObjectURL(imagePreview.url);
+            }
+            setImagePreview(null);
+          }}
+        >
+          <div className="relative max-w-[90vw] max-h-[90vh] flex flex-col">
+            {/* Close button */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                // Only revoke blob URLs, not data URLs
+                if (imagePreview.url.startsWith('blob:')) {
+                  URL.revokeObjectURL(imagePreview.url);
+                }
+                setImagePreview(null);
+              }}
+              className="absolute -top-10 right-0 text-white hover:text-gray-300 transition-colors"
+            >
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            
+            {/* Filename */}
+            <div className="text-white text-sm mb-2 text-center">{imagePreview.filename}</div>
+            
+            {/* Image */}
+            <img
+              src={imagePreview.url}
+              alt={imagePreview.filename}
+              className="max-w-full max-h-[80vh] object-contain rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Tool Result Modal */}
+      {toolResultModal && (() => {
+        const { message, toolName } = toolResultModal;
+        const rawContent = message.toolResult?.content;
+        const content = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
+        const toolData = message.toolResult?.toolUseResult;
+
+        return (
+          <div 
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-0 md:p-4"
+            onClick={() => setToolResultModal(null)}
+          >
+            <div 
+              className="relative w-full h-full md:h-auto md:max-w-4xl md:max-h-[85vh] bg-white dark:bg-gray-900 md:rounded-xl shadow-2xl overflow-hidden flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-3 py-2 md:px-4 md:py-3 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 md:w-8 md:h-8 bg-gradient-to-br from-blue-500 to-indigo-600 dark:from-blue-400 dark:to-indigo-500 rounded-lg flex items-center justify-center shadow-lg">
+                    <svg className="w-3 h-3 md:w-4 md:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-sm md:text-base font-semibold text-gray-900 dark:text-white">{toolName} Result</h3>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setToolResultModal(null)}
+                  className="p-1.5 md:p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                >
+                  <svg className="w-4 h-4 md:w-5 md:h-5 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-3 md:p-4">
+                {(() => {
+                  // Read tool with syntax highlighting
+                  if (toolName === 'Read' && toolData?.renderer?.type === 'code' && toolData?.content) {
+                    const language = toolData.renderer.context?.language || 'text';
+                    const title = stripAnsi(toolData.title || 'File content');
+                    return (
+                      <div>
+                        <div className="flex items-center gap-2 mb-3 md:mb-4">
+                          <span className="text-sm md:text-base font-medium text-gray-900 dark:text-gray-100">{title}</span>
+                        </div>
+                        <div className="bg-gray-800 dark:bg-gray-900 border border-gray-600/30 dark:border-gray-700 rounded-lg overflow-hidden">
+                          <SyntaxHighlighter
+                            language={language}
+                            style={vscDarkPlus}
+                            customStyle={{
+                              margin: 0,
+                              padding: '0.75rem',
+                              fontSize: '0.75rem',
+                              lineHeight: '1.5',
+                              maxHeight: '70vh',
+                              overflowY: 'auto'
+                            }}
+                            showLineNumbers={true}
+                          >
+                            {stripAnsi(toolData.content)}
+                          </SyntaxHighlighter>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // Grep/Glob content mode - display full search results
+                  if ((toolName === 'Grep' || toolName === 'Glob') && rawContent && Array.isArray(rawContent) && rawContent.length > 0) {
+                    // 如果 rawContent 是字符串数组（搜索结果行）
+                    const lines = rawContent.map(line => stripAnsi(line));
+                    const title = stripAnsi(`Found ${lines.length} ${lines.length === 1 ? 'match' : 'matches'}`);
+                    return (
+                      <div>
+                        <div className="flex items-center gap-2 mb-3 md:mb-4">
+                          <span className="text-sm md:text-base font-medium text-gray-900 dark:text-gray-100">{title}</span>
+                        </div>
+                        <div className="bg-gray-800 dark:bg-gray-950 border border-gray-600/30 dark:border-gray-700 rounded-lg overflow-hidden">
+                          <pre className="p-3 md:p-4 text-xs font-mono overflow-x-auto">
+                            <code className="text-gray-100 dark:text-gray-200 whitespace-pre">
+                              {lines.join('\n')}
+                            </code>
+                          </pre>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // Grep/Glob with toolUseResult.content
+                  if ((toolName === 'Grep' || toolName === 'Glob') && toolData?.content && Array.isArray(toolData.content) && toolData.content.length > 0) {
+                    const lines = toolData.content.map(line => stripAnsi(line));
+                    const title = stripAnsi(toolData.title || `Found ${toolData.content.length} lines`);
+                    return (
+                      <div>
+                        <div className="flex items-center gap-2 mb-3 md:mb-4">
+                          <span className="text-sm md:text-base font-medium text-gray-900 dark:text-gray-100">{title}</span>
+                        </div>
+                        <div className="bg-gray-800 dark:bg-gray-950 border border-gray-600/30 dark:border-gray-700 rounded-lg overflow-hidden">
+                          <pre className="p-3 md:p-4 text-xs font-mono overflow-x-auto">
+                            <code className="text-gray-100 dark:text-gray-200 whitespace-pre">
+                              {lines.join('\n')}
+                            </code>
+                          </pre>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // Grep/Glob files mode - display file list
+                  if ((toolName === 'Grep' || toolName === 'Glob') && toolData?.filenames && Array.isArray(toolData.filenames) && toolData.filenames.length > 0) {
+                    return (
+                      <div>
+                        <div className="flex items-center gap-2 mb-3 md:mb-4">
+                          <span className="text-sm md:text-base font-medium text-gray-900 dark:text-gray-100">
+                            Found {toolData.numFiles || toolData.filenames.length} {(toolData.numFiles === 1 || toolData.filenames.length === 1) ? 'file' : 'files'}
+                          </span>
+                        </div>
+                        <div className="space-y-1">
+                          {toolData.filenames.map((filePath, index) => {
+                            const cleanPath = stripAnsi(filePath);
+                            const fileName = cleanPath.split('/').pop();
+                            const dirPath = cleanPath.substring(0, cleanPath.lastIndexOf('/'));
+
+                            return (
+                              <div
+                                key={index}
+                                onClick={() => {
+                                  if (onFileOpen) {
+                                    onFileOpen(cleanPath);
+                                    setToolResultModal(null);
+                                  }
+                                }}
+                                className="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer transition-colors border border-transparent hover:border-blue-200 dark:hover:border-blue-800"
+                              >
+                                <svg className="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-mono text-sm font-medium text-gray-800 dark:text-gray-200 truncate group-hover:text-blue-900 dark:group-hover:text-blue-100">
+                                    {fileName}
+                                  </div>
+                                  <div className="font-mono text-xs text-gray-500 dark:text-gray-400 truncate">
+                                    {dirPath}
+                                  </div>
+                                </div>
+                                <svg className="w-4 h-4 text-blue-600 dark:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // Default: display raw content
+                  return (
+                    <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 md:p-4">
+                      <pre className="text-xs font-mono text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words overflow-x-auto">
+                        {stripAnsi(content)}
+                      </pre>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
     </>
   );

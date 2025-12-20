@@ -248,7 +248,7 @@ async function handleImages(command, images, cwd) {
 }
 
 /**
- * Cleans up temporary image files
+ * Cleans up temporary image files (kept for manual cleanup if needed)
  * @param {Array<string>} tempImagePaths - Array of temp file paths to delete
  * @param {string} tempDir - Temp directory to remove
  */
@@ -257,24 +257,73 @@ async function cleanupTempFiles(tempImagePaths, tempDir) {
     return;
   }
 
+  let cleanedCount = 0;
   try {
-    // Delete individual temp files
+    // Delete individual temp files (ignore ENOENT - file already deleted)
     for (const imagePath of tempImagePaths) {
-      await fs.unlink(imagePath).catch(err =>
-        console.error(`Failed to delete temp image ${imagePath}:`, err)
-      );
+      try {
+        await fs.unlink(imagePath);
+        cleanedCount++;
+      } catch (err) {
+        // Ignore ENOENT (file doesn't exist) - it's already cleaned
+        if (err.code !== 'ENOENT') {
+          console.error(`Failed to delete temp image ${imagePath}:`, err.message);
+        }
+      }
     }
 
-    // Delete temp directory
+    // Delete temp directory (force: true already handles non-existent dirs)
     if (tempDir) {
       await fs.rm(tempDir, { recursive: true, force: true }).catch(err =>
-        console.error(`Failed to delete temp directory ${tempDir}:`, err)
+        console.error(`Failed to delete temp directory ${tempDir}:`, err.message)
       );
     }
 
-    console.log(`🧹 Cleaned up ${tempImagePaths.length} temp image files`);
+    if (cleanedCount > 0) {
+      console.log(`🧹 Cleaned up ${cleanedCount} temp image files`);
+    }
   } catch (error) {
     console.error('Error during temp file cleanup:', error);
+  }
+}
+
+/**
+ * Cleans up old temporary image directories (older than 24 hours)
+ * This should be called periodically or on server startup
+ * @param {string} baseDir - Base directory to scan for .tmp/images folders
+ */
+async function cleanupOldTempImages(baseDir) {
+  const tmpImagesDir = path.join(baseDir, '.tmp', 'images');
+  const maxAge = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+  try {
+    // Check if directory exists
+    await fs.access(tmpImagesDir);
+
+    const entries = await fs.readdir(tmpImagesDir, { withFileTypes: true });
+    const now = Date.now();
+    let cleanedCount = 0;
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        // Directory name is timestamp
+        const timestamp = parseInt(entry.name, 10);
+        if (!isNaN(timestamp) && (now - timestamp) > maxAge) {
+          const dirPath = path.join(tmpImagesDir, entry.name);
+          await fs.rm(dirPath, { recursive: true, force: true });
+          cleanedCount++;
+        }
+      }
+    }
+
+    if (cleanedCount > 0) {
+      console.log(`🧹 Cleaned up ${cleanedCount} old temp image directories (>24h)`);
+    }
+  } catch (err) {
+    // Directory doesn't exist or other error - ignore
+    if (err.code !== 'ENOENT') {
+      console.error('Error cleaning up old temp images:', err.message);
+    }
   }
 }
 
@@ -432,8 +481,9 @@ async function queryClaudeSDK(command, options = {}, ws) {
       removeSession(capturedSessionId);
     }
 
-    // Clean up temporary image files
-    await cleanupTempFiles(tempImagePaths, tempDir);
+    // NOTE: Do NOT clean up temp images here!
+    // Images need to persist for session resume/refresh scenarios
+    // Claude may reference these images again when the session is resumed
 
     // Send completion event
     console.log('✅ Streaming complete, sending claude-complete event');
@@ -453,8 +503,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       removeSession(capturedSessionId);
     }
 
-    // Clean up temporary image files on error
-    await cleanupTempFiles(tempImagePaths, tempDir);
+    // NOTE: Keep temp images even on error - session might be resumed
 
     // Send error to WebSocket
     ws.send(JSON.stringify({
@@ -488,8 +537,7 @@ async function abortClaudeSDKSession(sessionId) {
     // Update session status
     session.status = 'aborted';
 
-    // Clean up temporary image files
-    await cleanupTempFiles(session.tempImagePaths, session.tempDir);
+    // NOTE: Keep temp images - session might be resumed after abort
 
     // Clean up session
     removeSession(sessionId);
@@ -524,5 +572,6 @@ export {
   queryClaudeSDK,
   abortClaudeSDKSession,
   isClaudeSDKSessionActive,
-  getActiveClaudeSDKSessions
+  getActiveClaudeSDKSessions,
+  cleanupOldTempImages
 };
