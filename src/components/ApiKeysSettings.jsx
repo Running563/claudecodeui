@@ -63,7 +63,7 @@ function ApiKeysSettings() {
   };
 
   const deleteApiKey = async (keyId) => {
-    if (!confirm('Are you sure you want to delete this API key?')) return;
+    if (!confirm('确定要删除此 API 密钥吗?')) return;
 
     try {
       await authenticatedFetch(`/api/settings/api-keys/${keyId}`, {
@@ -113,7 +113,7 @@ function ApiKeysSettings() {
   };
 
   const deleteGithubToken = async (tokenId) => {
-    if (!confirm('Are you sure you want to delete this GitHub token?')) return;
+    if (!confirm('确定要删除此 GitHub 令牌吗?')) return;
 
     try {
       await authenticatedFetch(`/api/settings/credentials/${tokenId}`, {
@@ -144,7 +144,7 @@ function ApiKeysSettings() {
   };
 
   if (loading) {
-    return <div className="text-muted-foreground">Loading...</div>;
+    return <div className="text-muted-foreground">加载中...</div>;
   }
 
   return (
@@ -152,9 +152,9 @@ function ApiKeysSettings() {
       {/* New API Key Alert */}
       {newlyCreatedKey && (
         <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-          <h4 className="font-semibold text-yellow-500 mb-2">⚠️ Save Your API Key</h4>
+          <h4 className="font-semibold text-yellow-500 mb-2">⚠️ 保存您的 API 密钥</h4>
           <p className="text-sm text-muted-foreground mb-3">
-            This is the only time you'll see this key. Store it securely.
+            这是您唯一一次看到此密钥。请妥善保存。
           </p>
           <div className="flex items-center gap-2">
             <code className="flex-1 px-3 py-2 bg-background/50 rounded font-mono text-sm break-all">
@@ -174,7 +174,7 @@ function ApiKeysSettings() {
             className="mt-3"
             onClick={() => setNewlyCreatedKey(null)}
           >
-            I've saved it
+            我已保存
           </Button>
         </div>
       )}
@@ -184,33 +184,33 @@ function ApiKeysSettings() {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Key className="h-5 w-5" />
-            <h3 className="text-lg font-semibold">API Keys</h3>
+            <h3 className="text-lg font-semibold">API 密钥</h3>
           </div>
           <Button
             size="sm"
             onClick={() => setShowNewKeyForm(!showNewKeyForm)}
           >
             <Plus className="h-4 w-4 mr-1" />
-            New API Key
+            新建 API 密钥
           </Button>
         </div>
 
         <p className="text-sm text-muted-foreground mb-4">
-          Generate API keys to access the external API from other applications.
+          生成 API 密钥以从其他应用程序访问外部 API。
         </p>
 
         {showNewKeyForm && (
           <div className="mb-4 p-4 border rounded-lg bg-card">
             <Input
-              placeholder="API Key Name (e.g., Production Server)"
+              placeholder="API 密钥名称 (例如：生产服务器)"
               value={newKeyName}
               onChange={(e) => setNewKeyName(e.target.value)}
               className="mb-2"
             />
             <div className="flex gap-2">
-              <Button onClick={createApiKey}>Create</Button>
+              <Button onClick={createApiKey}>创建</Button>
               <Button variant="outline" onClick={() => setShowNewKeyForm(false)}>
-                Cancel
+                取消
               </Button>
             </div>
           </div>
@@ -218,7 +218,7 @@ function ApiKeysSettings() {
 
         <div className="space-y-2">
           {apiKeys.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic">No API keys created yet.</p>
+            <p className="text-sm text-muted-foreground italic">尚未创建 API 密钥。</p>
           ) : (
             apiKeys.map((key) => (
               <div
@@ -229,8 +229,8 @@ function ApiKeysSettings() {
                   <div className="font-medium">{key.key_name}</div>
                   <code className="text-xs text-muted-foreground">{key.api_key}</code>
                   <div className="text-xs text-muted-foreground mt-1">
-                    Created: {new Date(key.created_at).toLocaleDateString()}
-                    {key.last_used && ` • Last used: ${new Date(key.last_used).toLocaleDateString()}`}
+                    创建时间: {new Date(key.created_at).toLocaleDateString()}
+                    {key.last_used && ` • 最后使用: ${new Date(key.last_used).toLocaleDateString()}`}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -239,7 +239,7 @@ function ApiKeysSettings() {
                     variant={key.is_active ? 'outline' : 'secondary'}
                     onClick={() => toggleApiKey(key.id, key.is_active)}
                   >
-                    {key.is_active ? 'Active' : 'Inactive'}
+                    {key.is_active ? '活动' : '未激活'}
                   </Button>
                   <Button
                     size="sm"
@@ -260,25 +260,25 @@ function ApiKeysSettings() {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Github className="h-5 w-5" />
-            <h3 className="text-lg font-semibold">GitHub Tokens</h3>
+            <h3 className="text-lg font-semibold">GitHub 令牌</h3>
           </div>
           <Button
             size="sm"
             onClick={() => setShowNewTokenForm(!showNewTokenForm)}
           >
             <Plus className="h-4 w-4 mr-1" />
-            Add Token
+            添加令牌
           </Button>
         </div>
 
         <p className="text-sm text-muted-foreground mb-4">
-          Add GitHub Personal Access Tokens to clone private repositories via the external API.
+          添加 GitHub 个人访问令牌以通过外部 API 克隆私有仓库。
         </p>
 
         {showNewTokenForm && (
           <div className="mb-4 p-4 border rounded-lg bg-card">
             <Input
-              placeholder="Token Name (e.g., Personal Repos)"
+              placeholder="令牌名称 (例如：个人仓库)"
               value={newTokenName}
               onChange={(e) => setNewTokenName(e.target.value)}
               className="mb-2"
@@ -286,7 +286,7 @@ function ApiKeysSettings() {
             <div className="relative">
               <Input
                 type={showToken['new'] ? 'text' : 'password'}
-                placeholder="GitHub Personal Access Token (ghp_...)"
+                placeholder="GitHub 个人访问令牌 (ghp_...)"
                 value={newGithubToken}
                 onChange={(e) => setNewGithubToken(e.target.value)}
                 className="mb-2 pr-10"
@@ -300,13 +300,13 @@ function ApiKeysSettings() {
               </button>
             </div>
             <div className="flex gap-2">
-              <Button onClick={createGithubToken}>Add Token</Button>
+              <Button onClick={createGithubToken}>添加令牌</Button>
               <Button variant="outline" onClick={() => {
                 setShowNewTokenForm(false);
                 setNewTokenName('');
                 setNewGithubToken('');
               }}>
-                Cancel
+                取消
               </Button>
             </div>
           </div>
@@ -314,7 +314,7 @@ function ApiKeysSettings() {
 
         <div className="space-y-2">
           {githubTokens.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic">No GitHub tokens added yet.</p>
+            <p className="text-sm text-muted-foreground italic">尚未添加 GitHub 令牌。</p>
           ) : (
             githubTokens.map((token) => (
               <div
@@ -324,7 +324,7 @@ function ApiKeysSettings() {
                 <div className="flex-1">
                   <div className="font-medium">{token.credential_name}</div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    Added: {new Date(token.created_at).toLocaleDateString()}
+                    添加时间: {new Date(token.created_at).toLocaleDateString()}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -333,7 +333,7 @@ function ApiKeysSettings() {
                     variant={token.is_active ? 'outline' : 'secondary'}
                     onClick={() => toggleGithubToken(token.id, token.is_active)}
                   >
-                    {token.is_active ? 'Active' : 'Inactive'}
+                    {token.is_active ? '活动' : '未激活'}
                   </Button>
                   <Button
                     size="sm"
@@ -351,9 +351,9 @@ function ApiKeysSettings() {
 
       {/* Documentation Link */}
       <div className="p-4 bg-muted/50 rounded-lg">
-        <h4 className="font-semibold mb-2">External API Documentation</h4>
+        <h4 className="font-semibold mb-2">外部 API 文档</h4>
         <p className="text-sm text-muted-foreground mb-3">
-          Learn how to use the external API to trigger Claude/Cursor sessions from your applications.
+          了解如何使用外部 API 从您的应用程序触发 Claude/Cursor 会话。
         </p>
         <a
           href="/EXTERNAL_API.md"
@@ -361,7 +361,7 @@ function ApiKeysSettings() {
           rel="noopener noreferrer"
           className="text-sm text-primary hover:underline"
         >
-          View API Documentation →
+          查看 API 文档 →
         </a>
       </div>
     </div>

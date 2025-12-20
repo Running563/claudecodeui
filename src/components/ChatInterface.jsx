@@ -5421,16 +5421,16 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           <div className="text-center text-gray-500 dark:text-gray-400 mt-8">
             <div className="flex items-center justify-center space-x-2">
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
-              <p>Loading session messages...</p>
+              <p>加载会话消息...</p>
             </div>
           </div>
         ) : chatMessages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             {!selectedSession && !currentSessionId && (
               <div className="text-center px-6 sm:px-4 py-8">
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">Choose Your AI Assistant</h2>
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">选择您的 AI 助手</h2>
                 <p className="text-gray-600 dark:text-gray-400 mb-8">
-                  Select a provider to start a new conversation
+                  选择一个提供商来开始新对话
                 </p>
                 
                 <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-8">
@@ -5534,7 +5534,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                 {/* Model Selection for Cursor - Always reserve space to prevent jumping */}
                 <div className={`mb-6 transition-opacity duration-200 ${provider === 'cursor' ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {provider === 'cursor' ? 'Select Model' : '\u00A0'}
+                    {provider === 'cursor' ? '选择模型' : '\u00A0'}
                   </label>
                   <select
                     value={cursorModel}
@@ -5554,21 +5554,21 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                 
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   {provider === 'claude' 
-                    ? 'Ready to use Claude AI. Start typing your message below.'
+                    ? '准备使用 Claude AI。在下方开始输入您的消息。'
                     : provider === 'cursor'
-                    ? `Ready to use Cursor with ${cursorModel}. Start typing your message below.`
+                    ? `准备使用 Cursor 和 ${cursorModel}。在下方开始输入您的消息。`
                     : provider === 'codebuddy'
-                    ? 'Ready to use CodeBuddy AI. Start typing your message below.'
-                    : 'Select a provider above to begin'
+                    ? '准备使用 CodeBuddy AI。在下方开始输入您的消息。'
+                    : '在上方选择一个提供商以开始'
                   }
                 </p>
               </div>
             )}
             {selectedSession && (
               <div className="text-center text-gray-500 dark:text-gray-400 px-6 sm:px-4">
-                <p className="font-bold text-lg sm:text-xl mb-3">Continue your conversation</p>
+                <p className="font-bold text-lg sm:text-xl mb-3">继续您的对话</p>
                 <p className="text-sm sm:text-base leading-relaxed">
-                  Ask questions about your code, request changes, or get help with development tasks
+                  询问有关代码的问题、请求更改或获取开发任务的帮助
                 </p>
               </div>
             )}
@@ -5964,7 +5964,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                 const isExpanded = e.target.scrollHeight > lineHeight * 2;
                 setIsTextareaExpanded(isExpanded);
               }}
-              placeholder={`Type / for commands, @ for files, or ask ${provider === 'cursor' ? 'Cursor' : provider === 'codebuddy' ? 'CodeBuddy' : 'Claude'} anything...`}
+              placeholder={`输入 / 执行命令、@ 选择文件,或向 ${provider === 'cursor' ? 'Cursor' : provider === 'codebuddy' ? 'CodeBuddy' : 'Claude'} 提问...`}
               disabled={isLoading}
               className="chat-input-placeholder block w-full pl-12 pr-20 sm:pr-40 py-1.5 sm:py-4 bg-transparent rounded-2xl focus:outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 disabled:opacity-50 resize-none min-h-[50px] sm:min-h-[80px] max-h-[40vh] sm:max-h-[300px] overflow-y-auto text-sm sm:text-base leading-[21px] sm:leading-6 transition-all duration-200 relative z-10"
               style={{ height: '50px' }}
@@ -6062,8 +6062,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
               input.trim() ? 'opacity-0' : 'opacity-100'
             }`}>
               {sendByCtrlEnter
-                ? "Ctrl+Enter to send • Shift+Enter for new line • Tab to change modes • / for slash commands"
-                : "Enter to send • Shift+Enter for new line • Tab to change modes • / for slash commands"}
+                ? "Ctrl+Enter 发送 • Shift+Enter 换行 • Tab 切换模式 • / 斜杠命令"
+                : "Enter 发送 • Shift+Enter 换行 • Tab 切换模式 • / 斜杠命令"}
             </div>
           </div>
         </form>

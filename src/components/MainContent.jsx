@@ -167,8 +167,8 @@ function MainContent({
                 }} 
               />
             </div>
-            <h2 className="text-xl font-semibold mb-2">Loading Claude Code UI</h2>
-            <p>Setting up your workspace...</p>
+            <h2 className="text-xl font-semibold mb-2">加载 Claude Code UI</h2>
+            <p>正在设置您的工作区...</p>
           </div>
         </div>
       </div>
@@ -200,13 +200,13 @@ function MainContent({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-5l-2-2H5a2 2 0 00-2 2z" />
               </svg>
             </div>
-            <h2 className="text-2xl font-semibold mb-3 text-gray-900 dark:text-white">Choose Your Project</h2>
+            <h2 className="text-2xl font-semibold mb-3 text-gray-900 dark:text-white">选择您的项目</h2>
             <p className="text-gray-600 dark:text-gray-300 mb-6 leading-relaxed">
-              Select a project from the sidebar to start coding with Claude. Each project contains your chat sessions and file history.
+              从侧边栏选择项目以开始使用 Claude 编码。每个项目包含您的聊天会话和文件历史。
             </p>
             <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
               <p className="text-sm text-blue-700 dark:text-blue-300">
-                💡 <strong>Tip:</strong> {isMobile ? 'Tap the menu button above to access projects' : 'Create a new project by clicking the folder icon in the sidebar'}
+                💡 <strong>提示:</strong> {isMobile ? '点击上方菜单按钮访问项目' : '点击侧边栏的文件夹图标创建新项目'}
               </p>
             </div>
           </div>
@@ -249,7 +249,7 @@ function MainContent({
                 {activeTab === 'chat' && selectedSession ? (
                   <div className="min-w-0">
                     <h2 className="text-sm sm:text-base font-semibold text-gray-900 dark:text-white whitespace-nowrap overflow-x-auto scrollbar-hide">
-                      {selectedSession.__provider === 'codebuddy' || selectedSession.__provider === 'cursor' ? (selectedSession.name || 'Untitled Session') : (selectedSession.summary || 'New Session')}
+                      {selectedSession.__provider === 'codebuddy' || selectedSession.__provider === 'cursor' ? (selectedSession.name || '无标题会话') : (selectedSession.summary || '新会话')}
                     </h2>
                     <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                       {selectedProject.displayName}
@@ -258,7 +258,7 @@ function MainContent({
                 ) : activeTab === 'chat' && !selectedSession ? (
                   <div className="min-w-0">
                     <h2 className="text-sm sm:text-base font-semibold text-gray-900 dark:text-white">
-                      New Session
+                      新会话
                     </h2>
                     <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                       {selectedProject.displayName}
@@ -273,17 +273,17 @@ function MainContent({
                       </h2>
                       <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                         {selectedProject.displayName}
-                        {shellState.isRestarting && <span className="ml-1 text-blue-500">(Restarting...)</span>}
-                        {!shellState.isInitialized && !shellState.isRestarting && <span className="ml-1 text-yellow-500">(Initializing...)</span>}
+                        {shellState.isRestarting && <span className="ml-1 text-blue-500">(重启中...)</span>}
+                        {!shellState.isInitialized && !shellState.isRestarting && <span className="ml-1 text-yellow-500">(初始化中...)</span>}
                       </div>
                     </div>
                   </div>
                 ) : (
                   <div className="min-w-0">
                     <h2 className="text-sm sm:text-base font-semibold text-gray-900 dark:text-white">
-                      {activeTab === 'files' ? 'Project Files' :
-                       activeTab === 'git' ? 'Source Control' :
-                       'Project'}
+                      {activeTab === 'files' ? '项目文件' :
+                       activeTab === 'git' ? '源代码' :
+                       '项目'}
                     </h2>
                     <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                       {selectedProject.displayName}
@@ -326,7 +326,7 @@ function MainContent({
           {/* Modern Tab Navigation - Right Side */}
           <div className="flex-shrink-0 hidden sm:block">
             <div className="relative flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-              <Tooltip content="Chat" position="bottom">
+              <Tooltip content="聊天" position="bottom">
                 <button
                   onClick={() => setActiveTab('chat')}
                   className={`relative px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium rounded-md ${
@@ -339,11 +339,11 @@ function MainContent({
                     <svg className="w-3 sm:w-3.5 h-3 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                     </svg>
-                    <span className="hidden md:hidden lg:inline">Chat</span>
+                    <span className="hidden md:hidden lg:inline">聊天</span>
                   </span>
                 </button>
               </Tooltip>
-              <Tooltip content="Shell" position="bottom">
+              <Tooltip content="终端" position="bottom">
                 <button
                   onClick={() => setActiveTab('shell')}
                   className={`relative px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium rounded-md transition-all duration-200 ${
@@ -356,11 +356,11 @@ function MainContent({
                     <svg className="w-3 sm:w-3.5 h-3 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" />
                     </svg>
-                    <span className="hidden md:hidden lg:inline">Shell</span>
+                    <span className="hidden md:hidden lg:inline">终端</span>
                   </span>
                 </button>
               </Tooltip>
-              <Tooltip content="Files" position="bottom">
+              <Tooltip content="文件" position="bottom">
                 <button
                   onClick={() => setActiveTab('files')}
                   className={`relative px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium rounded-md transition-all duration-200 ${
@@ -373,11 +373,11 @@ function MainContent({
                     <svg className="w-3 sm:w-3.5 h-3 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-5l-2-2H5a2 2 0 00-2 2z" />
                     </svg>
-                    <span className="hidden md:hidden lg:inline">Files</span>
+                    <span className="hidden md:hidden lg:inline">文件</span>
                   </span>
                 </button>
               </Tooltip>
-              <Tooltip content="Source Control" position="bottom">
+              <Tooltip content="源代码" position="bottom">
                 <button
                   onClick={() => setActiveTab('git')}
                   className={`relative px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium rounded-md transition-all duration-200 ${
@@ -390,7 +390,7 @@ function MainContent({
                     <svg className="w-3 sm:w-3.5 h-3 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                     </svg>
-                    <span className="hidden md:hidden lg:inline">Source Control</span>
+                    <span className="hidden md:hidden lg:inline">源代码</span>
                   </span>
                 </button>
               </Tooltip>

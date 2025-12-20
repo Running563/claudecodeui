@@ -238,7 +238,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
         }
       } else {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to save server');
+        throw new Error(error.error || '保存服务器失败');
       }
     } catch (error) {
       console.error('Error saving MCP server:', error);
@@ -259,7 +259,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
           await fetchMcpServers(); // Refresh the list
           return true;
         } else {
-          throw new Error(result.error || 'Failed to delete server via Claude CLI');
+          throw new Error(result.error || '通过 Claude CLI 删除服务器失败');
         }
       } else {
         const error = await response.json();
@@ -302,7 +302,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
         return data.toolsResult;
       } else {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to discover tools');
+        throw new Error(error.error || '发现工具失败');
       }
     } catch (error) {
       console.error('Error discovering MCP tools:', error);
@@ -647,7 +647,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
             resetMcpForm();
             setSaveStatus('success');
           } else {
-            throw new Error(result.error || 'Failed to add server via JSON');
+            throw new Error(result.error || '通过 JSON 添加服务器失败');
           }
         } else {
           const error = await response.json();
@@ -668,7 +668,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
   };
 
   const handleMcpDelete = async (serverId, scope) => {
-    if (confirm('Are you sure you want to delete this MCP server?')) {
+    if (confirm('确定要删除此 MCP 服务器吗？')) {
       try {
         await deleteMcpServer(serverId, scope);
         setSaveStatus('success');
@@ -745,7 +745,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
           <div className="flex items-center gap-3">
             <SettingsIcon className="w-5 h-5 md:w-6 md:h-6 text-blue-600" />
             <h2 className="text-lg md:text-xl font-semibold text-foreground">
-              Settings
+              设置
             </h2>
           </div>
           <Button
@@ -770,7 +770,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                     : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
-                Tools
+                工具
               </button>
               <button
                 onClick={() => setActiveTab('appearance')}
@@ -780,7 +780,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                     : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
-                Appearance
+                外观
               </button>
               <button
                 onClick={() => setActiveTab('git')}
@@ -802,7 +802,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                 }`}
               >
                 <Key className="w-4 h-4 inline mr-2" />
-                API & Tokens
+                API 和令牌
               </button>
             </div>
           </div>
@@ -820,10 +820,10 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
         <div className="flex items-center justify-between">
           <div>
             <div className="font-medium text-foreground">
-              Dark Mode
+              深色模式
             </div>
             <div className="text-sm text-muted-foreground">
-              Toggle between light and dark themes
+              在浅色和深色主题之间切换
             </div>
           </div>
           <button
@@ -831,9 +831,9 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
             className="relative inline-flex h-8 w-14 items-center rounded-full bg-gray-200 dark:bg-gray-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
             role="switch"
             aria-checked={isDarkMode}
-            aria-label="Toggle dark mode"
+            aria-label="切换深色模式"
           >
-            <span className="sr-only">Toggle dark mode</span>
+            <span className="sr-only">切换深色模式</span>
             <span
               className={`${
                 isDarkMode ? 'translate-x-7' : 'translate-x-1'
@@ -856,10 +856,10 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
         <div className="flex items-center justify-between">
           <div>
             <div className="font-medium text-foreground">
-              Project Sorting
+              项目排序
             </div>
             <div className="text-sm text-muted-foreground">
-              How projects are ordered in the sidebar
+              侧边栏中项目的排序方式
             </div>
           </div>
           <select
@@ -867,8 +867,8 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
             onChange={(e) => setProjectSortOrder(e.target.value)}
             className="text-sm bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 w-32"
           >
-            <option value="name">Alphabetical</option>
-            <option value="date">Recent Activity</option>
+            <option value="name">按字母排序</option>
+            <option value="date">按最近活动</option>
           </select>
         </div>
       </div>
@@ -876,17 +876,17 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
 
     {/* Code Editor Settings */}
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-foreground">Code Editor</h3>
+      <h3 className="text-lg font-semibold text-foreground">代码编辑器</h3>
 
       {/* Editor Theme */}
       <div className="bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
         <div className="flex items-center justify-between">
           <div>
             <div className="font-medium text-foreground">
-              Editor Theme
+              编辑器主题
             </div>
             <div className="text-sm text-muted-foreground">
-              Default theme for the code editor
+              代码编辑器的默认主题
             </div>
           </div>
           <button
@@ -894,9 +894,9 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
             className="relative inline-flex h-8 w-14 items-center rounded-full bg-gray-200 dark:bg-gray-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
             role="switch"
             aria-checked={codeEditorTheme === 'dark'}
-            aria-label="Toggle editor theme"
+            aria-label="切换编辑器主题"
           >
-            <span className="sr-only">Toggle editor theme</span>
+            <span className="sr-only">切换编辑器主题</span>
             <span
               className={`${
                 codeEditorTheme === 'dark' ? 'translate-x-7' : 'translate-x-1'
@@ -917,10 +917,10 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
         <div className="flex items-center justify-between">
           <div>
             <div className="font-medium text-foreground">
-              Word Wrap
+              自动换行
             </div>
             <div className="text-sm text-muted-foreground">
-              Enable word wrapping by default in the editor
+              在编辑器中默认启用自动换行
             </div>
           </div>
           <button
@@ -928,9 +928,9 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
             className="relative inline-flex h-8 w-14 items-center rounded-full bg-gray-200 dark:bg-gray-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
             role="switch"
             aria-checked={codeEditorWordWrap}
-            aria-label="Toggle word wrap"
+            aria-label="切换自动换行"
           >
-            <span className="sr-only">Toggle word wrap</span>
+            <span className="sr-only">切换自动换行</span>
             <span
               className={`${
                 codeEditorWordWrap ? 'translate-x-7' : 'translate-x-1'
@@ -945,7 +945,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
         <div className="flex items-center justify-between">
           <div>
             <div className="font-medium text-foreground">
-              Show Minimap
+              显示缩略图
             </div>
             <div className="text-sm text-muted-foreground">
               Display a minimap for easier navigation in diff view
@@ -1092,7 +1092,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
               <div className="flex items-center gap-3">
                 <AlertTriangle className="w-5 h-5 text-orange-500" />
                 <h3 className="text-lg font-medium text-foreground">
-                  Permission Settings
+                  权限设置
                 </h3>
               </div>
               <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-4">
@@ -1105,10 +1105,10 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                   />
                   <div>
                     <div className="font-medium text-orange-900 dark:text-orange-100">
-                      Skip permission prompts (use with caution)
+                      跳过权限提示（谨慎使用）
                     </div>
                     <div className="text-sm text-orange-700 dark:text-orange-300">
-                      Equivalent to --dangerously-skip-permissions flag
+                      相当于 --dangerously-skip-permissions 标志
                     </div>
                   </div>
                 </label>
@@ -1119,7 +1119,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
               <div className="flex items-center gap-3">
                 <LogIn className="w-5 h-5 text-blue-500" />
                 <h3 className="text-lg font-medium text-foreground">
-                  Authentication
+                  身份验证
                 </h3>
               </div>
               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
@@ -1127,22 +1127,22 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                   <div className="flex items-center gap-2">
                     {claudeAuthStatus.loading ? (
                       <span className="text-sm text-blue-700 dark:text-blue-300">
-                        Checking authentication...
+                        检查身份验证...
                       </span>
                     ) : claudeAuthStatus.authenticated ? (
                       <div className="flex items-center gap-2">
                         <Badge variant="success" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
-                          ✓ Logged in
+                          ✓ 已登录
                         </Badge>
                         {claudeAuthStatus.email && (
                           <span className="text-sm text-blue-700 dark:text-blue-300">
-                            as {claudeAuthStatus.email}
+                            {claudeAuthStatus.email}
                           </span>
                         )}
                       </div>
                     ) : (
                       <Badge variant="secondary" className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">
-                        Not authenticated
+                        未认证
                       </Badge>
                     )}
                   </div>
@@ -1150,12 +1150,12 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="font-medium text-blue-900 dark:text-blue-100">
-                        Claude CLI Login
+                        Claude CLI 登录
                       </div>
                       <div className="text-sm text-blue-700 dark:text-blue-300">
                         {claudeAuthStatus.authenticated
-                          ? 'Re-authenticate or switch accounts'
-                          : 'Sign in to your Claude account to enable AI features'}
+                          ? '重新认证或切换账户'
+                          : '登录您的 Claude 账户以启用 AI 功能'}
                       </div>
                     </div>
                     <Button
@@ -1164,7 +1164,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                       size="sm"
                     >
                       <LogIn className="w-4 h-4 mr-2" />
-                      Login
+                      登录
                     </Button>
                   </div>
                 </div>
@@ -1176,18 +1176,18 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
               <div className="flex items-center gap-3">
                 <Shield className="w-5 h-5 text-green-500" />
                 <h3 className="text-lg font-medium text-foreground">
-                  Allowed Tools
+                  允许的工具
                 </h3>
               </div>
               <p className="text-sm text-muted-foreground">
-                Tools that are automatically allowed without prompting for permission
+                自动允许而无需提示权限的工具
               </p>
               
               <div className="flex flex-col sm:flex-row gap-2">
                 <Input
                   value={newAllowedTool}
                   onChange={(e) => setNewAllowedTool(e.target.value)}
-                  placeholder='e.g., "Bash(git log:*)" or "Write"'
+                  placeholder='例如: "Bash(git log:*)" 或 "Write"'
                   onKeyPress={(e) => {
                     if (e.key === 'Enter') {
                       addAllowedTool(newAllowedTool);
@@ -1203,14 +1203,14 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                   className="h-10 px-4 touch-manipulation"
                 >
                   <Plus className="w-4 h-4 mr-2 sm:mr-0" />
-                  <span className="sm:hidden">Add Tool</span>
+                  <span className="sm:hidden">添加工具</span>
                 </Button>
               </div>
 
               {/* Common tools quick add */}
               <div className="space-y-2">
                 <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Quick add common tools:
+                  快速添加常用工具:
                 </p>
                 <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
                   {commonTools.map(tool => (
@@ -1246,7 +1246,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                 ))}
                 {allowedTools.length === 0 && (
                   <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                    No allowed tools configured
+                    未配置允许的工具
                   </div>
                 )}
               </div>
@@ -1257,18 +1257,18 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
               <div className="flex items-center gap-3">
                 <AlertTriangle className="w-5 h-5 text-red-500" />
                 <h3 className="text-lg font-medium text-foreground">
-                  Disallowed Tools
+                  禁止的工具
                 </h3>
               </div>
               <p className="text-sm text-muted-foreground">
-                Tools that are automatically blocked without prompting for permission
+                自动阻止而无需提示权限的工具
               </p>
               
               <div className="flex flex-col sm:flex-row gap-2">
                 <Input
                   value={newDisallowedTool}
                   onChange={(e) => setNewDisallowedTool(e.target.value)}
-                  placeholder='e.g., "Bash(rm:*)" or "Write"'
+                  placeholder='例如: "Bash(rm:*)" 或 "Write"'
                   onKeyPress={(e) => {
                     if (e.key === 'Enter') {
                       addDisallowedTool(newDisallowedTool);
@@ -1306,7 +1306,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                 ))}
                 {disallowedTools.length === 0 && (
                   <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                    No disallowed tools configured
+                    未配置禁止的工具
                   </div>
                 )}
               </div>
@@ -1315,14 +1315,14 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
             {/* Help Section */}
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
               <h4 className="font-medium text-blue-900 dark:text-blue-100 mb-2">
-                Tool Pattern Examples:
+                工具模式示例:
               </h4>
               <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-1">
-                <li><code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">"Bash(git log:*)"</code> - Allow all git log commands</li>
-                <li><code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">"Bash(git diff:*)"</code> - Allow all git diff commands</li>
-                <li><code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">"Write"</code> - Allow all Write tool usage</li>
-                <li><code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">"Read"</code> - Allow all Read tool usage</li>
-                <li><code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">"Bash(rm:*)"</code> - Block all rm commands (dangerous)</li>
+                <li><code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">"Bash(git log:*)"</code> - 允许所有 git log 命令</li>
+                <li><code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">"Bash(git diff:*)"</code> - 允许所有 git diff 命令</li>
+                <li><code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">"Write"</code> - 允许所有 Write 工具使用</li>
+                <li><code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">"Read"</code> - 允许所有 Read 工具使用</li>
+                <li><code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">"Bash(rm:*)"</code> - 阻止所有 rm 命令（危险）</li>
               </ul>
             </div>
 
@@ -1331,12 +1331,12 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
               <div className="flex items-center gap-3">
                 <Server className="w-5 h-5 text-purple-500" />
                 <h3 className="text-lg font-medium text-foreground">
-                  MCP Servers
+                  MCP 服务器
                 </h3>
               </div>
               <div className="space-y-2">
                 <p className="text-sm text-muted-foreground">
-                  Model Context Protocol servers provide additional tools and data sources to Claude
+                  模型上下文协议服务器为 Claude 提供额外的工具和数据源
                 </p>
               </div>
               
@@ -1347,7 +1347,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                   size="sm"
                 >
                   <Plus className="w-4 h-4 mr-2" />
-                  Add MCP Server
+                  添加 MCP 服务器
                 </Button>
               </div>
 
@@ -1388,7 +1388,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                           )}
                           {server.raw && (
                             <details className="mt-2">
-                              <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">View full config</summary>
+                              <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">查看完整配置</summary>
                               <pre className="mt-1 text-xs bg-gray-100 dark:bg-gray-800 p-2 rounded overflow-x-auto">
                                 {JSON.stringify(server.raw, null, 2)}
                               </pre>
@@ -1417,11 +1417,11 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                         {/* Tools Discovery Results */}
                         {mcpServerTools[server.id] && (
                           <div className="mt-2 p-2 rounded text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200 border border-blue-200 dark:border-blue-800">
-                            <div className="font-medium mb-2">Available Tools & Resources</div>
+                            <div className="font-medium mb-2">可用工具和资源</div>
                             
                             {mcpServerTools[server.id].tools && mcpServerTools[server.id].tools.length > 0 && (
                               <div className="mb-2">
-                                <div className="font-medium text-xs mb-1">Tools ({mcpServerTools[server.id].tools.length}):</div>
+                                <div className="font-medium text-xs mb-1">工具 ({mcpServerTools[server.id].tools.length}):</div>
                                 <ul className="space-y-0.5">
                                   {mcpServerTools[server.id].tools.map((tool, i) => (
                                     <li key={i} className="flex items-start gap-1">
@@ -1440,7 +1440,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
 
                             {mcpServerTools[server.id].resources && mcpServerTools[server.id].resources.length > 0 && (
                               <div className="mb-2">
-                                <div className="font-medium text-xs mb-1">Resources ({mcpServerTools[server.id].resources.length}):</div>
+                                <div className="font-medium text-xs mb-1">资源 ({mcpServerTools[server.id].resources.length}):</div>
                                 <ul className="space-y-0.5">
                                   {mcpServerTools[server.id].resources.map((resource, i) => (
                                     <li key={i} className="flex items-start gap-1">
@@ -1459,7 +1459,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
 
                             {mcpServerTools[server.id].prompts && mcpServerTools[server.id].prompts.length > 0 && (
                               <div>
-                                <div className="font-medium text-xs mb-1">Prompts ({mcpServerTools[server.id].prompts.length}):</div>
+                                <div className="font-medium text-xs mb-1">提示词 ({mcpServerTools[server.id].prompts.length}):</div>
                                 <ul className="space-y-0.5">
                                   {mcpServerTools[server.id].prompts.map((prompt, i) => (
                                     <li key={i} className="flex items-start gap-1">
@@ -1479,7 +1479,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                             {(!mcpServerTools[server.id].tools || mcpServerTools[server.id].tools.length === 0) &&
                              (!mcpServerTools[server.id].resources || mcpServerTools[server.id].resources.length === 0) &&
                              (!mcpServerTools[server.id].prompts || mcpServerTools[server.id].prompts.length === 0) && (
-                              <div className="text-xs opacity-75">No tools, resources, or prompts discovered</div>
+                              <div className="text-xs opacity-75">未发现工具、资源或提示词</div>
                             )}
                           </div>
                         )}
@@ -1491,7 +1491,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                           variant="ghost"
                           size="sm"
                           className="text-gray-600 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-                          title="Edit server"
+                          title="编辑服务器"
                         >
                           <Edit3 className="w-4 h-4" />
                         </Button>
@@ -1500,7 +1500,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                           variant="ghost"
                           size="sm"
                           className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                          title="Delete server"
+                          title="删除服务器"
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
@@ -1510,7 +1510,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                 ))}
                 {mcpServers.length === 0 && (
                   <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                    No MCP servers configured
+                    未配置 MCP 服务器
                   </div>
                 )}
               </div>
@@ -1522,7 +1522,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                 <div className="bg-background border border-border rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
                   <div className="flex items-center justify-between p-4 border-b border-border">
                     <h3 className="text-lg font-medium text-foreground">
-                      {editingMcpServer ? 'Edit MCP Server' : 'Add MCP Server'}
+                      {editingMcpServer ? '编辑 MCP 服务器' : '添加 MCP 服务器'}
                     </h3>
                     <Button variant="ghost" size="sm" onClick={resetMcpForm}>
                       <X className="w-4 h-4" />
@@ -1542,7 +1542,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                             : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                         }`}
                       >
-                        Form Input
+                        表单输入
                       </button>
                       <button
                         type="button"
@@ -1553,7 +1553,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                             : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                         }`}
                       >
-                        JSON Import
+                        JSON 导入
                       </button>
                     </div>
                     )}
@@ -1561,13 +1561,13 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                     {/* Show current scope when editing */}
                     {mcpFormData.importMode === 'form' && editingMcpServer && (
                       <div className="bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
-                        <label className="block text-sm font-medium text-foreground mb-2">
-                          Scope
-                        </label>
+                          <label className="block text-sm font-medium text-foreground mb-2">
+                            范围
+                          </label>
                         <div className="flex items-center gap-2">
                           {mcpFormData.scope === 'user' ? <Globe className="w-4 h-4" /> : <FolderOpen className="w-4 h-4" />}
                           <span className="text-sm">
-                            {mcpFormData.scope === 'user' ? 'User (Global)' : 'Project (Local)'}
+                            {mcpFormData.scope === 'user' ? '用户（全局）' : '项目（本地）'}
                           </span>
                           {mcpFormData.scope === 'local' && mcpFormData.projectPath && (
                             <span className="text-xs text-muted-foreground">
@@ -1576,7 +1576,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground mt-2">
-                          Scope cannot be changed when editing an existing server
+                          编辑现有服务器时无法更改范围
                         </p>
                       </div>
                     )}
@@ -1586,7 +1586,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                       <div className="space-y-4">
                         <div>
                           <label className="block text-sm font-medium text-foreground mb-2">
-                            Scope *
+                            范围 *
                           </label>
                           <div className="flex gap-2">
                             <button
@@ -1600,7 +1600,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                             >
                               <div className="flex items-center justify-center gap-2">
                                 <Globe className="w-4 h-4" />
-                                <span>User (Global)</span>
+                                <span>用户（全局）</span>
                               </div>
                             </button>
                             <button
@@ -1614,14 +1614,14 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                             >
                               <div className="flex items-center justify-center gap-2">
                                 <FolderOpen className="w-4 h-4" />
-                                <span>Project (Local)</span>
+                                <span>项目（本地）</span>
                               </div>
                             </button>
                           </div>
                           <p className="text-xs text-muted-foreground mt-2">
                             {mcpFormData.scope === 'user' 
-                              ? 'User scope: Available across all projects on your machine'
-                              : 'Local scope: Only available in the selected project'
+                              ? '用户范围：在您的机器上的所有项目中可用'
+                              : '本地范围：仅在选定的项目中可用'
                             }
                           </p>
                         </div>
@@ -1630,7 +1630,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                         {mcpFormData.scope === 'local' && !editingMcpServer && (
                           <div>
                             <label className="block text-sm font-medium text-foreground mb-2">
-                              Project *
+                              项目 *
                             </label>
                             <select
                               value={mcpFormData.projectPath}
@@ -1638,7 +1638,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg focus:ring-blue-500 focus:border-blue-500"
                               required={mcpFormData.scope === 'local'}
                             >
-                              <option value="">Select a project...</option>
+                              <option value="">选择项目...</option>
                               {projects.map(project => (
                                 <option key={project.name} value={project.path || project.fullPath}>
                                   {project.displayName || project.name}
@@ -1647,7 +1647,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                             </select>
                             {mcpFormData.projectPath && (
                               <p className="text-xs text-muted-foreground mt-1">
-                                Path: {mcpFormData.projectPath}
+                                路径: {mcpFormData.projectPath}
                               </p>
                             )}
                           </div>
@@ -1659,14 +1659,14 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className={mcpFormData.importMode === 'json' ? 'md:col-span-2' : ''}>
                         <label className="block text-sm font-medium text-foreground mb-2">
-                          Server Name *
+                          服务器名称 *
                         </label>
                         <Input
                           value={mcpFormData.name}
                           onChange={(e) => {
                             setMcpFormData(prev => ({...prev, name: e.target.value}));
                           }}
-                          placeholder="my-server"
+                          placeholder="我的服务器"
                           required
                         />
                       </div>
@@ -1674,7 +1674,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                       {mcpFormData.importMode === 'form' && (
                         <div>
                           <label className="block text-sm font-medium text-foreground mb-2">
-                            Transport Type *
+                            传输类型 *
                           </label>
                           <select
                             value={mcpFormData.type}
@@ -1696,7 +1696,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                     {editingMcpServer && mcpFormData.raw && mcpFormData.importMode === 'form' && (
                       <div className="bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
                         <h4 className="text-sm font-medium text-foreground mb-2">
-                          Configuration Details (from {editingMcpServer.scope === 'global' ? '~/.claude.json' : 'project config'})
+                          配置详情 (来自 {editingMcpServer.scope === 'global' ? '~/.claude.json' : '项目配置'})
                         </h4>
                         <pre className="text-xs bg-gray-100 dark:bg-gray-800 p-3 rounded overflow-x-auto">
                           {JSON.stringify(mcpFormData.raw, null, 2)}
@@ -1709,7 +1709,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                       <div className="space-y-4">
                         <div>
                           <label className="block text-sm font-medium text-foreground mb-2">
-                            JSON Configuration *
+                            JSON 配置 *
                           </label>
                           <textarea
                             value={mcpFormData.jsonInput}
@@ -1721,18 +1721,18 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                                   const parsed = JSON.parse(e.target.value);
                                   // Basic validation
                                   if (!parsed.type) {
-                                    setJsonValidationError('Missing required field: type');
+                                    setJsonValidationError('缺少必需字段：type');
                                   } else if (parsed.type === 'stdio' && !parsed.command) {
-                                    setJsonValidationError('stdio type requires a command field');
+                                    setJsonValidationError('stdio 类型需要 command 字段');
                                   } else if ((parsed.type === 'http' || parsed.type === 'sse') && !parsed.url) {
-                                    setJsonValidationError(`${parsed.type} type requires a url field`);
+                                    setJsonValidationError(`${parsed.type} 类型需要 url 字段`);
                                   } else {
                                     setJsonValidationError('');
                                   }
                                 }
                               } catch (err) {
                                 if (e.target.value.trim()) {
-                                  setJsonValidationError('Invalid JSON format');
+                                  setJsonValidationError('无效的 JSON 格式');
                                 } else {
                                   setJsonValidationError('');
                                 }
@@ -1747,7 +1747,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                             <p className="text-xs text-red-500 mt-1">{jsonValidationError}</p>
                           )}
                           <p className="text-xs text-muted-foreground mt-2">
-                            Paste your MCP server configuration in JSON format. Example formats:
+                            以 JSON 格式粘贴您的 MCP 服务器配置。示例格式：
                             <br />• stdio: {`{"type":"stdio","command":"npx","args":["@upstash/context7-mcp"]}`}
                             <br />• http/sse: {`{"type":"http","url":"https://api.example.com/mcp"}`}
                           </p>
@@ -1760,7 +1760,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                       <div className="space-y-4">
                         <div>
                           <label className="block text-sm font-medium text-foreground mb-2">
-                            Command *
+                            命令 *
                           </label>
                           <Input
                             value={mcpFormData.config.command}
@@ -1772,7 +1772,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                         
                         <div>
                           <label className="block text-sm font-medium text-foreground mb-2">
-                            Arguments (one per line)
+                            参数 (每行一个)
                           </label>
                           <textarea
                             value={Array.isArray(mcpFormData.config.args) ? mcpFormData.config.args.join('\n') : ''}
@@ -1804,7 +1804,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                     {mcpFormData.importMode === 'form' && (
                       <div>
                       <label className="block text-sm font-medium text-foreground mb-2">
-                        Environment Variables (KEY=value, one per line)
+                        环境变量 (KEY=value, 每行一个)
                       </label>
                       <textarea
                         value={Object.entries(mcpFormData.config.env || {}).map(([k, v]) => `${k}=${v}`).join('\n')}
@@ -1828,7 +1828,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                     {mcpFormData.importMode === 'form' && (mcpFormData.type === 'sse' || mcpFormData.type === 'http') && (
                       <div>
                         <label className="block text-sm font-medium text-foreground mb-2">
-                          Headers (KEY=value, one per line)
+                          标头 (KEY=value, 每行一个)
                         </label>
                         <textarea
                           value={Object.entries(mcpFormData.config.headers || {}).map(([k, v]) => `${k}=${v}`).join('\n')}
@@ -1852,14 +1852,14 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
 
                     <div className="flex justify-end gap-2 pt-4">
                       <Button type="button" variant="outline" onClick={resetMcpForm}>
-                        Cancel
+                        取消
                       </Button>
                       <Button 
                         type="submit" 
                         disabled={mcpLoading} 
                         className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50"
                       >
-                        {mcpLoading ? 'Saving...' : (editingMcpServer ? 'Update Server' : 'Add Server')}
+                        {mcpLoading ? '保存中...' : (editingMcpServer ? '更新服务器' : '添加服务器')}
                       </Button>
                     </div>
                   </form>
@@ -1875,7 +1875,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                   <div className="flex items-center gap-3">
                     <LogIn className="w-5 h-5 text-green-500" />
                     <h3 className="text-lg font-medium text-foreground">
-                      Authentication
+                      身份验证
                     </h3>
                   </div>
                   <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
@@ -1883,12 +1883,12 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                       <div className="flex items-center gap-2">
                         {codebuddyAuthStatus.loading ? (
                           <span className="text-sm text-green-700 dark:text-green-300">
-                            Checking authentication...
+                            检查身份验证...
                           </span>
                         ) : codebuddyAuthStatus.authenticated ? (
                           <div className="flex items-center gap-2">
                             <Badge variant="success" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
-                              ✓ HTTP API Connected
+                              ✓ HTTP API 已连接
                             </Badge>
                             {codebuddyAuthStatus.email && (
                               <span className="text-sm text-green-700 dark:text-green-300">
@@ -1898,7 +1898,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                           </div>
                         ) : (
                           <Badge variant="secondary" className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">
-                            Not connected
+                            未连接
                           </Badge>
                         )}
                       </div>
@@ -1910,8 +1910,8 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                           </div>
                           <div className="text-sm text-green-700 dark:text-green-300">
                             {codebuddyAuthStatus.authenticated
-                              ? 'HTTP API service is running'
-                              : 'Start CodeBuddy HTTP API server to enable AI features'}
+                              ? 'HTTP API 服务正在运行'
+                              : '启动 CodeBuddy HTTP API 服务器以启用 AI 功能'}
                           </div>
                         </div>
                         <Button
@@ -1920,7 +1920,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                           size="sm"
                         >
                           <LogIn className="w-4 h-4 mr-2" />
-                          Connect
+                          连接
                         </Button>
                       </div>
                     </div>
@@ -1932,14 +1932,14 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                   <div className="flex items-center gap-3">
                     <Terminal className="w-5 h-5 text-green-500" />
                     <h3 className="text-lg font-medium text-foreground">
-                      Installation & Setup
+                      安装和设置
                     </h3>
                   </div>
                   <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
                     <div className="space-y-4">
                       <div>
                         <div className="font-medium text-green-900 dark:text-green-100 mb-2">
-                          1. Install CodeBuddy
+                          1. 安装 CodeBuddy
                         </div>
                         <code className="block bg-green-100 dark:bg-green-800 px-3 py-2 rounded text-sm">
                           npm install -g @tencent-ai/codebuddy-code
@@ -2060,7 +2060,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                   <div className="flex items-center gap-3">
                     <LogIn className="w-5 h-5 text-purple-500" />
                     <h3 className="text-lg font-medium text-foreground">
-                      Authentication
+                      身份验证
                     </h3>
                   </div>
                   <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
@@ -2117,18 +2117,18 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                   <div className="flex items-center gap-3">
                     <Shield className="w-5 h-5 text-green-500" />
                     <h3 className="text-lg font-medium text-foreground">
-                      Allowed Shell Commands
+                      允许的 Shell 命令
                     </h3>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Shell commands that are automatically allowed without prompting for permission
+                    自动允许而无需提示权限的 Shell 命令
                   </p>
                   
                   <div className="flex flex-col sm:flex-row gap-2">
                     <Input
                       value={newCursorCommand}
                       onChange={(e) => setNewCursorCommand(e.target.value)}
-                      placeholder='e.g., "Shell(ls)" or "Shell(git status)"'
+                      placeholder='例如: "Shell(ls)" 或 "Shell(git status)"'
                       onKeyPress={(e) => {
                         if (e.key === 'Enter') {
                           if (newCursorCommand && !cursorAllowedCommands.includes(newCursorCommand)) {
@@ -2152,14 +2152,14 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                       className="h-10 px-4 touch-manipulation"
                     >
                       <Plus className="w-4 h-4 mr-2 sm:mr-0" />
-                      <span className="sm:hidden">Add Command</span>
+                      <span className="sm:hidden">添加命令</span>
                     </Button>
                   </div>
 
                   {/* Common commands quick add */}
                   <div className="space-y-2">
                     <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Quick add common commands:
+                      快速添加常用命令：
                     </p>
                     <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
                       {commonCursorCommands.map(cmd => (
@@ -2199,7 +2199,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                     ))}
                     {cursorAllowedCommands.length === 0 && (
                       <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                        No allowed shell commands configured
+                        未配置允许的 Shell 命令
                       </div>
                     )}
                   </div>
@@ -2210,18 +2210,18 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                   <div className="flex items-center gap-3">
                     <Shield className="w-5 h-5 text-red-500" />
                     <h3 className="text-lg font-medium text-foreground">
-                      Disallowed Shell Commands
+                      禁止的 Shell 命令
                     </h3>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Shell commands that should always be denied
+                    应该始终被拒绝的 Shell 命令
                   </p>
                   
                   <div className="flex flex-col sm:flex-row gap-2">
                     <Input
                       value={newCursorDisallowedCommand}
                       onChange={(e) => setNewCursorDisallowedCommand(e.target.value)}
-                      placeholder='e.g., "Shell(rm -rf)" or "Shell(sudo)"'
+                      placeholder='例如: "Shell(rm -rf)" 或 "Shell(sudo)"'
                       onKeyPress={(e) => {
                         if (e.key === 'Enter') {
                           if (newCursorDisallowedCommand && !cursorDisallowedCommands.includes(newCursorDisallowedCommand)) {
@@ -2245,7 +2245,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                       className="h-10 px-4 touch-manipulation"
                     >
                       <Plus className="w-4 h-4 mr-2 sm:mr-0" />
-                      <span className="sm:hidden">Add Command</span>
+                      <span className="sm:hidden">添加命令</span>
                     </Button>
                   </div>
 
@@ -2267,7 +2267,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                     ))}
                     {cursorDisallowedCommands.length === 0 && (
                       <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                        No disallowed shell commands configured
+                        未配置禁止的 Shell 命令
                       </div>
                     )}
                   </div>
@@ -2276,13 +2276,13 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                 {/* Help Section */}
                 <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
                   <h4 className="font-medium text-purple-900 dark:text-purple-100 mb-2">
-                    Cursor Shell Command Examples:
+                    Cursor Shell 命令示例:
                   </h4>
                   <ul className="text-sm text-purple-800 dark:text-purple-200 space-y-1">
-                    <li><code className="bg-purple-100 dark:bg-purple-800 px-1 rounded">"Shell(ls)"</code> - Allow ls command</li>
-                    <li><code className="bg-purple-100 dark:bg-purple-800 px-1 rounded">"Shell(git status)"</code> - Allow git status command</li>
-                    <li><code className="bg-purple-100 dark:bg-purple-800 px-1 rounded">"Shell(mkdir)"</code> - Allow mkdir command</li>
-                    <li><code className="bg-purple-100 dark:bg-purple-800 px-1 rounded">"-f"</code> flag - Skip all permission prompts (dangerous)</li>
+                    <li><code className="bg-purple-100 dark:bg-purple-800 px-1 rounded">"Shell(ls)"</code> - 允许 ls 命令</li>
+                    <li><code className="bg-purple-100 dark:bg-purple-800 px-1 rounded">"Shell(git status)"</code> - 允许 git status 命令</li>
+                    <li><code className="bg-purple-100 dark:bg-purple-800 px-1 rounded">"Shell(mkdir)"</code> - 允许 mkdir 命令</li>
+                    <li><code className="bg-purple-100 dark:bg-purple-800 px-1 rounded">"-f"</code> 标志 - 跳过所有权限提示（危险）</li>
                   </ul>
                 </div>
               </div>
@@ -2296,7 +2296,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                   <div className="flex items-center gap-3">
                     <LogIn className="w-5 h-5 text-green-500" />
                     <h3 className="text-lg font-medium text-foreground">
-                      Authentication
+                      身份验证
                     </h3>
                   </div>
                   <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
@@ -2304,12 +2304,12 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                       <div className="flex items-center gap-2">
                         {codebuddyAuthStatus.loading ? (
                           <span className="text-sm text-green-700 dark:text-green-300">
-                            Checking authentication...
+                            检查身份验证...
                           </span>
                         ) : codebuddyAuthStatus.authenticated ? (
                           <div className="flex items-center gap-2">
                             <Badge variant="success" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
-                              ✓ HTTP API Connected
+                              ✓ HTTP API 已连接
                             </Badge>
                             {codebuddyAuthStatus.email && (
                               <span className="text-sm text-green-700 dark:text-green-300">
@@ -2319,7 +2319,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                           </div>
                         ) : (
                           <Badge variant="secondary" className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">
-                            Not connected
+                            未连接
                           </Badge>
                         )}
                       </div>
@@ -2331,8 +2331,8 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                           </div>
                           <div className="text-sm text-green-700 dark:text-green-300">
                             {codebuddyAuthStatus.authenticated
-                              ? 'HTTP API service is running'
-                              : 'Start CodeBuddy HTTP API server to enable AI features'}
+                              ? 'HTTP API 服务正在运行'
+                              : '启动 CodeBuddy HTTP API 服务器以启用 AI 功能'}
                           </div>
                         </div>
                         <Button
@@ -2341,7 +2341,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                           size="sm"
                         >
                           <LogIn className="w-4 h-4 mr-2" />
-                          Connect
+                          连接
                         </Button>
                       </div>
                     </div>
@@ -2353,14 +2353,14 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                   <div className="flex items-center gap-3">
                     <Terminal className="w-5 h-5 text-green-500" />
                     <h3 className="text-lg font-medium text-foreground">
-                      Installation & Setup
+                      安装和设置
                     </h3>
                   </div>
                   <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
                     <div className="space-y-4">
                       <div>
                         <div className="font-medium text-green-900 dark:text-green-100 mb-2">
-                          1. Install CodeBuddy
+                          1. 安装 CodeBuddy
                         </div>
                         <code className="block bg-green-100 dark:bg-green-800 px-3 py-2 rounded text-sm">
                           npm install -g @tencent-ai/codebuddy-code
@@ -2461,7 +2461,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                 </svg>
-                Settings saved successfully!
+                设置保存成功！
               </div>
             )}
             {saveStatus === 'error' && (
@@ -2469,7 +2469,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                 </svg>
-                Failed to save settings
+                保存设置失败
               </div>
             )}
           </div>
@@ -2480,7 +2480,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
               disabled={isSaving}
               className="flex-1 sm:flex-none h-10 touch-manipulation"
             >
-              Cancel
+              取消
             </Button>
             <Button 
               onClick={saveSettings} 
@@ -2490,10 +2490,10 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
               {isSaving ? (
                 <div className="flex items-center gap-2">
                   <div className="w-4 h-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  Saving...
+                  保存中...
                 </div>
               ) : (
-                'Save Settings'
+                '保存设置'
               )}
             </Button>
           </div>

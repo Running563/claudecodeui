@@ -68,7 +68,7 @@ function CredentialsSettings() {
   };
 
   const deleteApiKey = async (keyId) => {
-    if (!confirm('Are you sure you want to delete this API key?')) return;
+    if (!confirm('确定要删除此 API 密钥吗?')) return;
 
     try {
       await authenticatedFetch(`/api/settings/api-keys/${keyId}`, {

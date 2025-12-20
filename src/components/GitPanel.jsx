@@ -607,10 +607,10 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
 
   const getStatusLabel = (status) => {
     switch (status) {
-      case 'M': return 'Modified';
-      case 'A': return 'Added';
-      case 'D': return 'Deleted';
-      case 'U': return 'Untracked';
+      case 'M': return '已修改';
+      case 'A': return '已添加';
+      case 'D': return '已删除';
+      case 'U': return '未跟踪';
       default: return status;
     }
   };
@@ -790,7 +790,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
   if (!selectedProject) {
     return (
       <div className="h-full flex items-center justify-center text-gray-500 dark:text-gray-400">
-        <p>Select a project to view source control</p>
+        <p>选择项目以查看源代码管理</p>
       </div>
     );
   }

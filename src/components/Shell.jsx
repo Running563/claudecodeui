@@ -680,8 +680,8 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   const sessionDisplayName = useMemo(() => {
     if (!selectedSession) return null;
     return selectedSession.__provider === 'cursor'
-      ? (selectedSession.name || 'Untitled Session')
-      : (selectedSession.summary || 'New Session');
+      ? (selectedSession.name || '无标题会话')
+      : (selectedSession.summary || '新会话');
   }, [selectedSession]);
 
   const sessionDisplayNameShort = useMemo(() => {
@@ -964,8 +964,8 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" />
             </svg>
           </div>
-          <h3 className="text-lg font-semibold mb-2">Select a Project</h3>
-          <p>Choose a project to open an interactive shell in that directory</p>
+          <h3 className="text-lg font-semibold mb-2">选择项目</h3>
+          <p>选择一个项目以在该目录中打开交互式终端</p>
         </div>
       </div>
     );
@@ -1021,7 +1021,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
                 </span>
               )}
               {!selectedSession && (
-                <span className="text-xs text-gray-400">(New Session)</span>
+                <span className="text-xs text-gray-400">(新会话)</span>
               )}
               {!isInitialized && (
                 <span className="text-xs text-yellow-400">(Initializing...)</span>
@@ -1035,12 +1035,12 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
                 <button
                   onClick={disconnectFromShell}
                   className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 flex items-center space-x-1"
-                  title="Disconnect from shell"
+                  title="与终端断开连接"
                 >
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
-                  <span>Disconnect</span>
+                  <span>断开连接</span>
                 </button>
               )}
 
@@ -1048,10 +1048,10 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
                 onClick={restartShell}
                 disabled={isRestarting || isConnected}
                 className="text-xs text-gray-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1"
-                title="Restart Shell (disconnect first)"
+                title="重启终端（先断开）"
               >
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9M11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
                 <span>Restart</span>
               </button>
@@ -1078,7 +1078,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
         {!isInitialized && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-90">
-            <div className="text-white">Loading terminal...</div>
+            <div className="text-white">加载终端...</div>
           </div>
         )}
 
@@ -1093,14 +1093,14 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
-                <span>Continue in Shell</span>
+                <span>在终端中继续</span>
               </button>
               <p className="text-gray-400 text-sm mt-3 px-2">
                 {isPlainShell ?
-                  `Run ${initialCommand || 'command'} in ${selectedProject.displayName}` :
+                  `在 ${selectedProject.displayName} 中运行 ${initialCommand || '命令'}` :
                   selectedSession ?
-                    `Resume session: ${sessionDisplayNameLong}...` :
-                    'Start a new Claude session'
+                    `恢复会话: ${sessionDisplayNameLong}...` :
+                    '开始新的 Claude 会话'
                 }
               </p>
             </div>
@@ -1112,12 +1112,12 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
             <div className="text-center max-w-sm w-full">
               <div className="flex items-center justify-center space-x-3 text-yellow-400">
                 <div className="w-6 h-6 animate-spin rounded-full border-2 border-yellow-400 border-t-transparent"></div>
-                <span className="text-base font-medium">Connecting to shell...</span>
+                <span className="text-base font-medium">连接到终端...</span>
               </div>
               <p className="text-gray-400 text-sm mt-3 px-2">
                 {isPlainShell ?
-                  `Running ${initialCommand || 'command'} in ${selectedProject.displayName}` :
-                  `Starting Claude CLI in ${selectedProject.displayName}`
+                  `在 ${selectedProject.displayName} 中运行 ${initialCommand || '命令'}` :
+                  `在 ${selectedProject.displayName} 中启动 Claude CLI`
                 }
               </p>
             </div>

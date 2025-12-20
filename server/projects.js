@@ -749,7 +749,7 @@ async function getSessionsFromDir(projectName, limit = 5, offset = 0, projectsBa
         const jsonlFile = path.join(projectDir, file);
         
         // Parse the file to get session info (using Claude's three-tier approach)
-        let summary = 'New Session';
+        let summary = '新会话';
         let messageCount = 0;
         let lastUserMessage = null;
         let lastAssistantMessage = null;
@@ -818,7 +818,7 @@ async function getSessionsFromDir(projectName, limit = 5, offset = 0, projectsBa
         }
         
         // Apply fallback logic for summary (only if not already set from session-titles.json)
-        if (summary === 'New Session') {
+        if (summary === '新会话') {
           // Prefer last user message, fall back to last assistant message
           const lastMessage = lastUserMessage || lastAssistantMessage;
           if (lastMessage) {
@@ -983,7 +983,7 @@ async function parseJsonlSessions(filePath) {
             if (!sessions.has(entry.sessionId)) {
               sessions.set(entry.sessionId, {
                 id: entry.sessionId,
-                summary: 'New Session',
+                summary: '新会话',
                 messageCount: 0,
                 lastActivity: new Date(),
                 cwd: entry.cwd || '',
@@ -995,7 +995,7 @@ async function parseJsonlSessions(filePath) {
             const session = sessions.get(entry.sessionId);
 
             // Apply pending summary if this entry has a parentUuid that matches a pending summary
-            if (session.summary === 'New Session' && entry.parentUuid && pendingSummaries.has(entry.parentUuid)) {
+            if (session.summary === '新会话' && entry.parentUuid && pendingSummaries.has(entry.parentUuid)) {
               session.summary = pendingSummaries.get(entry.parentUuid);
             }
 
@@ -1076,7 +1076,7 @@ async function parseJsonlSessions(filePath) {
 
     // After processing all entries, set final summary based on last message if no summary exists
     for (const session of sessions.values()) {
-      if (session.summary === 'New Session') {
+      if (session.summary === '新会话') {
         // Prefer last user message, fall back to last assistant message
         const lastMessage = session.lastUserMessage || session.lastAssistantMessage;
         if (lastMessage) {

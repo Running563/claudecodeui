@@ -985,7 +985,7 @@ function handleShellConnection(ws) {
                 }
 
                 console.log('[INFO] Starting shell in:', projectPath);
-                console.log('📋 Session info:', hasSession ? `Resume session ${sessionId}` : (isPlainShell ? 'Plain shell mode' : 'New session'));
+                console.log('📋 Session info:', hasSession ? `Resume session ${sessionId}` : (isPlainShell ? 'Plain shell mode' : '新会话'));
                 console.log('🤖 Provider:', isQuickTerminal ? 'quick-terminal' : (isPlainShell ? 'plain-shell' : provider));
                 if (initialCommand) {
                     console.log('⚡ Initial command:', initialCommand);
