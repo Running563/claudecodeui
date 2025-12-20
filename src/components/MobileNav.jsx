@@ -1,9 +1,7 @@
 import React from 'react';
 import { MessageSquare, Folder, Terminal, GitBranch, Globe, CheckSquare, MonitorPlay } from 'lucide-react';
-import { useTasksSettings } from '../contexts/TasksSettingsContext';
 
 function MobileNav({ activeTab, setActiveTab, isInputFocused, onOpenTerminals }) {
-  const { tasksEnabled } = useTasksSettings();
   const navItems = [
     {
       id: 'chat',

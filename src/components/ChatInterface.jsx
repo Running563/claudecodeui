@@ -128,8 +128,6 @@ import TodoList from './TodoList';
 import ClaudeLogo from './ClaudeLogo.jsx';
 import CursorLogo from './CursorLogo.jsx';
 import CodeBuddyLogo from './CodeBuddyLogo.jsx';
-import NextTaskBanner from './NextTaskBanner.jsx';
-import { useTasksSettings } from '../contexts/TasksSettingsContext';
 
 import ClaudeStatus from './ClaudeStatus';
 import TokenUsagePie from './TokenUsagePie';
@@ -2123,8 +2121,7 @@ const ImageAttachment = ({ file, onRemove, uploadProgress, error }) => {
 // - onReplaceTemporarySession: Called to replace temporary session ID with real WebSocket session ID
 //
 // This ensures uninterrupted chat experience by pausing sidebar refreshes during conversations.
-function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, messages, onFileOpen, onInputFocusChange, onSessionActive, onSessionInactive, onSessionProcessing, onSessionNotProcessing, onSessionCompleted, processingSessions, onReplaceTemporarySession, onNavigateToSession, onShowSettings, autoExpandTools, showRawParameters, showThinking, autoScrollToBottom, sendByCtrlEnter, externalMessageUpdate, onTaskClick, onShowAllTasks, onToggleQuickSettings }) {
-  const { tasksEnabled } = useTasksSettings();
+function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, messages, onFileOpen, onInputFocusChange, onSessionActive, onSessionInactive, onSessionProcessing, onSessionNotProcessing, onSessionCompleted, processingSessions, onReplaceTemporarySession, onNavigateToSession, onShowSettings, autoExpandTools, showRawParameters, showThinking, autoScrollToBottom, sendByCtrlEnter, externalMessageUpdate, onToggleQuickSettings }) {
   const [input, setInput] = useState(() => {
     if (typeof window !== 'undefined' && selectedProject) {
       return safeLocalStorage.getItem(`draft_input_${selectedProject.name}`) || '';
@@ -3525,7 +3522,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
 
       // Filter messages by session ID to prevent cross-session interference
       // Skip filtering for global messages that apply to all sessions
-      const globalMessageTypes = ['projects_updated', 'taskmaster-project-updated', 'session-created', 'claude-complete'];
+      const globalMessageTypes = ['projects_updated', 'session-created', 'claude-complete'];
       const isGlobalMessage = globalMessageTypes.includes(latestMessage.type);
 
       // For new sessions (currentSessionId is null), allow messages through
@@ -5434,16 +5431,6 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                     : 'Select a provider above to begin'
                   }
                 </p>
-                
-                {/* Show NextTaskBanner when provider is selected and ready */}
-                {provider && tasksEnabled && (
-                  <div className="mt-4 px-4 sm:px-0">
-                    <NextTaskBanner 
-                      onStartTask={() => setInput('Start the next task')}
-                      onShowAllTasks={onShowAllTasks}
-                    />
-                  </div>
-                )}
               </div>
             )}
             {selectedSession && (
@@ -5452,16 +5439,6 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                 <p className="text-sm sm:text-base leading-relaxed">
                   Ask questions about your code, request changes, or get help with development tasks
                 </p>
-                
-                {/* Show NextTaskBanner for existing sessions too */}
-                {tasksEnabled && (
-                  <div className="mt-4 px-4 sm:px-0">
-                    <NextTaskBanner 
-                      onStartTask={() => setInput('Start the next task')}
-                      onShowAllTasks={onShowAllTasks}
-                    />
-                  </div>
-                )}
               </div>
             )}
           </div>

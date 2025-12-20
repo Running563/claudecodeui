@@ -9,7 +9,6 @@ import CursorLogo from './CursorLogo';
 import CodeBuddyLogo from './CodeBuddyLogo';
 import CredentialsSettings from './CredentialsSettings';
 import GitSettings from './GitSettings';
-import TasksSettings from './TasksSettings';
 import LoginModal from './LoginModal';
 import { authenticatedFetch } from '../utils/api';
 
@@ -804,16 +803,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
               >
                 <Key className="w-4 h-4 inline mr-2" />
                 API & Tokens
-              </button>
-              <button
-                onClick={() => setActiveTab('tasks')}
-                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'tasks'
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Tasks
               </button>
             </div>
           </div>
@@ -2453,13 +2442,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                 </div>
               </div>
             )}
-              </div>
-            )}
-
-            {/* Tasks Tab */}
-            {activeTab === 'tasks' && (
-              <div className="space-y-6 md:space-y-8">
-                <TasksSettings />
               </div>
             )}
 

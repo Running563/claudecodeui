@@ -48,7 +48,6 @@ A desktop and mobile UI for [Claude Code](https://docs.anthropic.com/en/docs/cla
 - **Git Explorer** - View, stage and commit your changes. You can also switch branches 
 - **Session Management** - Resume conversations, manage multiple sessions, and track history
 - **Multi-Provider Support** - Switch between Claude Code, Cursor, and CodeBuddy seamlessly
-- **TaskMaster AI Integration** *(Optional)* - Advanced project management with AI-powered task planning, PRD parsing, and workflow automation
 - **Model Compatibility** - Works with Claude Sonnet 4, Opus 4.1, and GPT-5
 
 
@@ -213,18 +212,6 @@ To use Claude Code's full functionality, you'll need to manually enable tools:
 
 **Recommended approach**: Start with basic tools enabled and add more as needed. You can always adjust these settings later.
 
-## TaskMaster AI Integration *(Optional)*
-
-Claude Code UI supports **[TaskMaster AI](https://github.com/eyaltoledano/claude-task-master)** (aka claude-task-master) integration for advanced project management and AI-powered task planning.
-
-It provides
-- AI-powered task generation from PRDs (Product Requirements Documents)
-- Smart task breakdown and dependency management  
-- Visual task boards and progress tracking
-
-**Setup & Documentation**: Visit the [TaskMaster AI GitHub repository](https://github.com/eyaltoledano/claude-task-master) for installation instructions, configuration guides, and usage examples.
-After installing it you should be able to enable it from the Settings
-
 
 ## Usage Guide
 
@@ -252,13 +239,8 @@ The UI automatically discovers Claude Code projects from `~/.claude/projects/` a
 
 #### Git Explorer
 
-
-#### TaskMaster AI Integration *(Optional)*
-- **Visual Task Board** - Kanban-style interface for managing development tasks
-- **PRD Parser** - Create Product Requirements Documents and parse them into structured tasks
-- **Progress Tracking** - Real-time status updates and completion tracking
-
 #### Session Management
+- **Resume Conversations** - Pick up where you left off in any session
 - **Session Persistence** - All conversations automatically saved
 - **Session Organization** - Group sessions by project and timestamp
 - **Session Actions** - Rename, delete, and export conversation history
@@ -368,7 +350,6 @@ This project is open source and free to use, modify, and distribute under the GP
 - **[Vite](https://vitejs.dev/)** - Fast build tool and dev server
 - **[Tailwind CSS](https://tailwindcss.com/)** - Utility-first CSS framework
 - **[CodeMirror](https://codemirror.net/)** - Advanced code editor
-- **[TaskMaster AI](https://github.com/eyaltoledano/claude-task-master)** *(Optional)* - AI-powered project management and task planning
 
 ## Support & Community
 

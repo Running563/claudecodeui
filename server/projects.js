@@ -577,27 +577,6 @@ async function getProjects() {
               project.cursorSessions = [];
             }
           }
-          
-          // Add TaskMaster detection (only once)
-          if (!project.taskmaster) {
-            try {
-              const taskMasterResult = await detectTaskMasterFolder(actualProjectDir);
-              project.taskmaster = {
-                hasTaskmaster: taskMasterResult.hasTaskmaster,
-                hasEssentialFiles: taskMasterResult.hasEssentialFiles,
-                metadata: taskMasterResult.metadata,
-                status: taskMasterResult.hasTaskmaster && taskMasterResult.hasEssentialFiles ? 'configured' : 'not-configured'
-              };
-            } catch (e) {
-              console.warn(`Could not detect TaskMaster for project ${entry.name}:`, e.message);
-              project.taskmaster = {
-                hasTaskmaster: false,
-                hasEssentialFiles: false,
-                metadata: null,
-                status: 'error'
-              };
-            }
-          }
         }
       }
     } catch (error) {
@@ -659,32 +638,6 @@ async function getProjects() {
         project.cursorSessions = await getCursorSessions(actualProjectDir);
       } catch (e) {
         console.warn(`Could not load Cursor sessions for manual project ${projectName}:`, e.message);
-      }
-      
-      // Add TaskMaster detection for manual projects
-      try {
-        const taskMasterResult = await detectTaskMasterFolder(actualProjectDir);
-        
-        // Determine TaskMaster status
-        let taskMasterStatus = 'not-configured';
-        if (taskMasterResult.hasTaskmaster && taskMasterResult.hasEssentialFiles) {
-          taskMasterStatus = 'taskmaster-only'; // We don't check MCP for manual projects in bulk
-        }
-        
-        project.taskmaster = {
-          status: taskMasterStatus,
-          hasTaskmaster: taskMasterResult.hasTaskmaster,
-          hasEssentialFiles: taskMasterResult.hasEssentialFiles,
-          metadata: taskMasterResult.metadata
-        };
-      } catch (error) {
-        console.warn(`TaskMaster detection failed for manual project ${projectName}:`, error.message);
-        project.taskmaster = {
-          status: 'error',
-          hasTaskmaster: false,
-          hasEssentialFiles: false,
-          error: error.message
-        };
       }
       
       projects.push(project);
