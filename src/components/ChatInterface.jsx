@@ -763,7 +763,7 @@ const InlineImagePreview = memo(({ base64Data, onClick }) => (
 InlineImagePreview.displayName = 'InlineImagePreview';
 
 // Memoized message component to prevent unnecessary re-renders
-const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFileOpen, onShowSettings, autoExpandTools, showRawParameters, showThinking, selectedProject, setImagePreview, setToolResultModal, onEditMessage }) => {
+const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFileOpen, onShowSettings, autoExpandTools, showRawParameters, showThinking, selectedProject, setImagePreview, setToolResultModal, onEditMessage, onDeleteMessage }) => {
   const isGrouped = prevMessage && prevMessage.type === message.type &&
                    ((prevMessage.type === 'assistant') ||
                     (prevMessage.type === 'user') ||
@@ -808,7 +808,12 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
         /* User message bubble on the right */
         <div className="flex flex-col items-end w-full sm:w-auto sm:max-w-[85%] md:max-w-2xl lg:max-w-3xl xl:max-w-4xl group/usermsg">
           <div className="flex items-end gap-2 w-full justify-end">
-            {/* Edit button - appears on hover */}
+            <div className="bg-blue-600 text-white rounded-2xl rounded-br-md px-3 sm:px-4 py-2 shadow-sm flex-1 sm:flex-initial">
+              <UserMessageContent message={message} selectedProject={selectedProject} />
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-3 mt-1.5 px-1">
+            {/* Edit button */}
             {onEditMessage && (
               <button
                 onClick={(e) => {
@@ -816,7 +821,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                   e.stopPropagation();
                   onEditMessage(index);
                 }}
-                className="opacity-0 group-hover/usermsg:opacity-100 transition-opacity p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 flex-shrink-0 self-end mb-2"
+                className="text-gray-400 hover:text-blue-600 dark:text-gray-500 dark:hover:text-blue-400 transition-colors"
                 title="Edit message"
                 aria-label="Edit message"
               >
@@ -825,12 +830,27 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                 </svg>
               </button>
             )}
-            <div className="bg-blue-600 text-white rounded-2xl rounded-br-md px-3 sm:px-4 py-2 shadow-sm flex-1 sm:flex-initial">
-              <UserMessageContent message={message} selectedProject={selectedProject} />
+            {/* Delete button */}
+            {onDeleteMessage && (
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDeleteMessage(index);
+                }}
+                className="text-gray-400 hover:text-red-600 dark:text-gray-500 dark:hover:text-red-400 transition-colors"
+                title="Delete message and all after"
+                aria-label="Delete message"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            )}
+            {/* Time */}
+            <div className="text-xs text-gray-400 dark:text-gray-500">
+              {new Date(message.timestamp).toLocaleTimeString()}
             </div>
-          </div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 w-full text-right">
-            {new Date(message.timestamp).toLocaleTimeString()}
           </div>
         </div>
       ) : (
@@ -2641,7 +2661,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
         throw new Error('Failed to load session messages');
       }
       const data = await response.json();
-      console.log('📩 loadSessionMessages response:', { messageCount: data.messages?.length, hasMore: data.hasMore, total: data.total });
+      // console.log('📩 loadSessionMessages response:', { messageCount: data.messages?.length, hasMore: data.hasMore, total: data.total });
       
       // Handle paginated response
       if (data.hasMore !== undefined) {
@@ -4867,6 +4887,67 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     }
   }, [chatMessages, input, editingMessageIndex, isLoading]);
 
+  // Handle delete message
+  const handleDeleteMessage = useCallback(async (messageIndex) => {
+    if (isLoading || !selectedProject) return;
+    
+    try {
+      // Find the timestamp to keep until
+      // If we are deleting from index 0, we want to keep nothing (or until epoch)
+      // If we are deleting from index > 0, we want to keep up to the previous message
+      let keepUntilTimestamp;
+      
+      if (messageIndex > 0) {
+        const previousMessage = chatMessages[messageIndex - 1];
+        if (previousMessage && previousMessage.timestamp) {
+           keepUntilTimestamp = previousMessage.timestamp;
+        } else {
+           console.error('Cannot delete: previous message missing timestamp');
+           return;
+        }
+      } else {
+        // Deleting the first message means clearing everything.
+        // Use a very old timestamp to delete all
+        keepUntilTimestamp = new Date(0).toISOString(); 
+      }
+
+      // Format timestamp correctly
+      if (typeof keepUntilTimestamp === 'number') {
+        keepUntilTimestamp = new Date(keepUntilTimestamp).toISOString();
+      } else if (keepUntilTimestamp instanceof Date) {
+        keepUntilTimestamp = keepUntilTimestamp.toISOString();
+      }
+      
+      // Call backend to truncate
+      const response = await authenticatedFetch(
+        `/api/projects/${encodeURIComponent(selectedProject.name)}/sessions/${currentSessionId}/truncate`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            keepUntilTimestamp
+          })
+        }
+      );
+      
+      if (!response.ok) {
+         const error = await response.json();
+         throw new Error(error.error || 'Failed to truncate session');
+      }
+      
+      // Update frontend state immediately
+      setChatMessages(prev => prev.slice(0, messageIndex));
+
+    } catch (error) {
+      console.error('Failed to delete message:', error);
+      setChatMessages(prev => [...prev, {
+        type: 'error',
+        content: `Failed to delete message: ${error.message}`,
+        timestamp: new Date()
+      }]);
+    }
+  }, [isLoading, chatMessages, selectedProject, currentSessionId]);
+
   // Cancel editing
   const handleCancelEdit = useCallback(() => {
     // Restore original input
@@ -5629,6 +5710,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                   setImagePreview={setImagePreview}
                   setToolResultModal={setToolResultModal}
                   onEditMessage={handleEditMessage}
+                  onDeleteMessage={handleDeleteMessage}
                 />
               );
             })}
