@@ -18,3 +18,10 @@ export {
   extractBase64FromContent,
   hasImageContent,
 } from './imageUtils';
+
+export {
+  calculateDiff,
+  createMemoizedDiff,
+} from './diffUtils';
+
+export { convertSessionMessages } from './messageConverter';

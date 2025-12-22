@@ -29,6 +29,8 @@ import {
   safeLocalStorage,
   extractBase64FromContent,
   hasImageContent,
+  createMemoizedDiff,
+  convertSessionMessages,
 } from './ChatInterface/utils';
 
 // Import syntax highlighter configuration
@@ -39,6 +41,7 @@ import Markdown from './ChatInterface/components/Markdown';
 import { markdownComponents } from './ChatInterface/components/MarkdownComponents';
 import UserMessageContent from './ChatInterface/components/UserMessageContent';
 import InlineImagePreview from './ChatInterface/components/InlineImagePreview';
+import ImageAttachment from './ChatInterface/components/ImageAttachment';
 
 import TodoList from './TodoList';
 import ClaudeLogo from './ClaudeLogo.jsx';
@@ -1416,43 +1419,6 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
   );
 });
 
-// ImageAttachment component for displaying image previews
-const ImageAttachment = ({ file, onRemove, uploadProgress, error }) => {
-  const [preview, setPreview] = useState(null);
-  
-  useEffect(() => {
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
-  
-  return (
-    <div className="relative group">
-      <img src={preview} alt={file.name} className="w-20 h-20 object-cover rounded" />
-      {uploadProgress !== undefined && uploadProgress < 100 && (
-        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-          <div className="text-white text-xs">{uploadProgress}%</div>
-        </div>
-      )}
-      {error && (
-        <div className="absolute inset-0 bg-red-500/50 flex items-center justify-center">
-          <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </div>
-      )}
-      <button
-        onClick={onRemove}
-        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100"
-      >
-        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-    </div>
-  );
-};
-
 // ChatInterface: Main chat component with Session Protection System integration
 // 
 // Session Protection System prevents automatic project updates from interrupting active conversations:
@@ -1923,23 +1889,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
 
 
   // Memoized diff calculation to prevent recalculating on every render
-  const createDiff = useMemo(() => {
-    const cache = new Map();
-    return (oldStr, newStr) => {
-      const key = `${oldStr.length}-${newStr.length}-${oldStr.slice(0, 50)}`;
-      if (cache.has(key)) {
-        return cache.get(key);
-      }
-      
-      const result = calculateDiff(oldStr, newStr);
-      cache.set(key, result);
-      if (cache.size > 100) {
-        const firstKey = cache.keys().next().value;
-        cache.delete(firstKey);
-      }
-      return result;
-    };
-  }, []);
+  const createDiff = useMemo(() => createMemoizedDiff(100), []);
 
   // Load session messages from API with pagination
   const loadSessionMessages = useCallback(async (projectName, sessionId, loadMore = false) => {
@@ -2299,232 +2249,6 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
       setIsLoadingSessionMessages(false);
     }
   }, []);
-
-  // Actual diff calculation function
-  const calculateDiff = (oldStr, newStr) => {
-    const oldLines = oldStr.split('\n');
-    const newLines = newStr.split('\n');
-    
-    // Simple diff algorithm - find common lines and differences
-    const diffLines = [];
-    let oldIndex = 0;
-    let newIndex = 0;
-    
-    while (oldIndex < oldLines.length || newIndex < newLines.length) {
-      const oldLine = oldLines[oldIndex];
-      const newLine = newLines[newIndex];
-      
-      if (oldIndex >= oldLines.length) {
-        // Only new lines remaining
-        diffLines.push({ type: 'added', content: newLine, lineNum: newIndex + 1 });
-        newIndex++;
-      } else if (newIndex >= newLines.length) {
-        // Only old lines remaining
-        diffLines.push({ type: 'removed', content: oldLine, lineNum: oldIndex + 1 });
-        oldIndex++;
-      } else if (oldLine === newLine) {
-        // Lines are the same - skip in diff view (or show as context)
-        oldIndex++;
-        newIndex++;
-      } else {
-        // Lines are different
-        diffLines.push({ type: 'removed', content: oldLine, lineNum: oldIndex + 1 });
-        diffLines.push({ type: 'added', content: newLine, lineNum: newIndex + 1 });
-        oldIndex++;
-        newIndex++;
-      }
-    }
-    
-    return diffLines;
-  };
-
-  const convertSessionMessages = (rawMessages) => {
-    const converted = [];
-    const toolResults = new Map(); // Map tool_use_id or callId to tool result
-    
-    // First pass: collect all tool results
-    for (const msg of rawMessages) {
-      // Support both Claude format (nested message) and CodeBuddy format (flat)
-      const role = msg.message?.role || msg.role;
-      const content = msg.message?.content || msg.content;
-      
-      if (role === 'user' && Array.isArray(content)) {
-        for (const part of content) {
-          if (part.type === 'tool_result') {
-            toolResults.set(part.tool_use_id, {
-              content: part.content,
-              isError: part.is_error,
-              timestamp: new Date(msg.timestamp || Date.now()),
-              // Extract structured tool result data (e.g., for Grep, Glob)
-              toolUseResult: msg.toolUseResult || null
-            });
-          }
-        }
-      }
-      
-      // Handle function_call_result type (CodeBuddy format)
-      if (msg.type === 'function_call_result') {
-        const resultContent = msg.output?.text || msg.output || '';
-        toolResults.set(msg.callId, {
-          content: resultContent,
-          isError: msg.status === 'error',
-          timestamp: new Date(msg.timestamp || Date.now()),
-          toolUseResult: msg.providerData?.toolResult || null
-        });
-      }
-    }
-    
-    // Second pass: process messages and attach tool results to tool uses
-    for (const msg of rawMessages) {
-      // Support both Claude format (nested message) and CodeBuddy format (flat)
-      const role = msg.message?.role || msg.role;
-      const content = msg.message?.content || msg.content;
-      
-      // Handle function_call type (CodeBuddy format)
-      if (msg.type === 'function_call') {
-        const toolResult = toolResults.get(msg.callId);
-        const displayText = msg.providerData?.argumentsDisplayText || '';
-        
-        converted.push({
-          type: 'assistant',
-          content: '',
-          timestamp: msg.timestamp || new Date().toISOString(),
-          isToolUse: true,
-          toolName: msg.name || 'Unknown Tool',
-          toolId: msg.callId,
-          toolInput: msg.arguments || '{}',
-          toolResult: toolResult ? {
-            content: (() => {
-              // Keep array if it contains image data, otherwise convert to string
-              if (hasImageContent(toolResult.content)) {
-                return toolResult.content;
-              }
-              return typeof toolResult.content === 'string' 
-                ? toolResult.content 
-                : JSON.stringify(toolResult.content);
-            })(),
-            isError: toolResult.isError,
-            toolUseResult: toolResult.toolUseResult
-          } : null,
-          toolError: toolResult?.isError || false,
-          toolResultTimestamp: toolResult?.timestamp || new Date(),
-          displayText: displayText
-        });
-        continue;
-      }
-      
-      // Skip function_call_result messages as they are handled in first pass
-      if (msg.type === 'function_call_result') {
-        continue;
-      }
-      
-      // Handle user messages
-      if (role === 'user' && content) {
-        let textContent = '';
-        let messageType = 'user';
-        
-        if (Array.isArray(content)) {
-          // Handle array content, but skip tool results (they're attached to tool uses)
-          const textParts = [];
-          
-          for (const part of content) {
-            if (part.type === 'text' || part.type === 'input_text') {
-              // Support both 'text' and 'input_text' types
-              textParts.push(decodeHtmlEntities(part.text));
-            }
-            // Skip tool_result parts - they're handled in the first pass
-          }
-          
-          textContent = textParts.join('\n');
-        } else if (typeof content === 'string') {
-          textContent = decodeHtmlEntities(content);
-        } else {
-          textContent = decodeHtmlEntities(String(content));
-        }
-        
-        // Skip command messages, system messages, and empty content
-        const shouldSkip = !textContent ||
-                          textContent.startsWith('<command-name>') ||
-                          textContent.startsWith('<command-message>') ||
-                          textContent.startsWith('<command-args>') ||
-                          textContent.startsWith('<local-command-stdout>') ||
-                          textContent.startsWith('<system-reminder>') ||
-                          textContent.startsWith('Caveat:') ||
-                          textContent.startsWith('This session is being continued from a previous') ||
-                          textContent.startsWith('[Request interrupted');
-
-        if (!shouldSkip) {
-          // Unescape with math formula protection
-          textContent = unescapeWithMathProtection(textContent);
-          converted.push({
-            type: messageType,
-            content: textContent,
-            timestamp: msg.timestamp || new Date().toISOString()
-          });
-        }
-      }
-      
-      // Handle assistant messages
-      else if (role === 'assistant' && content) {
-        if (Array.isArray(content)) {
-          for (const part of content) {
-            if (part.type === 'text' || part.type === 'output_text') {
-              // Support both 'text' and 'output_text' types
-              // Unescape with math formula protection
-              let text = part.text;
-              if (typeof text === 'string') {
-                text = unescapeWithMathProtection(text);
-              }
-              converted.push({
-                type: 'assistant',
-                content: text,
-                timestamp: msg.timestamp || new Date().toISOString()
-              });
-            } else if (part.type === 'tool_use') {
-              // Get the corresponding tool result
-              const toolResult = toolResults.get(part.id);
-
-              converted.push({
-                type: 'assistant',
-                content: '',
-                timestamp: msg.timestamp || new Date().toISOString(),
-                isToolUse: true,
-                toolName: part.name,
-                toolId: part.id,
-                toolInput: JSON.stringify(part.input),
-                toolResult: toolResult ? {
-                  content: (() => {
-                    // Keep array if it contains image data, otherwise convert to string
-                    if (hasImageContent(toolResult.content)) {
-                      return toolResult.content;
-                    }
-                    return typeof toolResult.content === 'string' 
-                      ? toolResult.content 
-                      : JSON.stringify(toolResult.content);
-                  })(),
-                  isError: toolResult.isError,
-                  toolUseResult: toolResult.toolUseResult
-                } : null,
-                toolError: toolResult?.isError || false,
-                toolResultTimestamp: toolResult?.timestamp || new Date()
-              });
-            }
-          }
-        } else if (typeof content === 'string') {
-          // Unescape with math formula protection
-          let text = content;
-          text = unescapeWithMathProtection(text);
-          converted.push({
-            type: 'assistant',
-            content: text,
-            timestamp: msg.timestamp || new Date().toISOString()
-          });
-        }
-      }
-    }
-    
-    return converted;
-  };
 
   // Memoize expensive convertSessionMessages operation
   const convertedMessages = useMemo(() => {
