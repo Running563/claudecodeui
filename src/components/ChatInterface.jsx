@@ -41,6 +41,7 @@ const stripAnsi = (str) => {
 /**
  * Extracts base64 image data from tool result content
  * Handles both array format and string format
+ * Supports both Claude and CodeBuddy formats
  * @param {any} content - Tool result content (can be array, string, or object)
  * @returns {string|null} - Base64 data URL or null if no image found
  */
@@ -60,10 +61,17 @@ const extractBase64FromContent = (content) => {
   
   // Check if content is array with image object
   if (Array.isArray(content)) {
+    // Claude format: { type: 'image', source: { type: 'base64', media_type: '...', data: '...' } }
     const imageItem = content.find(item => item?.type === 'image');
     if (imageItem?.source?.type === 'base64') {
       const mediaType = imageItem.source.media_type || 'image/png';
       return `data:${mediaType};base64,${imageItem.source.data}`;
+    }
+    
+    // CodeBuddy format: { type: 'image_url', image_url: { url: 'data:image/png;base64,...' } }
+    const imageUrlItem = content.find(item => item?.type === 'image_url');
+    if (imageUrlItem?.image_url?.url) {
+      return imageUrlItem.image_url.url;
     }
   }
   
@@ -1462,12 +1470,20 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                         
                         // Special handling for Read tool with image files (base64 data)
                         if (message.toolName === 'Read' && !message.toolResult.isError) {
+                          console.log('[Read Tool] Raw content:', rawContent);
+                          console.log('[Read Tool] Tool data:', toolData);
+                          
                           const base64Data = extractBase64FromContent(rawContent);
+                          console.log('[Read Tool] Extracted base64:', base64Data ? 'found' : 'not found');
+                          
                           if (base64Data) {
                             return (
                               <InlineImagePreview
                                 base64Data={base64Data}
-                                onClick={() => setImagePreview({ url: base64Data, filename: 'image' })}
+                                onClick={() => {
+                                  console.log('[Read Tool] Image clicked, setting preview');
+                                  setImagePreview({ url: base64Data, filename: 'image' });
+                                }}
                               />
                             );
                           }
