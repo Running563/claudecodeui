@@ -23,115 +23,21 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { useDropzone } from 'react-dropzone';
 
-// ============================================================================
-// Utility Functions for Image Handling and Text Processing
-// ============================================================================
+// Import utilities from refactored modules
+import {
+  stripAnsi,
+  decodeHtmlEntities,
+  normalizeInlineCodeFences,
+  unescapeWithMathProtection,
+  formatUsageLimitText,
+  safeLocalStorage,
+  extractBase64FromContent,
+  hasImageContent,
+} from './ChatInterface/utils';
 
-/**
- * Strips ANSI escape sequences (terminal color codes) from a string
- * @param {string} str - String that may contain ANSI codes
- * @returns {string} - Clean string without ANSI codes
- */
-const stripAnsi = (str) => {
-  if (typeof str !== 'string') return str;
-  // Remove ANSI escape sequences using regex
-  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
-};
+// Import syntax highlighter configuration
+import { SyntaxHighlighter, vscDarkPlus } from './ChatInterface/config/syntaxHighlighter';
 
-/**
- * Extracts base64 image data from tool result content
- * Handles both array format and string format
- * Supports both Claude and CodeBuddy formats
- * @param {any} content - Tool result content (can be array, string, or object)
- * @returns {string|null} - Base64 data URL or null if no image found
- */
-const extractBase64FromContent = (content) => {
-  // Parse JSON string if needed
-  if (typeof content === 'string') {
-    try {
-      if (content.startsWith('[') || content.startsWith('{')) {
-        content = JSON.parse(content);
-      }
-    } catch (e) {
-      // Not valid JSON, check if it's already a data URL
-      const match = content.match(/data:image\/[^;]+;base64,([A-Za-z0-9+/=]+)/);
-      return match ? match[0] : null;
-    }
-  }
-  
-  // Check if content is array with image object
-  if (Array.isArray(content)) {
-    // Claude format: { type: 'image', source: { type: 'base64', media_type: '...', data: '...' } }
-    const imageItem = content.find(item => item?.type === 'image');
-    if (imageItem?.source?.type === 'base64') {
-      const mediaType = imageItem.source.media_type || 'image/png';
-      return `data:${mediaType};base64,${imageItem.source.data}`;
-    }
-    
-    // CodeBuddy format: { type: 'image_url', image_url: { url: 'data:image/png;base64,...' } }
-    const imageUrlItem = content.find(item => item?.type === 'image_url');
-    if (imageUrlItem?.image_url?.url) {
-      return imageUrlItem.image_url.url;
-    }
-  }
-  
-  return null;
-};
-
-/**
- * Checks if tool result content contains image data
- * @param {any} content - Tool result content
- * @returns {boolean}
- */
-const hasImageContent = (content) => {
-  return Array.isArray(content) && content.some(item => item?.type === 'image');
-};
-// 直接从 dist 路径导入 PrismLight，避免引入主包导致加载所有语言
-import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
-import vscDarkPlus from 'react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus';
-// 只导入常用语言
-import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
-import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
-import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx';
-import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx';
-import css from 'react-syntax-highlighter/dist/esm/languages/prism/css';
-import json from 'react-syntax-highlighter/dist/esm/languages/prism/json';
-import python from 'react-syntax-highlighter/dist/esm/languages/prism/python';
-import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
-import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown';
-import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml';
-import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
-import java from 'react-syntax-highlighter/dist/esm/languages/prism/java';
-import c from 'react-syntax-highlighter/dist/esm/languages/prism/c';
-import cpp from 'react-syntax-highlighter/dist/esm/languages/prism/cpp';
-import go from 'react-syntax-highlighter/dist/esm/languages/prism/go';
-import rust from 'react-syntax-highlighter/dist/esm/languages/prism/rust';
-import diff from 'react-syntax-highlighter/dist/esm/languages/prism/diff';
-
-SyntaxHighlighter.registerLanguage('javascript', javascript);
-SyntaxHighlighter.registerLanguage('js', javascript);
-SyntaxHighlighter.registerLanguage('typescript', typescript);
-SyntaxHighlighter.registerLanguage('ts', typescript);
-SyntaxHighlighter.registerLanguage('jsx', jsx);
-SyntaxHighlighter.registerLanguage('tsx', tsx);
-SyntaxHighlighter.registerLanguage('css', css);
-SyntaxHighlighter.registerLanguage('json', json);
-SyntaxHighlighter.registerLanguage('python', python);
-SyntaxHighlighter.registerLanguage('py', python);
-SyntaxHighlighter.registerLanguage('bash', bash);
-SyntaxHighlighter.registerLanguage('shell', bash);
-SyntaxHighlighter.registerLanguage('sh', bash);
-SyntaxHighlighter.registerLanguage('markdown', markdown);
-SyntaxHighlighter.registerLanguage('md', markdown);
-SyntaxHighlighter.registerLanguage('yaml', yaml);
-SyntaxHighlighter.registerLanguage('yml', yaml);
-SyntaxHighlighter.registerLanguage('sql', sql);
-SyntaxHighlighter.registerLanguage('java', java);
-SyntaxHighlighter.registerLanguage('c', c);
-SyntaxHighlighter.registerLanguage('cpp', cpp);
-SyntaxHighlighter.registerLanguage('go', go);
-SyntaxHighlighter.registerLanguage('rust', rust);
-SyntaxHighlighter.registerLanguage('diff', diff);
 import TodoList from './TodoList';
 import ClaudeLogo from './ClaudeLogo.jsx';
 import CursorLogo from './CursorLogo.jsx';
@@ -144,60 +50,6 @@ import { api, authenticatedFetch } from '../utils/api';
 import Fuse from 'fuse.js';
 import CommandMenu from './CommandMenu';
 
-
-// Helper function to decode HTML entities in text
-function decodeHtmlEntities(text) {
-  if (!text) return text;
-  return text
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, '&');
-}
-
-// Normalize markdown text where providers mistakenly wrap short inline code with single-line triple fences.
-// Only convert fences that do NOT contain any newline to avoid touching real code blocks.
-function normalizeInlineCodeFences(text) {
-  if (!text || typeof text !== 'string') return text;
-  try {
-    // ```code```  -> `code`
-    return text.replace(/```\s*([^\n\r]+?)\s*```/g, '`$1`');
-  } catch {
-    return text;
-  }
-}
-
-// Unescape \n, \t, \r while protecting LaTeX formulas ($...$ and $$...$$) from being corrupted
-function unescapeWithMathProtection(text) {
-  if (!text || typeof text !== 'string') return text;
-
-  const mathBlocks = [];
-  const PLACEHOLDER_PREFIX = '__MATH_BLOCK_';
-  const PLACEHOLDER_SUFFIX = '__';
-
-  // Extract and protect math formulas
-  let processedText = text.replace(/\$\$([\s\S]*?)\$\$|\$([^\$\n]+?)\$/g, (match) => {
-    const index = mathBlocks.length;
-    mathBlocks.push(match);
-    return `${PLACEHOLDER_PREFIX}${index}${PLACEHOLDER_SUFFIX}`;
-  });
-
-  // Process escape sequences on non-math content
-  processedText = processedText.replace(/\\n/g, '\n')
-                               .replace(/\\t/g, '\t')
-                               .replace(/\\r/g, '\r');
-
-  // Restore math formulas
-  processedText = processedText.replace(
-    new RegExp(`${PLACEHOLDER_PREFIX}(\\d+)${PLACEHOLDER_SUFFIX}`, 'g'),
-    (match, index) => {
-      return mathBlocks[parseInt(index)];
-    }
-  );
-
-  return processedText;
-}
 
 // Small wrapper to keep markdown behavior consistent in one place
 const Markdown = ({ children, className }) => {
@@ -216,131 +68,6 @@ const Markdown = ({ children, className }) => {
       </ReactMarkdown>
     </div>
   );
-};
-
-// Format "Claude AI usage limit reached|<epoch>" into a local time string
-function formatUsageLimitText(text) {
-  try {
-    if (typeof text !== 'string') return text;
-    return text.replace(/Claude AI usage limit reached\|(\d{10,13})/g, (match, ts) => {
-      let timestampMs = parseInt(ts, 10);
-      if (!Number.isFinite(timestampMs)) return match;
-      if (timestampMs < 1e12) timestampMs *= 1000; // seconds → ms
-      const reset = new Date(timestampMs);
-
-      // Time HH:mm in local time
-      const timeStr = new Intl.DateTimeFormat(undefined, {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false
-      }).format(reset);
-
-      // Human-readable timezone: GMT±HH[:MM] (City)
-      const offsetMinutesLocal = -reset.getTimezoneOffset();
-      const sign = offsetMinutesLocal >= 0 ? '+' : '-';
-      const abs = Math.abs(offsetMinutesLocal);
-      const offH = Math.floor(abs / 60);
-      const offM = abs % 60;
-      const gmt = `GMT${sign}${offH}${offM ? ':' + String(offM).padStart(2, '0') : ''}`;
-      const tzId = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
-      const cityRaw = tzId.split('/').pop() || '';
-      const city = cityRaw
-        .replace(/_/g, ' ')
-        .toLowerCase()
-        .replace(/\b\w/g, c => c.toUpperCase());
-      const tzHuman = city ? `${gmt} (${city})` : gmt;
-
-      // Readable date like "8 Jun 2025"
-      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      const dateReadable = `${reset.getDate()} ${months[reset.getMonth()]} ${reset.getFullYear()}`;
-
-      return `Claude usage limit reached. Your limit will reset at **${timeStr} ${tzHuman}** - ${dateReadable}`;
-    });
-  } catch {
-    return text;
-  }
-}
-
-// Safe localStorage utility to handle quota exceeded errors
-const safeLocalStorage = {
-  setItem: (key, value) => {
-    try {
-      // For chat messages, implement compression and size limits
-      if (key.startsWith('chat_messages_') && typeof value === 'string') {
-        try {
-          const parsed = JSON.parse(value);
-          // Limit to last 50 messages to prevent storage bloat
-          if (Array.isArray(parsed) && parsed.length > 50) {
-            console.warn(`Truncating chat history for ${key} from ${parsed.length} to 50 messages`);
-            const truncated = parsed.slice(-50);
-            value = JSON.stringify(truncated);
-          }
-        } catch (parseError) {
-          console.warn('Could not parse chat messages for truncation:', parseError);
-        }
-      }
-      
-      localStorage.setItem(key, value);
-    } catch (error) {
-      if (error.name === 'QuotaExceededError') {
-        console.warn('localStorage quota exceeded, clearing old data');
-        // Clear old chat messages to free up space
-        const keys = Object.keys(localStorage);
-        const chatKeys = keys.filter(k => k.startsWith('chat_messages_')).sort();
-        
-        // Remove oldest chat data first, keeping only the 3 most recent projects
-        if (chatKeys.length > 3) {
-          chatKeys.slice(0, chatKeys.length - 3).forEach(k => {
-            localStorage.removeItem(k);
-            console.log(`Removed old chat data: ${k}`);
-          });
-        }
-        
-        // If still failing, clear draft inputs too
-        const draftKeys = keys.filter(k => k.startsWith('draft_input_'));
-        draftKeys.forEach(k => {
-          localStorage.removeItem(k);
-        });
-        
-        // Try again with reduced data
-        try {
-          localStorage.setItem(key, value);
-        } catch (retryError) {
-          console.error('Failed to save to localStorage even after cleanup:', retryError);
-          // Last resort: Try to save just the last 10 messages
-          if (key.startsWith('chat_messages_') && typeof value === 'string') {
-            try {
-              const parsed = JSON.parse(value);
-              if (Array.isArray(parsed) && parsed.length > 10) {
-                const minimal = parsed.slice(-10);
-                localStorage.setItem(key, JSON.stringify(minimal));
-                console.warn('Saved only last 10 messages due to quota constraints');
-              }
-            } catch (finalError) {
-              console.error('Final save attempt failed:', finalError);
-            }
-          }
-        }
-      } else {
-        console.error('localStorage error:', error);
-      }
-    }
-  },
-  getItem: (key) => {
-    try {
-      return localStorage.getItem(key);
-    } catch (error) {
-      console.error('localStorage getItem error:', error);
-      return null;
-    }
-  },
-  removeItem: (key) => {
-    try {
-      localStorage.removeItem(key);
-    } catch (error) {
-      console.error('localStorage removeItem error:', error);
-    }
-  }
 };
 
 // Common markdown components to ensure consistent rendering (tables, inline code, links, etc.)
