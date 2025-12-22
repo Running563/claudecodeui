@@ -47,6 +47,7 @@ import ImagePreviewModal from './ChatInterface/components/ImagePreviewModal';
 import ToolResultModal from './ChatInterface/components/ToolResultModal';
 import MessageComponent from './ChatInterface/components/MessageComponent';
 import ProviderSelector from './ChatInterface/components/ProviderSelector';
+import MessageList from './ChatInterface/components/MessageList';
 
 import TodoList from './TodoList';
 import ClaudeLogo from './ClaudeLogo.jsx';
@@ -2866,125 +2867,37 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto overflow-x-hidden px-0 py-3 sm:p-4 space-y-3 sm:space-y-4 relative"
       >
-        {isLoadingSessionMessages && chatMessages.length === 0 ? (
-          <div className="text-center text-gray-500 dark:text-gray-400 mt-8">
-            <div className="flex items-center justify-center space-x-2">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
-              <p>加载会话消息...</p>
-            </div>
-          </div>
-        ) : chatMessages.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            {!selectedSession && !currentSessionId && (
-              <ProviderSelector
-                provider={provider}
-                setProvider={setProvider}
-                cursorModel={cursorModel}
-                setCursorModel={setCursorModel}
-                textareaRef={textareaRef}
-              />
-            )}
-            {selectedSession && (
-              <div className="text-center text-gray-500 dark:text-gray-400 px-6 sm:px-4">
-                <p className="font-bold text-lg sm:text-xl mb-3">继续您的对话</p>
-                <p className="text-sm sm:text-base leading-relaxed">
-                  询问有关代码的问题、请求更改或获取开发任务的帮助
-                </p>
-              </div>
-            )}
-          </div>
-        ) : (
-          <>
-            {/* Loading indicator for older messages */}
-            {isLoadingMoreMessages && (
-              <div className="text-center text-gray-500 dark:text-gray-400 py-3">
-                <div className="flex items-center justify-center space-x-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
-                  <p className="text-sm">Loading older messages...</p>
-                </div>
-              </div>
-            )}
-            
-            {/* Indicator showing there are more messages to load */}
-            {hasMoreMessages && !isLoadingMoreMessages && (
-              <div className="text-center text-gray-500 dark:text-gray-400 text-sm py-2 border-b border-gray-200 dark:border-gray-700">
-                {totalMessages > 0 && (
-                  <span>
-                    Showing {sessionMessages.length} of {totalMessages} messages • 
-                    <span className="text-xs">Scroll up to load more</span>
-                  </span>
-                )}
-              </div>
-            )}
-            
-            {/* Legacy message count indicator (for non-paginated view) */}
-            {!hasMoreMessages && chatMessages.length > visibleMessageCount && (
-              <div className="text-center text-gray-500 dark:text-gray-400 text-sm py-2 border-b border-gray-200 dark:border-gray-700">
-                Showing last {visibleMessageCount} messages ({chatMessages.length} total) • 
-                <button 
-                  className="ml-1 text-blue-600 hover:text-blue-700 underline"
-                  onClick={loadEarlierMessages}
-                >
-                  Load earlier messages
-                </button>
-              </div>
-            )}
-            
-            {visibleMessages.map((message, index) => {
-              const prevMessage = index > 0 ? visibleMessages[index - 1] : null;
-              
-              return (
-                <MessageComponent
-                  key={index}
-                  message={message}
-                  index={index}
-                  prevMessage={prevMessage}
-                  createDiff={createDiff}
-                  onFileOpen={onFileOpen}
-                  onShowSettings={onShowSettings}
-                  autoExpandTools={autoExpandTools}
-                  showRawParameters={showRawParameters}
-                  showThinking={showThinking}
-                  selectedProject={selectedProject}
-                  setImagePreview={setImagePreview}
-                  setToolResultModal={setToolResultModal}
-                  onEditMessage={handleEditMessage}
-                  onDeleteMessage={handleDeleteMessage}
-                />
-              );
-            })}
-          </>
-        )}
-        
-        {isLoading && (
-          <div className="chat-message assistant">
-            <div className="w-full">
-              <div className="flex items-center space-x-3 mb-2">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm flex-shrink-0 p-1 bg-transparent">
-                  {(localStorage.getItem('selected-provider') || 'claude') === 'cursor' ? (
-                    <CursorLogo className="w-full h-full" />
-                  ) : (localStorage.getItem('selected-provider') || 'claude') === 'codebuddy' ? (
-                    <CodeBuddyLogo className="w-full h-full" />
-                  ) : (
-                    <ClaudeLogo className="w-full h-full" />
-                  )}
-                </div>
-                <div className="text-sm font-medium text-gray-900 dark:text-white">{(localStorage.getItem('selected-provider') || 'claude') === 'cursor' ? 'Cursor' : (localStorage.getItem('selected-provider') || 'claude') === 'codebuddy' ? 'CodeBuddy' : 'Claude'}</div>
-                {/* Abort button removed - functionality not yet implemented at backend */}
-              </div>
-              <div className="w-full text-sm text-gray-500 dark:text-gray-400 pl-3 sm:pl-0">
-                <div className="flex items-center space-x-1">
-                  <div className="animate-pulse">●</div>
-                  <div className="animate-pulse" style={{ animationDelay: '0.2s' }}>●</div>
-                  <div className="animate-pulse" style={{ animationDelay: '0.4s' }}>●</div>
-                  <span className="ml-2">Thinking...</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-        
-        <div ref={messagesEndRef} />
+        <MessageList
+          chatMessages={chatMessages}
+          visibleMessages={visibleMessages}
+          sessionMessages={sessionMessages}
+          isLoadingSessionMessages={isLoadingSessionMessages}
+          isLoadingMoreMessages={isLoadingMoreMessages}
+          isLoading={isLoading}
+          hasMoreMessages={hasMoreMessages}
+          totalMessages={totalMessages}
+          visibleMessageCount={visibleMessageCount}
+          loadEarlierMessages={loadEarlierMessages}
+          selectedSession={selectedSession}
+          currentSessionId={currentSessionId}
+          selectedProject={selectedProject}
+          provider={provider}
+          setProvider={setProvider}
+          cursorModel={cursorModel}
+          setCursorModel={setCursorModel}
+          createDiff={createDiff}
+          onFileOpen={onFileOpen}
+          onShowSettings={onShowSettings}
+          handleEditMessage={handleEditMessage}
+          handleDeleteMessage={handleDeleteMessage}
+          setImagePreview={setImagePreview}
+          setToolResultModal={setToolResultModal}
+          autoExpandTools={autoExpandTools}
+          showRawParameters={showRawParameters}
+          showThinking={showThinking}
+          textareaRef={textareaRef}
+          messagesEndRef={messagesEndRef}
+        />
       </div>
 
 
