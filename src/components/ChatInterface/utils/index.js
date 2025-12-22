@@ -25,3 +25,5 @@ export {
 } from './diffUtils';
 
 export { convertSessionMessages } from './messageConverter';
+
+export { loadCursorSessionMessages } from './cursorMessageLoader';

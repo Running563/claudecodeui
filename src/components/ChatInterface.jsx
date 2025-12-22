@@ -31,6 +31,7 @@ import {
   hasImageContent,
   createMemoizedDiff,
   convertSessionMessages,
+  loadCursorSessionMessages,
 } from './ChatInterface/utils';
 
 // Import syntax highlighter configuration
@@ -45,6 +46,7 @@ import ImageAttachment from './ChatInterface/components/ImageAttachment';
 import ImagePreviewModal from './ChatInterface/components/ImagePreviewModal';
 import ToolResultModal from './ChatInterface/components/ToolResultModal';
 import MessageComponent from './ChatInterface/components/MessageComponent';
+import ProviderSelector from './ChatInterface/components/ProviderSelector';
 
 import TodoList from './TodoList';
 import ClaudeLogo from './ClaudeLogo.jsx';
@@ -582,312 +584,12 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     }
   }, [messagesOffset]);
 
-  // Load Cursor session messages from SQLite via backend
-  const loadCursorSessionMessages = useCallback(async (projectPath, sessionId) => {
+  // Wrapper for loadCursorSessionMessages that manages loading state
+  const loadCursorSessionMessagesWithState = useCallback(async (projectPath, sessionId) => {
     if (!projectPath || !sessionId) return [];
     setIsLoadingSessionMessages(true);
     try {
-      const url = `/api/cursor/sessions/${encodeURIComponent(sessionId)}?projectPath=${encodeURIComponent(projectPath)}`;
-      const res = await authenticatedFetch(url);
-      if (!res.ok) return [];
-      const data = await res.json();
-      const blobs = data?.session?.messages || [];
-      const converted = [];
-      const toolUseMap = {}; // Map to store tool uses by ID for linking results
-      
-      // First pass: process all messages maintaining order
-      for (let blobIdx = 0; blobIdx < blobs.length; blobIdx++) {
-        const blob = blobs[blobIdx];
-        const content = blob.content;
-        let text = '';
-        let role = 'assistant';
-        let reasoningText = null; // Move to outer scope
-        try {
-          // Handle different Cursor message formats
-          if (content?.role && content?.content) {
-            // Direct format: {"role":"user","content":[{"type":"text","text":"..."}]}
-            // Skip system messages
-            if (content.role === 'system') {
-              continue;
-            }
-            
-            // Handle tool messages
-            if (content.role === 'tool') {
-              // Tool result format - find the matching tool use message and update it
-              if (Array.isArray(content.content)) {
-                for (const item of content.content) {
-                  if (item?.type === 'tool-result') {
-                    // Map ApplyPatch to Edit for consistency
-                    let toolName = item.toolName || 'Unknown Tool';
-                    if (toolName === 'ApplyPatch') {
-                      toolName = 'Edit';
-                    }
-                    const toolCallId = item.toolCallId || content.id;
-                    const result = item.result || '';
-                    
-                    // Store the tool result to be linked later
-                    if (toolUseMap[toolCallId]) {
-                      toolUseMap[toolCallId].toolResult = {
-                        content: result,
-                        isError: false
-                      };
-                    } else {
-                      // No matching tool use found, create a standalone result message
-                      converted.push({
-                        type: 'assistant',
-                        content: '',
-                        timestamp: new Date(Date.now() + blobIdx * 1000),
-                        blobId: blob.id,
-                        sequence: blob.sequence,
-                        rowid: blob.rowid,
-                        isToolUse: true,
-                        toolName: toolName,
-                        toolId: toolCallId,
-                        toolInput: null,
-                        toolResult: {
-                          content: result,
-                          isError: false
-                        }
-                      });
-                    }
-                  }
-                }
-              }
-              continue; // Don't add tool messages as regular messages
-            } else {
-              // User or assistant messages
-              role = content.role === 'user' ? 'user' : 'assistant';
-              
-              if (Array.isArray(content.content)) {
-                // Extract text, reasoning, and tool calls from content array
-                const textParts = [];
-                
-                for (const part of content.content) {
-                  if (part?.type === 'text' && part?.text) {
-                    textParts.push(decodeHtmlEntities(part.text));
-                  } else if (part?.type === 'reasoning' && part?.text) {
-                    // Handle reasoning type - will be displayed in a collapsible section
-                    reasoningText = decodeHtmlEntities(part.text);
-                  } else if (part?.type === 'tool-call') {
-                    // First, add any text/reasoning we've collected so far as a message
-                    if (textParts.length > 0 || reasoningText) {
-                      converted.push({
-                        type: role,
-                        content: textParts.join('\n'),
-                        reasoning: reasoningText,
-                        timestamp: new Date(Date.now() + blobIdx * 1000),
-                        blobId: blob.id,
-                        sequence: blob.sequence,
-                        rowid: blob.rowid
-                      });
-                      textParts.length = 0;
-                      reasoningText = null;
-                    }
-                    
-                    // Tool call in assistant message - format like Claude Code
-                    // Map ApplyPatch to Edit for consistency with Claude Code
-                    let toolName = part.toolName || 'Unknown Tool';
-                    if (toolName === 'ApplyPatch') {
-                      toolName = 'Edit';
-                    }
-                    const toolId = part.toolCallId || `tool_${blobIdx}`;
-                    
-                    // Create a tool use message with Claude Code format
-                    // Map Cursor args format to Claude Code format
-                    let toolInput = part.args;
-                    
-                    if (toolName === 'Edit' && part.args) {
-                      // ApplyPatch uses 'patch' format, convert to Edit format
-                      if (part.args.patch) {
-                        // Parse the patch to extract old and new content
-                        const patchLines = part.args.patch.split('\n');
-                        let oldLines = [];
-                        let newLines = [];
-                        let inPatch = false;
-                        
-                        for (const line of patchLines) {
-                          if (line.startsWith('@@')) {
-                            inPatch = true;
-                          } else if (inPatch) {
-                            if (line.startsWith('-')) {
-                              oldLines.push(line.substring(1));
-                            } else if (line.startsWith('+')) {
-                              newLines.push(line.substring(1));
-                            } else if (line.startsWith(' ')) {
-                              // Context line - add to both
-                              oldLines.push(line.substring(1));
-                              newLines.push(line.substring(1));
-                            }
-                          }
-                        }
-                        
-                        const filePath = part.args.file_path;
-                        const absolutePath = filePath && !filePath.startsWith('/') 
-                          ? `${projectPath}/${filePath}` 
-                          : filePath;
-                        toolInput = {
-                          file_path: absolutePath,
-                          old_string: oldLines.join('\n') || part.args.patch,
-                          new_string: newLines.join('\n') || part.args.patch
-                        };
-                      } else {
-                        // Direct edit format
-                        toolInput = part.args;
-                      }
-                    } else if (toolName === 'Read' && part.args) {
-                      // Map 'path' to 'file_path'
-                      // Convert relative path to absolute if needed
-                      const filePath = part.args.path || part.args.file_path;
-                      const absolutePath = filePath && !filePath.startsWith('/') 
-                        ? `${projectPath}/${filePath}` 
-                        : filePath;
-                      toolInput = {
-                        file_path: absolutePath
-                      };
-                    } else if (toolName === 'Write' && part.args) {
-                      // Map fields for Write tool
-                      const filePath = part.args.path || part.args.file_path;
-                      const absolutePath = filePath && !filePath.startsWith('/') 
-                        ? `${projectPath}/${filePath}` 
-                        : filePath;
-                      toolInput = {
-                        file_path: absolutePath,
-                        content: part.args.contents || part.args.content
-                      };
-                    }
-                    
-                    const toolMessage = {
-                      type: 'assistant',
-                      content: '',
-                      timestamp: new Date(Date.now() + blobIdx * 1000),
-                      blobId: blob.id,
-                      sequence: blob.sequence,
-                      rowid: blob.rowid,
-                      isToolUse: true,
-                      toolName: toolName,
-                      toolId: toolId,
-                      toolInput: toolInput ? JSON.stringify(toolInput) : null,
-                      toolResult: null // Will be filled when we get the tool result
-                    };
-                    converted.push(toolMessage);
-                    toolUseMap[toolId] = toolMessage; // Store for linking results
-                  } else if (part?.type === 'tool_use') {
-                    // Old format support
-                    if (textParts.length > 0 || reasoningText) {
-                      converted.push({
-                        type: role,
-                        content: textParts.join('\n'),
-                        reasoning: reasoningText,
-                        timestamp: new Date(Date.now() + blobIdx * 1000),
-                        blobId: blob.id,
-                        sequence: blob.sequence,
-                        rowid: blob.rowid
-                      });
-                      textParts.length = 0;
-                      reasoningText = null;
-                    }
-                    
-                    const toolName = part.name || 'Unknown Tool';
-                    const toolId = part.id || `tool_${blobIdx}`;
-                    
-                    const toolMessage = {
-                      type: 'assistant',
-                      content: '',
-                      timestamp: new Date(Date.now() + blobIdx * 1000),
-                      blobId: blob.id,
-                      sequence: blob.sequence,
-                      rowid: blob.rowid,
-                      isToolUse: true,
-                      toolName: toolName,
-                      toolId: toolId,
-                      toolInput: part.input ? JSON.stringify(part.input) : null,
-                      toolResult: null
-                    };
-                    converted.push(toolMessage);
-                    toolUseMap[toolId] = toolMessage;
-                  } else if (typeof part === 'string') {
-                    textParts.push(part);
-                  }
-                }
-                
-                // Add any remaining text/reasoning
-                if (textParts.length > 0) {
-                  text = textParts.join('\n');
-                  if (reasoningText && !text) {
-                    // Just reasoning, no text
-                    converted.push({
-                      type: role,
-                      content: '',
-                      reasoning: reasoningText,
-                      timestamp: new Date(Date.now() + blobIdx * 1000),
-                      blobId: blob.id,
-                      sequence: blob.sequence,
-                      rowid: blob.rowid
-                    });
-                    text = ''; // Clear to avoid duplicate
-                  }
-                } else {
-                  text = '';
-                }
-              } else if (typeof content.content === 'string') {
-                text = content.content;
-              }
-            }
-          } else if (content?.message?.role && content?.message?.content) {
-            // Nested message format
-            if (content.message.role === 'system') {
-              continue;
-            }
-            role = content.message.role === 'user' ? 'user' : 'assistant';
-            if (Array.isArray(content.message.content)) {
-              text = content.message.content
-                .map(p => (typeof p === 'string' ? p : (p?.text || '')))
-                .filter(Boolean)
-                .join('\n');
-            } else if (typeof content.message.content === 'string') {
-              text = content.message.content;
-            }
-          }
-        } catch (e) {
-          console.log('Error parsing blob content:', e);
-        }
-        if (text && text.trim()) {
-          const message = {
-            type: role,
-            content: text,
-            timestamp: new Date(Date.now() + blobIdx * 1000),
-            blobId: blob.id,
-            sequence: blob.sequence,
-            rowid: blob.rowid
-          };
-          
-          // Add reasoning if we have it
-          if (reasoningText) {
-            message.reasoning = reasoningText;
-          }
-          
-          converted.push(message);
-        }
-      }
-      
-      // Sort messages by sequence/rowid to maintain chronological order
-      converted.sort((a, b) => {
-        // First sort by sequence if available (clean 1,2,3... numbering)
-        if (a.sequence !== undefined && b.sequence !== undefined) {
-          return a.sequence - b.sequence;
-        }
-        // Then try rowid (original SQLite row IDs)
-        if (a.rowid !== undefined && b.rowid !== undefined) {
-          return a.rowid - b.rowid;
-        }
-        // Fallback to timestamp
-        return new Date(a.timestamp) - new Date(b.timestamp);
-      });
-      
-      return converted;
-    } catch (e) {
-      console.error('Error loading Cursor session messages:', e);
-      return [];
+      return await loadCursorSessionMessages(projectPath, sessionId);
     } finally {
       setIsLoadingSessionMessages(false);
     }
@@ -1068,7 +770,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           if (!isSystemSessionChange) {
             // Load historical messages for Cursor session from SQLite
             const projectPath = selectedProject.fullPath || selectedProject.path;
-            const converted = await loadCursorSessionMessages(projectPath, selectedSession.id);
+            const converted = await loadCursorSessionMessagesWithState(projectPath, selectedSession.id);
             setSessionMessages([]);
             setChatMessages(converted);
           } else {
@@ -1113,7 +815,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     };
 
     loadMessages();
-  }, [selectedSession, selectedProject, loadCursorSessionMessages, scrollToBottom, isSystemSessionChange]);
+  }, [selectedSession, selectedProject, loadCursorSessionMessagesWithState, scrollToBottom, isSystemSessionChange]);
 
   // External Message Update Handler: Reload messages when external CLI modifies current session
   // This triggers when App.jsx detects a JSONL file change for the currently-viewed session
@@ -1127,7 +829,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           if (provider === 'cursor') {
             // Reload Cursor messages from SQLite
             const projectPath = selectedProject.fullPath || selectedProject.path;
-            const converted = await loadCursorSessionMessages(projectPath, selectedSession.id);
+            const converted = await loadCursorSessionMessagesWithState(projectPath, selectedSession.id);
             setSessionMessages([]);
             setChatMessages(converted);
           } else {
@@ -1149,7 +851,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
 
       reloadExternalMessages();
     }
-  }, [externalMessageUpdate, selectedSession, selectedProject, loadCursorSessionMessages, loadSessionMessages, isNearBottom, autoScrollToBottom, scrollToBottom]);
+  }, [externalMessageUpdate, selectedSession, selectedProject, loadCursorSessionMessagesWithState, loadSessionMessages, isNearBottom, autoScrollToBottom, scrollToBottom]);
 
   // Update chatMessages when convertedMessages changes
   useEffect(() => {
@@ -3174,142 +2876,13 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
         ) : chatMessages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             {!selectedSession && !currentSessionId && (
-              <div className="text-center px-6 sm:px-4 py-8">
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">选择您的 AI 助手</h2>
-                <p className="text-gray-600 dark:text-gray-400 mb-8">
-                  选择一个提供商来开始新对话
-                </p>
-                
-                <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-8">
-                  {/* Claude Button */}
-                  <button
-                    onClick={() => {
-                      setProvider('claude');
-                      localStorage.setItem('selected-provider', 'claude');
-                      // Focus input after selection
-                      setTimeout(() => textareaRef.current?.focus(), 100);
-                    }}
-                    className={`group relative w-64 h-32 bg-white dark:bg-gray-800 rounded-xl border-2 transition-all duration-200 hover:scale-105 hover:shadow-xl ${
-                      provider === 'claude' 
-                        ? 'border-blue-500 shadow-lg ring-2 ring-blue-500/20' 
-                        : 'border-gray-200 dark:border-gray-700 hover:border-blue-400'
-                    }`}
-                  >
-                    <div className="flex flex-col items-center justify-center h-full gap-3">
-                      <ClaudeLogo className="w-10 h-10" />
-                      <div>
-                        <p className="font-semibold text-gray-900 dark:text-white">Claude</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">by Anthropic</p>
-                      </div>
-                    </div>
-                    {provider === 'claude' && (
-                      <div className="absolute top-2 right-2">
-                        <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
-                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                          </svg>
-                        </div>
-                      </div>
-                    )}
-                  </button>
-                  
-                  {/* Cursor Button */}
-                  <button
-                    onClick={() => {
-                      setProvider('cursor');
-                      localStorage.setItem('selected-provider', 'cursor');
-                      // Focus input after selection
-                      setTimeout(() => textareaRef.current?.focus(), 100);
-                    }}
-                    className={`group relative w-64 h-32 bg-white dark:bg-gray-800 rounded-xl border-2 transition-all duration-200 hover:scale-105 hover:shadow-xl ${
-                      provider === 'cursor' 
-                        ? 'border-purple-500 shadow-lg ring-2 ring-purple-500/20' 
-                        : 'border-gray-200 dark:border-gray-700 hover:border-purple-400'
-                    }`}
-                  >
-                    <div className="flex flex-col items-center justify-center h-full gap-3">
-                      <CursorLogo className="w-10 h-10" />
-                      <div>
-                        <p className="font-semibold text-gray-900 dark:text-white">Cursor</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">AI Code Editor</p>
-                      </div>
-                    </div>
-                    {provider === 'cursor' && (
-                      <div className="absolute top-2 right-2">
-                        <div className="w-5 h-5 bg-purple-500 rounded-full flex items-center justify-center">
-                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                          </svg>
-                        </div>
-                      </div>
-                    )}
-                  </button>
-                  
-                  {/* CodeBuddy Button */}
-                  <button
-                    onClick={() => {
-                      setProvider('codebuddy');
-                      localStorage.setItem('selected-provider', 'codebuddy');
-                      // Focus input after selection
-                      setTimeout(() => textareaRef.current?.focus(), 100);
-                    }}
-                    className={`group relative w-64 h-32 bg-white dark:bg-gray-800 rounded-xl border-2 transition-all duration-200 hover:scale-105 hover:shadow-xl ${
-                      provider === 'codebuddy' 
-                        ? 'border-green-500 shadow-lg ring-2 ring-green-500/20' 
-                        : 'border-gray-200 dark:border-gray-700 hover:border-green-400'
-                    }`}
-                  >
-                    <div className="flex flex-col items-center justify-center h-full gap-3">
-                      <CodeBuddyLogo className="w-10 h-10" />
-                      <div>
-                        <p className="font-semibold text-gray-900 dark:text-white">CodeBuddy</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Tencent Cloud AI</p>
-                      </div>
-                    </div>
-                    {provider === 'codebuddy' && (
-                      <div className="absolute top-2 right-2">
-                        <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
-                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                          </svg>
-                        </div>
-                      </div>
-                    )}
-                  </button>
-                </div>
-                
-                {/* Model Selection for Cursor - Always reserve space to prevent jumping */}
-                <div className={`mb-6 transition-opacity duration-200 ${provider === 'cursor' ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {provider === 'cursor' ? '选择模型' : '\u00A0'}
-                  </label>
-                  <select
-                    value={cursorModel}
-                    onChange={(e) => {
-                      const newModel = e.target.value;
-                      setCursorModel(newModel);
-                      localStorage.setItem('cursor-model', newModel);
-                    }}
-                    className="pl-4 pr-10 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 min-w-[140px]"
-                    disabled={provider !== 'cursor'}
-                  >
-                    <option value="gpt-5">GPT-5</option>
-                    <option value="sonnet-4">Sonnet-4</option>
-                    <option value="opus-4.1">Opus 4.1</option>
-                  </select>
-                </div>
-                
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {provider === 'claude' 
-                    ? '准备使用 Claude AI。在下方开始输入您的消息。'
-                    : provider === 'cursor'
-                    ? `准备使用 Cursor 和 ${cursorModel}。在下方开始输入您的消息。`
-                    : provider === 'codebuddy'
-                    ? '准备使用 CodeBuddy AI。在下方开始输入您的消息。'
-                    : '在上方选择一个提供商以开始'
-                  }
-                </p>
-              </div>
+              <ProviderSelector
+                provider={provider}
+                setProvider={setProvider}
+                cursorModel={cursorModel}
+                setCursorModel={setCursorModel}
+                textareaRef={textareaRef}
+              />
             )}
             {selectedSession && (
               <div className="text-center text-gray-500 dark:text-gray-400 px-6 sm:px-4">
