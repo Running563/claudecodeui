@@ -86,6 +86,62 @@ function classifyError(errorMessage) {
 }
 
 /**
+ * Handles image processing for CodeBuddy queries
+ * Saves base64 images to temporary files and returns modified prompt with file paths
+ * @param {string} command - Original user prompt
+ * @param {Array} images - Array of image objects with base64 data
+ * @param {string} cwd - Working directory for temp file creation
+ * @returns {Promise<Object>} {modifiedCommand, tempImagePaths, tempDir}
+ */
+async function handleImages(command, images, cwd) {
+  const tempImagePaths = [];
+  let tempDir = null;
+
+  if (!images || images.length === 0) {
+    return { modifiedCommand: command, tempImagePaths, tempDir };
+  }
+
+  try {
+    // Create temp directory in the project directory
+    const workingDir = cwd || process.cwd();
+    tempDir = path.join(workingDir, '.tmp', 'images', Date.now().toString());
+    await fs.mkdir(tempDir, { recursive: true });
+
+    // Save each image to a temp file
+    for (const [index, image] of images.entries()) {
+      // Extract base64 data and mime type
+      const matches = image.data.match(/^data:([^;]+);base64,(.+)$/);
+      if (!matches) {
+        console.error('Invalid image data format');
+        continue;
+      }
+
+      const [, mimeType, base64Data] = matches;
+      const extension = mimeType.split('/')[1] || 'png';
+      const filename = `image_${index}.${extension}`;
+      const filepath = path.join(tempDir, filename);
+
+      // Write base64 data to file
+      await fs.writeFile(filepath, Buffer.from(base64Data, 'base64'));
+      tempImagePaths.push(filepath);
+    }
+
+    // Include the full image paths in the prompt
+    let modifiedCommand = command;
+    if (tempImagePaths.length > 0 && command && command.trim()) {
+      const imageNote = `\n\n[Images provided at the following paths:]\n${tempImagePaths.map((p, i) => `${i + 1}. ${p}`).join('\n')}`;
+      modifiedCommand = command + imageNote;
+    }
+
+    console.log(`📸 Processed ${tempImagePaths.length} images to temp directory: ${tempDir}`);
+    return { modifiedCommand, tempImagePaths, tempDir };
+  } catch (error) {
+    console.error('Error processing images for CodeBuddy:', error);
+    return { modifiedCommand: command, tempImagePaths, tempDir };
+  }
+}
+
+/**
  * Spawns a CodeBuddy CLI process to handle a query
  * Modeled after Cursor CLI behavior
  * 
@@ -103,9 +159,21 @@ async function spawnCodeBuddy(command, options = {}, ws) {
     // isNewSession should only be true when we start without a sessionId (not resuming)
     // This matches CodeBuddy SDK behavior: isNewSession: !sessionId && !!command
     const isNewSession = !sessionId && !!command;
+    let tempImagePaths = [];
+    let tempDir = null;
     
-    // Check if we have images to send
-    const hasImages = images && Array.isArray(images) && images.length > 0;
+    // Debug log for images
+    if (images && images.length > 0) {
+      console.log('🖼️  [CodeBuddy] Received images:', images.length, 'images');
+      console.log('🖼️  [CodeBuddy] Image details:', images.map(img => ({
+        name: img.name,
+        size: img.size,
+        mimeType: img.mimeType,
+        dataLength: img.data?.length
+      })));
+    } else {
+      console.log('🖼️  [CodeBuddy] No images received');
+    }
     
     // Use tools settings passed from frontend, or defaults
     const settings = toolsSettings || {
@@ -114,6 +182,19 @@ async function spawnCodeBuddy(command, options = {}, ws) {
       skipPermissions: false
     };
     
+    // Use cwd (actual project directory) instead of projectPath
+    // Ensure workingDir is an absolute path
+    let workingDir = cwd || projectPath || process.cwd();
+    if (!path.isAbsolute(workingDir)) {
+      workingDir = path.join('/', workingDir);
+    }
+
+    // Handle images - save to temp files and modify prompt (same as Claude SDK)
+    const imageResult = await handleImages(command, images, workingDir);
+    const finalCommand = imageResult.modifiedCommand;
+    tempImagePaths = imageResult.tempImagePaths;
+    tempDir = imageResult.tempDir;
+
     // Build CodeBuddy CLI command
     const args = [];
     
@@ -127,74 +208,10 @@ async function spawnCodeBuddy(command, options = {}, ws) {
       capturedSessionId = null; // Reset to allow new session
     }
 
-    // Build stdin input message for stream-json format (used when images are present)
-    let stdinInput = null;
-    
-    if (hasImages) {
-      // When images are present, use --input-format stream-json
-      // Build the content array with text and images
-      const contentArray = [];
-      
-      // Add text content if present
-      if (command && command.trim()) {
-        contentArray.push({
-          type: 'text',
-          text: command.trim()
-        });
-      }
-      
-      // Add images
-      for (const image of images) {
-        // Image data from frontend is in format: "data:image/png;base64,XXXXX"
-        // We need to extract the raw base64 and media type
-        let mediaType = 'image/png';
-        let base64Data = '';
-        
-        if (image.data) {
-          const dataUrlMatch = image.data.match(/^data:([^;]+);base64,(.+)$/);
-          if (dataUrlMatch) {
-            mediaType = dataUrlMatch[1];
-            base64Data = dataUrlMatch[2];
-          } else {
-            // Assume it's already raw base64
-            base64Data = image.data;
-            mediaType = image.mimeType || 'image/png';
-          }
-        }
-        
-        if (base64Data) {
-          contentArray.push({
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: mediaType,
-              data: base64Data
-            }
-          });
-          console.log('🖼️  Adding image:', image.name || 'unnamed', 'type:', mediaType, 'size:', base64Data.length);
-        }
-      }
-      
-      // Build the JSON message for stdin
-      stdinInput = JSON.stringify({
-        type: 'user',
-        message: {
-          role: 'user',
-          content: contentArray
-        }
-      });
-      
-      // Use stream-json input/output format
-      args.push('-p');  // Enable print mode
-      args.push('--input-format', 'stream-json');
-      args.push('--output-format', 'stream-json');
-      args.push('--max-turns', '1000');
-      
-      console.log('📨 Using stream-json input with', images.length, 'image(s)');
-    } else if (command && command.trim()) {
-      // No images - use simple -p with command
+    // Use simple -p mode with modified command (containing image paths)
+    if (finalCommand && finalCommand.trim()) {
       // Sanitize command to prevent shell injection and newline issues
-      const sanitizedCommand = command.replace(/\n/g, ' ').replace(/\r/g, '');
+      const sanitizedCommand = finalCommand.replace(/\n/g, ' ').replace(/\r/g, '');
       // Note: -p is shorthand for --print, so we use it with the prompt
       // The prompt follows -p directly as its argument
       args.push('-p', sanitizedCommand);
@@ -246,21 +263,14 @@ async function spawnCodeBuddy(command, options = {}, ws) {
       console.log('🔐 Permission mode:', effectivePermissionMode);
     }
     
-    // Use cwd (actual project directory) instead of projectPath
-    // Ensure workingDir is an absolute path
-    let workingDir = cwd || projectPath || process.cwd();
-    if (!path.isAbsolute(workingDir)) {
-      workingDir = path.join('/', workingDir);
-    }
-    
     // CodeBuddy CLI command
     const codebuddyCmd = 'codebuddy';
     
     console.log('🤖 Spawning CodeBuddy CLI:', codebuddyCmd, args.join(' '));
     console.log('📁 Working directory:', workingDir);
     console.log('🔑 Session info - Input sessionId:', sessionId, 'Resume:', resume);
-    if (hasImages) {
-      console.log('🖼️  Images count:', images.length);
+    if (tempImagePaths.length > 0) {
+      console.log('🖼️  Images saved to temp files:', tempImagePaths.length);
     }
     
     const codebuddyProcess = spawnFunction(codebuddyCmd, args, {
@@ -283,14 +293,7 @@ async function spawnCodeBuddy(command, options = {}, ws) {
       }
     });
     
-    // Handle stdin - write image data if present, then close
-    if (stdinInput) {
-      // Write the JSON message to stdin
-      codebuddyProcess.stdin.write(stdinInput);
-      codebuddyProcess.stdin.write('\n');  // JSONL format requires newline
-      console.log('📤 Wrote stream-json input to stdin, length:', stdinInput.length);
-    }
-    // Close stdin to signal end of input
+    // Close stdin immediately (no need to write stdin for -p mode)
     codebuddyProcess.stdin.end();
     
     // Store process reference for potential abort
@@ -593,6 +596,10 @@ async function spawnCodeBuddy(command, options = {}, ws) {
       // Clean up process reference
       activeCodeBuddyProcesses.delete(capturedSessionId || processKey);
       
+      // NOTE: Do NOT clean up temp images here!
+      // Images need to persist for session resume/refresh scenarios
+      // CodeBuddy may reference these images again when the session is resumed
+      
       ws.send(JSON.stringify({
         type: 'codebuddy-complete',
         sessionId: capturedSessionId || sessionId,
@@ -612,6 +619,8 @@ async function spawnCodeBuddy(command, options = {}, ws) {
       
       // Clean up process reference
       activeCodeBuddyProcesses.delete(capturedSessionId || processKey);
+      
+      // NOTE: Keep temp images even on error - session might be resumed
       
       ws.send(JSON.stringify({
         type: 'codebuddy-error',
