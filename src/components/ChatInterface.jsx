@@ -112,14 +112,12 @@ function ChatInterface({
     cursorModel,
     setCursorModel,
     codebuddyModel,
-    setCodebuddyModel,
     permissionMode,
-    setPermissionMode,
     cyclePermissionMode
   } = useProviderState({ selectedSession });
 
   // Token budget management via custom hook
-  const { tokenBudget, setTokenBudget, fetchUpdatedTokenUsage, resetTokenBudget } = useTokenBudget({
+  const { tokenBudget, fetchUpdatedTokenUsage, resetTokenBudget } = useTokenBudget({
     selectedProject,
     selectedSession
   });
@@ -180,12 +178,8 @@ function ChatInterface({
   // Image upload management via custom hook
   const {
     attachedImages,
-    setAttachedImages,
     uploadingImages,
-    setUploadingImages,
     imageErrors,
-    setImageErrors,
-    handleImageFiles,
     handlePaste: handleImagePaste,
     removeImage,
     clearImages,
