@@ -34,15 +34,10 @@ const UserMessageContent = memo(({ message, selectedProject }) => {
       const pathMatches = pathsText.match(/\/[^\s\n]+/g) || [];
       const paths = pathMatches.filter(p => p.includes('.tmp/images/'));
       
-      console.log('[UserMessageContent] Raw content:', content);
-      console.log('[UserMessageContent] Match:', match[0]);
-      console.log('[UserMessageContent] Found image paths:', paths);
-      
       setImagePaths(paths);
       // Remove the image paths section from display content
       setDisplayContent(content.replace(match[0], '').trim());
     } else {
-      console.log('[UserMessageContent] No image paths found in content:', content);
       setImagePaths([]);
       setDisplayContent(content);
     }
@@ -54,23 +49,17 @@ const UserMessageContent = memo(({ message, selectedProject }) => {
 
     const loadImages = async () => {
       const blobs = {};
-      console.log('[UserMessageContent] Loading images from paths:', imagePaths);
       for (const imagePath of imagePaths) {
         try {
-          console.log('[UserMessageContent] Fetching image:', imagePath);
           const response = await authenticatedFetch(`/api/temp-image?path=${encodeURIComponent(imagePath)}`);
           if (response.ok) {
             const blob = await response.blob();
             blobs[imagePath] = URL.createObjectURL(blob);
-            console.log('[UserMessageContent] Successfully loaded image:', imagePath);
-          } else {
-            console.error(`Failed to load image ${imagePath}:`, response.status);
           }
         } catch (error) {
-          console.error(`Error loading image ${imagePath}:`, error);
+          // Silently ignore image loading errors
         }
       }
-      console.log('[UserMessageContent] Loaded blobs:', Object.keys(blobs).length);
       setImageBlobs(blobs);
     };
 
@@ -109,25 +98,21 @@ const UserMessageContent = memo(({ message, selectedProject }) => {
       {/* Show images from parsed paths (from history) */}
       {imagePaths.length > 0 && !message.images?.length && (
         <div className="mt-2 grid grid-cols-2 gap-2">
-          {(() => {
-            console.log('[UserMessageContent] Rendering images, paths:', imagePaths.length, 'blobs:', Object.keys(imageBlobs).length);
-            return imagePaths.map((imagePath, idx) => {
-              const blobUrl = imageBlobs[imagePath];
-              console.log('[UserMessageContent] Rendering image', idx, ':', imagePath, 'blobUrl:', blobUrl ? 'ready' : 'loading');
-              // Only render if blob URL is ready
-              if (!blobUrl) return null;
-              
-              return (
-                <img
-                  key={idx}
-                  src={blobUrl}
-                  alt={`Image ${idx + 1}`}
-                  className="rounded-lg max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity bg-blue-500/20"
-                  onClick={() => window.open(blobUrl, '_blank')}
-                />
-              );
-            });
-          })()}
+          {imagePaths.map((imagePath, idx) => {
+            const blobUrl = imageBlobs[imagePath];
+            // Only render if blob URL is ready
+            if (!blobUrl) return null;
+            
+            return (
+              <img
+                key={idx}
+                src={blobUrl}
+                alt={`Image ${idx + 1}`}
+                className="rounded-lg max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity bg-blue-500/20"
+                onClick={() => window.open(blobUrl, '_blank')}
+              />
+            );
+          })}
         </div>
       )}
     </>

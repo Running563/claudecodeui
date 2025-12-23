@@ -141,11 +141,9 @@ export function useWebSocketMessages({
 
   // Handle content block start (tool use)
   const handleContentBlockStart = useCallback((contentBlock) => {
-    console.log('🔧 content_block_start:', contentBlock.type, contentBlock);
     if (contentBlock.type === 'tool_use') {
       const toolId = contentBlock.id;
       const pendingResult = pendingToolResultsRef.current.get(toolId);
-      console.log('🔧 Creating tool_use message:', toolId, 'pending result:', !!pendingResult);
       
       const toolInput = contentBlock.input ? JSON.stringify(contentBlock.input, null, 2) : '';
       setChatMessages(prev => [...prev, {
@@ -160,7 +158,6 @@ export function useWebSocketMessages({
       }]);
       
       if (pendingResult) {
-        console.log('✅ Applied pending result for:', toolId);
         pendingToolResultsRef.current.delete(toolId);
       }
       return true;
@@ -189,14 +186,11 @@ export function useWebSocketMessages({
       timestamp: new Date()
     };
     
-    console.log('📥 Received tool_result:', toolUseId, 'content:', String(resultContent).slice(0, 100));
-    
     pendingToolResultsRef.current.set(toolUseId, toolResultData);
     
     setChatMessages(prev => {
       const toolUseIndex = prev.findIndex(msg => msg.isToolUse && msg.toolId === toolUseId);
       if (toolUseIndex !== -1) {
-        console.log('✅ Matched tool_use:', prev[toolUseIndex].toolName, toolUseId);
         pendingToolResultsRef.current.delete(toolUseId);
         const updated = [...prev];
         updated[toolUseIndex] = {
@@ -205,7 +199,6 @@ export function useWebSocketMessages({
         };
         return updated;
       }
-      console.log('⏳ Tool use not found yet, queued:', toolUseId);
       return prev;
     });
   }, [setChatMessages]);
@@ -235,20 +228,15 @@ export function useWebSocketMessages({
   }, [setChatMessages]);
 
   // Handle session duplication detection
-  const handleSessionDuplication = useCallback((sessionId, providerName) => {
-    console.log(`🔄 ${providerName} session switch detected:`, { 
-      originalSession: currentSessionId, 
-      newSession: sessionId 
-    });
+  const handleSessionDuplication = useCallback((sessionId) => {
     setIsSystemSessionChange(true);
     if (onNavigateToSession) {
       onNavigateToSession(sessionId);
     }
-  }, [currentSessionId, setIsSystemSessionChange, onNavigateToSession]);
+  }, [setIsSystemSessionChange, onNavigateToSession]);
 
   // Handle new session init
-  const handleNewSessionInit = useCallback((sessionId, providerName) => {
-    console.log(`🔄 ${providerName} new session init detected:`, { newSession: sessionId });
+  const handleNewSessionInit = useCallback((sessionId) => {
     setIsSystemSessionChange(true);
     if (onNavigateToSession) {
       onNavigateToSession(sessionId);
@@ -284,17 +272,15 @@ export function useWebSocketMessages({
   }, [currentSessionId, setIsLoading, setCanAbortSession, setClaudeStatus, fetchUpdatedTokenUsage, onSessionCompleted, onSessionInactive, onSessionNotProcessing]);
 
   // Handle new session navigation
-  const handleNewSessionNavigation = useCallback((sessionId, providerName) => {
+  const handleNewSessionNavigation = useCallback((sessionId) => {
     const pendingSessionId = sessionStorage.getItem('pendingSessionId');
     if (sessionId && !currentSessionId && sessionId === pendingSessionId) {
-      console.log(`✅ New ${providerName} session, ID set to:`, sessionId);
       setCurrentSessionId(sessionId);
       sessionStorage.removeItem('pendingSessionId');
       setIsSystemSessionChange(true);
       
       if (onNavigateToSession) {
         onNavigateToSession(sessionId);
-        console.log(`🔄 Navigated to new ${providerName} session:`, sessionId);
       }
       return true;
     }
@@ -308,7 +294,6 @@ export function useWebSocketMessages({
     // Detect if messages array was reset (e.g., new conversation started)
     // If current length is less than what we've processed, reset the counter
     if (messages.length < lastMessagesLengthRef.current) {
-      console.log('🔄 Messages array reset detected, resetting processed count');
       processedMessageCountRef.current = 0;
     }
     lastMessagesLengthRef.current = messages.length;
@@ -330,7 +315,6 @@ export function useWebSocketMessages({
     const isGlobalMessage = globalMessageTypes.includes(latestMessage.type);
 
     if (!isGlobalMessage && latestMessage.sessionId && currentSessionId && latestMessage.sessionId !== currentSessionId) {
-      console.log('⏭️ Skipping message for different session:', latestMessage.sessionId, 'current:', currentSessionId);
       return;
     }
 
@@ -349,8 +333,6 @@ export function useWebSocketMessages({
 
       case 'claude-response': {
         const messageData = latestMessage.data.message || latestMessage.data;
-        
-        console.log('📨 claude-response received:', messageData?.type, messageData);
         
         // Handle Cursor/CodeBuddy streaming format
         if (messageData && typeof messageData === 'object' && messageData.type) {
@@ -387,17 +369,16 @@ export function useWebSocketMessages({
             latestMessage.data.session_id) {
           
           if (currentSessionId && latestMessage.data.session_id !== currentSessionId) {
-            handleSessionDuplication(latestMessage.data.session_id, 'Claude CLI');
+            handleSessionDuplication(latestMessage.data.session_id);
             return;
           }
           
           if (!currentSessionId) {
-            handleNewSessionInit(latestMessage.data.session_id, 'Claude');
+            handleNewSessionInit(latestMessage.data.session_id);
             return;
           }
           
           if (latestMessage.data.session_id === currentSessionId) {
-            console.log('🔄 System init message for current session, ignoring');
             return;
           }
         }
@@ -490,16 +471,16 @@ export function useWebSocketMessages({
           const cdata = latestMessage.data;
           if (cdata && cdata.type === 'system' && cdata.subtype === 'init' && cdata.session_id) {
             if (currentSessionId && cdata.session_id !== currentSessionId) {
-              handleSessionDuplication(cdata.session_id, 'Cursor');
+              handleSessionDuplication(cdata.session_id);
               return;
             }
             if (!currentSessionId) {
-              handleNewSessionInit(cdata.session_id, 'Cursor');
+              handleNewSessionInit(cdata.session_id);
               return;
             }
           }
         } catch (e) {
-          console.warn('Error handling cursor-system message:', e);
+          // Silently ignore cursor-system errors
         }
         break;
       }
@@ -552,11 +533,11 @@ export function useWebSocketMessages({
               return updated;
             });
           } catch (e) {
-            console.warn('Error handling cursor-result message:', e);
+            // Silently ignore cursor-result errors
           }
         }
 
-        handleNewSessionNavigation(cursorCompletedSessionId, 'Cursor');
+        handleNewSessionNavigation(cursorCompletedSessionId);
         break;
       }
 
@@ -568,7 +549,7 @@ export function useWebSocketMessages({
             bufferStreamContent(cleaned, true);
           }
         } catch (e) {
-          console.warn('Error handling cursor-output message:', e);
+          // Silently ignore cursor-output errors
         }
         break;
       }
@@ -578,20 +559,19 @@ export function useWebSocketMessages({
           const cbdata = latestMessage.data;
           if (cbdata && cbdata.type === 'system' && cbdata.subtype === 'init' && cbdata.session_id) {
             if (currentSessionId && cbdata.session_id !== currentSessionId) {
-              handleSessionDuplication(cbdata.session_id, 'CodeBuddy');
+              handleSessionDuplication(cbdata.session_id);
               return;
             }
             if (!currentSessionId) {
-              handleNewSessionInit(cbdata.session_id, 'CodeBuddy');
+              handleNewSessionInit(cbdata.session_id);
               return;
             }
             if (cbdata.session_id === currentSessionId) {
-              console.log('🔄 CodeBuddy system init for current session, ignoring');
               return;
             }
           }
         } catch (e) {
-          console.warn('Error handling codebuddy-system message:', e);
+          // Silently ignore codebuddy-system errors
         }
         break;
       }
@@ -657,11 +637,11 @@ export function useWebSocketMessages({
               return updated;
             });
           } catch (e) {
-            console.warn('Error handling codebuddy-result message:', e);
+            // Silently ignore codebuddy-result errors
           }
         }
 
-        handleNewSessionNavigation(codebuddyCompletedSessionId, 'CodeBuddy');
+        handleNewSessionNavigation(codebuddyCompletedSessionId);
         break;
       }
 
@@ -676,21 +656,13 @@ export function useWebSocketMessages({
             bufferStreamContent(cbcleaned, true);
           }
         } catch (e) {
-          console.warn('Error handling codebuddy-output message:', e);
+          // Silently ignore codebuddy-output errors
         }
         break;
       }
 
       case 'codebuddy-complete': {
         const cbCompletedSessionId = latestMessage.sessionId || currentSessionId;
-        
-        console.log('📋 codebuddy-complete received:', {
-          messageSessionId: latestMessage.sessionId,
-          currentSessionId: currentSessionId,
-          isNewSession: latestMessage.isNewSession,
-          exitCode: latestMessage.exitCode,
-          pendingSessionId: sessionStorage.getItem('pendingSessionId')
-        });
 
         if (cbCompletedSessionId === currentSessionId || !currentSessionId) {
           setIsLoading(false);
@@ -700,23 +672,18 @@ export function useWebSocketMessages({
           
           // Apply pending tool results before cleanup
           if (pendingToolResultsRef.current.size > 0) {
-            console.log('🔄 Applying pending tool results before cleanup:', pendingToolResultsRef.current.size);
             const pendingResults = new Map(pendingToolResultsRef.current);
             setChatMessages(prev => {
               const updated = [...prev];
-              let appliedCount = 0;
               pendingResults.forEach((toolResultData, toolUseId) => {
                 const toolUseIndex = updated.findIndex(msg => msg.isToolUse && msg.toolId === toolUseId);
                 if (toolUseIndex !== -1 && !updated[toolUseIndex].toolResult) {
-                  console.log('✅ Applied pending result on complete:', toolUseId);
                   updated[toolUseIndex] = {
                     ...updated[toolUseIndex],
                     toolResult: toolResultData
                   };
-                  appliedCount++;
                 }
               });
-              console.log(`📊 Applied ${appliedCount}/${pendingResults.size} pending results`);
               return updated;
             });
             pendingToolResultsRef.current.clear();
@@ -759,7 +726,6 @@ export function useWebSocketMessages({
           const pendingCbSessionId = sessionStorage.getItem('pendingSessionId');
           
           if (cbCompletedSessionId === pendingCbSessionId) {
-            console.log('✅ New CodeBuddy session complete (fallback), ID set to:', cbCompletedSessionId);
             setCurrentSessionId(cbCompletedSessionId);
             sessionStorage.removeItem('pendingSessionId');
             setIsSystemSessionChange(true);
@@ -767,20 +733,7 @@ export function useWebSocketMessages({
             if (onNavigateToSession) {
               onNavigateToSession(cbCompletedSessionId);
             }
-            
-            console.log('🔄 Navigated to new CodeBuddy session (fallback):', cbCompletedSessionId);
-          } else {
-            console.log('⚠️ Session ID mismatch, NOT setting current session:', {
-              completed: cbCompletedSessionId,
-              pending: pendingCbSessionId
-            });
           }
-        } else {
-          console.log('✅ CodeBuddy session complete, NO action needed:', {
-            isNewSession: latestMessage.isNewSession,
-            hasSessionId: !!cbCompletedSessionId,
-            hasCurrentSessionId: !!currentSessionId
-          });
         }
         break;
       }
@@ -799,9 +752,6 @@ export function useWebSocketMessages({
           if (onNavigateToSession) {
             onNavigateToSession(pendingSessionId);
           }
-          
-          console.log('✅ New Claude session complete, ID set to:', pendingSessionId);
-          console.log('🔄 Navigated to new Claude session:', pendingSessionId);
         }
         
         // Clear persisted chat messages after successful completion
