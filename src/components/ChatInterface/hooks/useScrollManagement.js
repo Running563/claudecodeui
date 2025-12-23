@@ -4,6 +4,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { getProjectId } from '../../../utils/api';
 
 /**
  * Hook for managing scroll behavior in chat interface
@@ -69,7 +70,7 @@ export function useScrollManagement({
       const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
       
       try {
-        const moreMessages = await loadSessionMessages(selectedProject.name, selectedSession.id, true);
+        const moreMessages = await loadSessionMessages(getProjectId(selectedProject), selectedSession.id, true);
         
         if (moreMessages.length > 0) {
           pendingScrollRestoreRef.current = { distanceFromBottom };

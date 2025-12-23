@@ -3,22 +3,20 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import { promises as fs } from 'fs';
-import { extractProjectDirectory } from '../projects.js';
+import { getProjectById } from '../db.js';
 import { queryClaudeSDK } from '../claude-sdk.js';
 import { spawnCursor } from '../cursor-cli.js';
 
 const router = express.Router();
 const execAsync = promisify(exec);
 
-// Helper function to get the actual project path from the encoded project name
-async function getActualProjectPath(projectName) {
-  try {
-    return await extractProjectDirectory(projectName);
-  } catch (error) {
-    console.error(`Error extracting project directory for ${projectName}:`, error);
-    // Fallback to the old method
-    return projectName.replace(/-/g, '/');
+// Helper function to get the actual project path from database ID
+function getActualProjectPath(projectId) {
+  const project = getProjectById(parseInt(projectId, 10));
+  if (!project) {
+    throw new Error(`Project not found: ${projectId}`);
   }
+  return project.original_path;
 }
 
 // Helper function to strip git diff headers

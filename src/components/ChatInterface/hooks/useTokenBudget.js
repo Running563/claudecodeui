@@ -16,14 +16,14 @@ export function useTokenBudget({ selectedProject, selectedSession }) {
   const [tokenBudget, setTokenBudget] = useState(null);
   
   // Use refs to avoid stale closures and prevent unnecessary re-renders
-  const projectNameRef = useRef(selectedProject?.name);
+  const projectIdRef = useRef(selectedProject?.id);
   const sessionIdRef = useRef(selectedSession?.id);
   
   // Update refs when props change
   useEffect(() => {
-    projectNameRef.current = selectedProject?.name;
+    projectIdRef.current = selectedProject?.id;
     sessionIdRef.current = selectedSession?.id;
-  }, [selectedProject?.name, selectedSession?.id]);
+  }, [selectedProject?.id, selectedSession?.id]);
 
   // Track if initial fetch has been done for current session
   const hasFetchedRef = useRef(false);
@@ -31,10 +31,10 @@ export function useTokenBudget({ selectedProject, selectedSession }) {
 
   // Load token usage when session changes
   useEffect(() => {
-    const projectName = selectedProject?.name;
+    const projectId = selectedProject?.id;
     const sessionId = selectedSession?.id;
     
-    if (!projectName || !sessionId || sessionId.startsWith('new-session-')) {
+    if (!projectId || !sessionId || sessionId.startsWith('new-session-')) {
       setTokenBudget(null);
       hasFetchedRef.current = false;
       lastFetchedSessionRef.current = null;
@@ -56,7 +56,7 @@ export function useTokenBudget({ selectedProject, selectedSession }) {
       hasFetchedRef.current = true;
       
       try {
-        const url = `/api/projects/${projectName}/sessions/${sessionId}/token-usage`;
+        const url = `/api/projects/${projectId}/sessions/${sessionId}/token-usage`;
         const response = await authenticatedFetch(url);
 
         if (response.ok) {
@@ -71,18 +71,18 @@ export function useTokenBudget({ selectedProject, selectedSession }) {
     };
 
     fetchInitialTokenUsage();
-  }, [selectedSession?.id, selectedProject?.name]); // Only depend on primitive values
+  }, [selectedSession?.id, selectedProject?.id]); // Only depend on primitive values
 
   // Fetch updated token usage (called after message completion)
   // Uses refs to get current values, avoiding stale closure issues
   const fetchUpdatedTokenUsage = useCallback(async () => {
-    const projectName = projectNameRef.current;
+    const projectId = projectIdRef.current;
     const sessionId = sessionIdRef.current;
     
-    if (!projectName || !sessionId) return;
+    if (!projectId || !sessionId) return;
 
     try {
-      const url = `/api/projects/${projectName}/sessions/${sessionId}/token-usage`;
+      const url = `/api/projects/${projectId}/sessions/${sessionId}/token-usage`;
       const response = await authenticatedFetch(url);
       if (response.ok) {
         const data = await response.json();

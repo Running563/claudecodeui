@@ -4,20 +4,21 @@ import path from 'path';
 import { spawn } from 'child_process';
 import os from 'os';
 import { addProjectManually } from '../projects.js';
+import { getProjectById } from '../db.js';
 
 const router = express.Router();
 
 /**
  * Truncate session messages up to a specific timestamp
- * PUT /api/projects/:name/sessions/:sessionId/truncate
+ * PUT /api/projects/:projectId/sessions/:sessionId/truncate
  * 
  * Body: { keepUntilTimestamp: ISO timestamp string }
  * 
  * Deletes all messages after the specified timestamp in the session's JSONL file
  */
-router.put('/:name/sessions/:sessionId/truncate', async (req, res) => {
+router.put('/:projectId/sessions/:sessionId/truncate', async (req, res) => {
   try {
-    const { name: projectName, sessionId } = req.params;
+    const { projectId, sessionId } = req.params;
     const { keepUntilTimestamp } = req.body;
 
     if (!keepUntilTimestamp) {
@@ -29,12 +30,20 @@ router.put('/:name/sessions/:sessionId/truncate', async (req, res) => {
       return res.status(400).json({ error: 'Invalid timestamp format' });
     }
 
+    // Get project from database
+    const project = getProjectById(parseInt(projectId, 10));
+    if (!project) {
+      return res.status(404).json({ error: `Project not found: ${projectId}` });
+    }
+
+    const projectPath = project.original_path;
+    // Convert path to directory name format: /data/codes/stock-quant -> data-codes-stock-quant
+    const projectDirName = projectPath.replace(/^\//, '').replace(/\//g, '-');
+
     // Determine JSONL file path based on provider
     // Try Claude first, then CodeBuddy
-    const claudeProjectName = projectName.startsWith('-') ? projectName : `-${projectName}`;
-    const claudeDir = path.join(os.homedir(), '.claude', 'projects', claudeProjectName);
-    const codebuddyProjectName = projectName.startsWith('-') ? projectName.substring(1) : projectName;
-    const codebuddyDir = path.join(os.homedir(), '.codebuddy', 'projects', codebuddyProjectName);
+    const claudeDir = path.join(os.homedir(), '.claude', 'projects', '-' + projectDirName);
+    const codebuddyDir = path.join(os.homedir(), '.codebuddy', 'projects', projectDirName);
 
     let jsonlFile = null;
     let provider = null;

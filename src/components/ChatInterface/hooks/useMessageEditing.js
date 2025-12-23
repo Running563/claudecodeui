@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { authenticatedFetch } from '../../../utils/api';
+import { authenticatedFetch, getProjectId } from '../../../utils/api';
 
 /**
  * Hook for managing message editing
@@ -86,7 +86,7 @@ export function useMessageEditing({
       
       // Call backend to truncate
       const response = await authenticatedFetch(
-        `/api/projects/${encodeURIComponent(selectedProject.name)}/sessions/${currentSessionId}/truncate`,
+        `/api/projects/${getProjectId(selectedProject)}/sessions/${currentSessionId}/truncate`,
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -151,7 +151,7 @@ export function useMessageEditing({
 
         // Truncate backend messages (keep messages up to and including the one before)
         const response = await authenticatedFetch(
-          `/api/projects/${encodeURIComponent(selectedProject.name)}/sessions/${currentSessionId}/truncate`,
+          `/api/projects/${getProjectId(selectedProject)}/sessions/${currentSessionId}/truncate`,
           {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },

@@ -3,6 +3,7 @@ import crossSpawn from 'cross-spawn';
 import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
+import { getProjectByPath, createSession } from './db.js';
 
 // Use cross-spawn for better command execution (handles PATH lookup without shell)
 const spawnFunction = crossSpawn;
@@ -354,6 +355,18 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                     // Send session-created event only once for new sessions
                     if (!sessionId && !sessionCreatedSent) {
                       sessionCreatedSent = true;
+                      
+                      // Save session to database immediately so frontend can refresh
+                      try {
+                        const project = getProjectByPath(projectPath);
+                        if (project) {
+                          createSession(project.id, capturedSessionId, response.model || 'codebuddy', null, null);
+                          console.log('✅ [CodeBuddy] Session saved to database:', capturedSessionId);
+                        }
+                      } catch (dbError) {
+                        console.error('❌ [CodeBuddy] Failed to save session to database:', dbError);
+                      }
+                      
                       ws.send(JSON.stringify({
                         type: 'session-created',
                         sessionId: capturedSessionId,

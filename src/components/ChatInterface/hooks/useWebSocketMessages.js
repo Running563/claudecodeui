@@ -600,8 +600,11 @@ export function useWebSocketMessages({
         
       case 'codebuddy-result': {
         const codebuddyCompletedSessionId = latestMessage.sessionId || currentSessionId;
+        // Check if this is for current session OR if we're in a new session flow (currentSessionId not yet set)
+        const isCurrentSession = codebuddyCompletedSessionId === currentSessionId || 
+          (!currentSessionId && codebuddyCompletedSessionId);
 
-        if (codebuddyCompletedSessionId === currentSessionId) {
+        if (isCurrentSession) {
           setIsLoading(false);
           setCanAbortSession(false);
           setClaudeStatus(null);
@@ -616,7 +619,7 @@ export function useWebSocketMessages({
           }
         }
 
-        if (codebuddyCompletedSessionId === currentSessionId) {
+        if (isCurrentSession) {
           try {
             const r = latestMessage.data || {};
             const textResult = typeof r.result === 'string' ? r.result : '';

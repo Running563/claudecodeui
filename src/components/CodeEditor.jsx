@@ -339,7 +339,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
         }
 
         // Otherwise, load from disk
-        const response = await api.readFile(file.projectName, file.path);
+        const response = await api.readFile(file.projectId, file.path);
 
         if (!response.ok) {
           throw new Error(`Failed to load file: ${response.status} ${response.statusText}`);
@@ -362,12 +362,12 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
     setSaving(true);
     try {
       console.log('Saving file:', {
-        projectName: file.projectName,
+        projectId: file.projectId,
         path: file.path,
         contentLength: content?.length
       });
 
-      const response = await api.saveFile(file.projectName, file.path, content);
+      const response = await api.saveFile(file.projectId, file.path, content);
 
       console.log('Save response:', {
         status: response.status,

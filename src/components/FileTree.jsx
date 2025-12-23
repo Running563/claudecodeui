@@ -6,7 +6,7 @@ import { Folder, FolderOpen, File, FileText, FileCode, List, TableProperties, Ey
 import { cn } from '../lib/utils';
 import CodeEditor from './CodeEditor';
 import ImageViewer from './ImageViewer';
-import { api } from '../utils/api';
+import { api, getProjectId } from '../utils/api';
 
 function FileTree({ selectedProject }) {
   const [files, setFiles] = useState([]);
@@ -80,7 +80,7 @@ function FileTree({ selectedProject }) {
   const fetchFiles = async () => {
     setLoading(true);
     try {
-      const response = await api.getFiles(selectedProject.name);
+      const response = await api.getFiles(getProjectId(selectedProject));
       
       if (!response.ok) {
         const errorText = await response.text();
@@ -156,7 +156,7 @@ function FileTree({ selectedProject }) {
                 name: item.name,
                 path: item.path,
                 projectPath: selectedProject.path,
-                projectName: selectedProject.name
+                projectId: getProjectId(selectedProject)
               });
             } else {
               // Open file in editor
@@ -164,7 +164,7 @@ function FileTree({ selectedProject }) {
                 name: item.name,
                 path: item.path,
                 projectPath: selectedProject.path,
-                projectName: selectedProject.name
+                projectId: getProjectId(selectedProject)
               });
             }
           }}
@@ -238,14 +238,14 @@ function FileTree({ selectedProject }) {
                 name: item.name,
                 path: item.path,
                 projectPath: selectedProject.path,
-                projectName: selectedProject.name
+                projectId: getProjectId(selectedProject)
               });
             } else {
               setSelectedFile({
                 name: item.name,
                 path: item.path,
                 projectPath: selectedProject.path,
-                projectName: selectedProject.name
+                projectId: getProjectId(selectedProject)
               });
             }
           }}
@@ -300,14 +300,14 @@ function FileTree({ selectedProject }) {
                 name: item.name,
                 path: item.path,
                 projectPath: selectedProject.path,
-                projectName: selectedProject.name
+                projectId: getProjectId(selectedProject)
               });
             } else {
               setSelectedFile({
                 name: item.name,
                 path: item.path,
                 projectPath: selectedProject.path,
-                projectName: selectedProject.name
+                projectId: getProjectId(selectedProject)
               });
             }
           }}

@@ -49,6 +49,12 @@ export const authenticatedFetch = (url, options = {}) => {
   });
 };
 
+// Get project identifier for API calls (uses database id)
+export const getProjectId = (project) => {
+  if (!project) return null;
+  return project.id;
+};
+
 // API endpoints
 export const api = {
   // Auth endpoints (no token required)
@@ -71,29 +77,29 @@ export const api = {
   // Protected endpoints
   // config endpoint removed - no longer needed (frontend uses window.location)
   projects: () => authenticatedFetch('/api/projects'),
-  sessions: (projectName, limit = 5, offset = 0) => 
-    authenticatedFetch(`/api/projects/${projectName}/sessions?limit=${limit}&offset=${offset}`),
-  sessionMessages: (projectName, sessionId, limit = null, offset = 0) => {
+  sessions: (projectId, limit = 5, offset = 0) => 
+    authenticatedFetch(`/api/projects/${projectId}/sessions?limit=${limit}&offset=${offset}`),
+  sessionMessages: (projectId, sessionId, limit = null, offset = 0) => {
     const params = new URLSearchParams();
     if (limit !== null) {
       params.append('limit', limit);
       params.append('offset', offset);
     }
     const queryString = params.toString();
-    const url = `/api/projects/${projectName}/sessions/${sessionId}/messages${queryString ? `?${queryString}` : ''}`;
+    const url = `/api/projects/${projectId}/sessions/${sessionId}/messages${queryString ? `?${queryString}` : ''}`;
     return authenticatedFetch(url);
   },
-  renameProject: (projectName, displayName) =>
-    authenticatedFetch(`/api/projects/${projectName}/rename`, {
+  renameProject: (projectId, displayName) =>
+    authenticatedFetch(`/api/projects/${projectId}/rename`, {
       method: 'PUT',
       body: JSON.stringify({ displayName }),
     }),
-  deleteSession: (projectName, sessionId) =>
-    authenticatedFetch(`/api/projects/${projectName}/sessions/${sessionId}`, {
+  deleteSession: (projectId, sessionId) =>
+    authenticatedFetch(`/api/projects/${projectId}/sessions/${sessionId}`, {
       method: 'DELETE',
     }),
-  deleteProject: (projectName) =>
-    authenticatedFetch(`/api/projects/${projectName}`, {
+  deleteProject: (projectId) =>
+    authenticatedFetch(`/api/projects/${projectId}`, {
       method: 'DELETE',
     }),
   createProject: (path) =>
@@ -106,15 +112,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(workspaceData),
     }),
-  readFile: (projectName, filePath) =>
-    authenticatedFetch(`/api/projects/${projectName}/file?filePath=${encodeURIComponent(filePath)}`),
-  saveFile: (projectName, filePath, content) =>
-    authenticatedFetch(`/api/projects/${projectName}/file`, {
+  readFile: (projectId, filePath) =>
+    authenticatedFetch(`/api/projects/${projectId}/file?filePath=${encodeURIComponent(filePath)}`),
+  saveFile: (projectId, filePath, content) =>
+    authenticatedFetch(`/api/projects/${projectId}/file`, {
       method: 'PUT',
       body: JSON.stringify({ filePath, content }),
     }),
-  getFiles: (projectName) =>
-    authenticatedFetch(`/api/projects/${projectName}/files`),
+  getFiles: (projectId) =>
+    authenticatedFetch(`/api/projects/${projectId}/files`),
   transcribe: (formData) =>
     authenticatedFetch('/api/transcribe', {
       method: 'POST',
@@ -141,6 +147,45 @@ export const api = {
     onboardingStatus: () => authenticatedFetch('/api/user/onboarding-status'),
     completeOnboarding: () =>
       authenticatedFetch('/api/user/complete-onboarding', {
+        method: 'POST',
+      }),
+  },
+
+  // Database API (SQLite-based project management)
+  db: {
+    // Projects
+    getProjects: () => authenticatedFetch('/api/db/projects'),
+    getProject: (id) => authenticatedFetch(`/api/db/projects/${id}`),
+    addProject: (originalPath, displayName = null) =>
+      authenticatedFetch('/api/db/projects', {
+        method: 'POST',
+        body: JSON.stringify({ originalPath, displayName }),
+      }),
+    deleteProject: (id) =>
+      authenticatedFetch(`/api/db/projects/${id}`, {
+        method: 'DELETE',
+      }),
+    updateProject: (id, displayName) =>
+      authenticatedFetch(`/api/db/projects/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ displayName }),
+      }),
+    
+    // Sessions
+    getSessions: (projectId) => authenticatedFetch(`/api/db/projects/${projectId}/sessions`),
+    createSession: (projectId, sessionId, model = 'claude', title = null) =>
+      authenticatedFetch(`/api/db/projects/${projectId}/sessions`, {
+        method: 'POST',
+        body: JSON.stringify({ sessionId, model, title }),
+      }),
+    deleteSession: (sessionId) =>
+      authenticatedFetch(`/api/db/sessions/${sessionId}`, {
+        method: 'DELETE',
+      }),
+    
+    // Sync
+    sync: () =>
+      authenticatedFetch('/api/db/sync', {
         method: 'POST',
       }),
   },

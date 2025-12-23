@@ -4,7 +4,7 @@
  */
 
 import { useCallback } from 'react';
-import { authenticatedFetch } from '../../../utils/api';
+import { authenticatedFetch, getProjectId } from '../../../utils/api';
 import { safeLocalStorage } from '../utils';
 
 /**
@@ -57,7 +57,7 @@ export function useMessageSubmit({
     });
     
     try {
-      const response = await authenticatedFetch(`/api/projects/${selectedProject.name}/upload-images`, {
+      const response = await authenticatedFetch(`/api/projects/${getProjectId(selectedProject)}/upload-images`, {
         method: 'POST',
         headers: {}, // Let browser set Content-Type for FormData
         body: formData

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GitBranch, GitCommit, Plus, Minus, RefreshCw, Check, X, ChevronDown, ChevronRight, Info, History, FileText, Mic, MicOff, Sparkles, Download, RotateCcw, Trash2, AlertTriangle, Upload } from 'lucide-react';
 import { MicButton } from './MicButton.jsx';
-import { authenticatedFetch } from '../utils/api';
+import { authenticatedFetch, getProjectId } from '../utils/api';
 import DiffViewer from './DiffViewer.jsx';
 
 function GitPanel({ selectedProject, isMobile, onFileOpen }) {
@@ -81,7 +81,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
     
     setIsLoading(true);
     try {
-      const response = await authenticatedFetch(`/api/git/status?project=${encodeURIComponent(selectedProject.name)}`);
+      const response = await authenticatedFetch(`/api/git/status?project=${encodeURIComponent(getProjectId(selectedProject))}`);
       const data = await response.json();
       
       
@@ -124,7 +124,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
 
   const fetchBranches = async () => {
     try {
-      const response = await authenticatedFetch(`/api/git/branches?project=${encodeURIComponent(selectedProject.name)}`);
+      const response = await authenticatedFetch(`/api/git/branches?project=${encodeURIComponent(getProjectId(selectedProject))}`);
       const data = await response.json();
       
       if (!data.error && data.branches) {
@@ -139,7 +139,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
     if (!selectedProject) return;
     
     try {
-      const response = await authenticatedFetch(`/api/git/remote-status?project=${encodeURIComponent(selectedProject.name)}`);
+      const response = await authenticatedFetch(`/api/git/remote-status?project=${encodeURIComponent(getProjectId(selectedProject))}`);
       const data = await response.json();
       
       if (!data.error) {
@@ -159,7 +159,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          project: selectedProject.name,
+          project: getProjectId(selectedProject),
           branch: branchName
         })
       });
@@ -186,7 +186,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          project: selectedProject.name,
+          project: getProjectId(selectedProject),
           branch: newBranchName.trim()
         })
       });
@@ -216,7 +216,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          project: selectedProject.name
+          project: getProjectId(selectedProject)
         })
       });
       
@@ -242,7 +242,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          project: selectedProject.name
+          project: getProjectId(selectedProject)
         })
       });
       
@@ -269,7 +269,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          project: selectedProject.name
+          project: getProjectId(selectedProject)
         })
       });
       
@@ -296,7 +296,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          project: selectedProject.name,
+          project: getProjectId(selectedProject),
           branch: currentBranch
         })
       });
@@ -323,7 +323,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          project: selectedProject.name,
+          project: getProjectId(selectedProject),
           file: filePath
         })
       });
@@ -351,7 +351,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          project: selectedProject.name,
+          project: getProjectId(selectedProject),
           file: filePath
         })
       });
@@ -407,7 +407,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
 
   const fetchFileDiff = async (filePath) => {
     try {
-      const response = await authenticatedFetch(`/api/git/diff?project=${encodeURIComponent(selectedProject.name)}&file=${encodeURIComponent(filePath)}`);
+      const response = await authenticatedFetch(`/api/git/diff?project=${encodeURIComponent(getProjectId(selectedProject))}&file=${encodeURIComponent(filePath)}`);
       const data = await response.json();
 
       if (!data.error && data.diff) {
@@ -426,7 +426,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
 
     try {
       // Fetch file content with diff information
-      const response = await authenticatedFetch(`/api/git/file-with-diff?project=${encodeURIComponent(selectedProject.name)}&file=${encodeURIComponent(filePath)}`);
+      const response = await authenticatedFetch(`/api/git/file-with-diff?project=${encodeURIComponent(getProjectId(selectedProject))}&file=${encodeURIComponent(filePath)}`);
       const data = await response.json();
 
       if (data.error) {
@@ -453,7 +453,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
 
   const fetchRecentCommits = async () => {
     try {
-      const response = await authenticatedFetch(`/api/git/commits?project=${encodeURIComponent(selectedProject.name)}&limit=10`);
+      const response = await authenticatedFetch(`/api/git/commits?project=${encodeURIComponent(getProjectId(selectedProject))}&limit=10`);
       const data = await response.json();
       
       if (!data.error && data.commits) {
@@ -466,7 +466,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
 
   const fetchCommitDiff = async (commitHash) => {
     try {
-      const response = await authenticatedFetch(`/api/git/commit-diff?project=${encodeURIComponent(selectedProject.name)}&commit=${commitHash}`);
+      const response = await authenticatedFetch(`/api/git/commit-diff?project=${encodeURIComponent(getProjectId(selectedProject))}&commit=${commitHash}`);
       const data = await response.json();
       
       if (!data.error && data.diff) {
@@ -487,7 +487,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          project: selectedProject.name,
+          project: getProjectId(selectedProject),
           files: Array.from(selectedFiles),
           provider: provider // Pass the current provider (claude or cursor)
         })
@@ -555,7 +555,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          project: selectedProject.name,
+          project: getProjectId(selectedProject),
           message: commitMessage,
           files: Array.from(selectedFiles)
         })
@@ -585,7 +585,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          project: selectedProject.name
+          project: getProjectId(selectedProject)
         })
       });
 

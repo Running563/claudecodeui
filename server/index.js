@@ -59,6 +59,7 @@ import mime from 'mime-types';
 import multer from 'multer';
 
 import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
+import { getProjectById } from './db.js';
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions } from './claude-sdk.js';
 import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
 // Use SDK-style CodeBuddy integration (similar to Cursor CLI)
@@ -75,9 +76,33 @@ import projectsRoutes from './routes/projects.js';
 import cliAuthRoutes from './routes/cli-auth.js';
 import userRoutes from './routes/user.js';
 import terminalsRoutes from './routes/terminals.js';
+import dbRoutes from './routes/db.js';
 import { quickTerminals } from './routes/terminals.js';
 import { initializeDatabase } from './database/db.js';
+import { initDatabase as initProjectsDb } from './db.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
+
+// Resolve project path from database ID
+function resolveProjectPath(projectId) {
+  const project = getProjectById(parseInt(projectId, 10));
+  if (!project) {
+    throw new Error(`Project not found: ${projectId}`);
+  }
+  return project.original_path;
+}
+
+// Convert project ID to directory name format for projects.js
+// Returns: { path: '/data/codes/stock-quant', dirName: '-data-codes-stock-quant' }
+function resolveProjectInfo(projectId) {
+  const project = getProjectById(parseInt(projectId, 10));
+  if (!project) {
+    throw new Error(`Project not found: ${projectId}`);
+  }
+  const projectPath = project.original_path;
+  // /data/codes/stock-quant -> -data-codes-stock-quant
+  const dirName = '-' + projectPath.replace(/^\//, '').replace(/\//g, '-');
+  return { path: projectPath, dirName };
+}
 
 // File system watcher for projects folder
 let projectsWatcher = null;
@@ -262,7 +287,7 @@ const imageUpload = multer({
 
 // Image upload endpoint - MUST be defined BEFORE express.json() middleware
 // because multer needs to handle multipart/form-data before JSON parsing
-app.post('/api/projects/:projectName/upload-images', authenticateToken, (req, res, next) => {
+app.post('/api/projects/:projectId/upload-images', authenticateToken, (req, res, next) => {
     // Use multer with error handling
     imageUpload.array('images', 5)(req, res, (err) => {
         if (err) {
@@ -365,6 +390,9 @@ app.use('/api/user', authenticateToken, userRoutes);
 // Terminals API Routes (protected)
 app.use('/api/terminals', authenticateToken, terminalsRoutes);
 
+// Database API Routes (protected)
+app.use('/api/db', dbRoutes);
+
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);
 
@@ -402,10 +430,11 @@ app.get('/api/projects', authenticateToken, async (req, res) => {
     }
 });
 
-app.get('/api/projects/:projectName/sessions', authenticateToken, async (req, res) => {
+app.get('/api/projects/:projectId/sessions', authenticateToken, async (req, res) => {
     try {
         const { limit = 5, offset = 0 } = req.query;
-        const result = await getSessions(req.params.projectName, parseInt(limit), parseInt(offset));
+        const { dirName } = resolveProjectInfo(req.params.projectId);
+        const result = await getSessions(dirName, parseInt(limit), parseInt(offset));
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -413,23 +442,24 @@ app.get('/api/projects/:projectName/sessions', authenticateToken, async (req, re
 });
 
 // Get messages for a specific session
-app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateToken, async (req, res) => {
+app.get('/api/projects/:projectId/sessions/:sessionId/messages', authenticateToken, async (req, res) => {
     try {
-        const { projectName, sessionId } = req.params;
+        const { projectId, sessionId } = req.params;
         const { limit, offset } = req.query;
+        
+        // Get project directory name from database ID
+        const { dirName } = resolveProjectInfo(projectId);
         
         // Parse limit and offset if provided
         const parsedLimit = limit ? parseInt(limit, 10) : null;
         const parsedOffset = offset ? parseInt(offset, 10) : 0;
         
-        const result = await getSessionMessages(projectName, sessionId, parsedLimit, parsedOffset);
+        const result = await getSessionMessages(dirName, sessionId, parsedLimit, parsedOffset);
         
         // Handle both old and new response formats
         if (Array.isArray(result)) {
-            // Backward compatibility: no pagination parameters were provided
             res.json({ messages: result });
         } else {
-            // New format with pagination info
             res.json(result);
         }
     } catch (error) {
@@ -438,10 +468,11 @@ app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateT
 });
 
 // Rename project endpoint
-app.put('/api/projects/:projectName/rename', authenticateToken, async (req, res) => {
+app.put('/api/projects/:projectId/rename', authenticateToken, async (req, res) => {
     try {
         const { displayName } = req.body;
-        await renameProject(req.params.projectName, displayName);
+        const { dirName } = resolveProjectInfo(req.params.projectId);
+        await renameProject(dirName, displayName);
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -449,11 +480,12 @@ app.put('/api/projects/:projectName/rename', authenticateToken, async (req, res)
 });
 
 // Delete session endpoint
-app.delete('/api/projects/:projectName/sessions/:sessionId', authenticateToken, async (req, res) => {
+app.delete('/api/projects/:projectId/sessions/:sessionId', authenticateToken, async (req, res) => {
     try {
-        const { projectName, sessionId } = req.params;
-        console.log(`[API] Deleting session: ${sessionId} from project: ${projectName}`);
-        await deleteSession(projectName, sessionId);
+        const { projectId, sessionId } = req.params;
+        const { dirName } = resolveProjectInfo(projectId);
+        console.log(`[API] Deleting session: ${sessionId} from project: ${dirName}`);
+        await deleteSession(dirName, sessionId);
         console.log(`[API] Session ${sessionId} deleted successfully`);
         res.json({ success: true });
     } catch (error) {
@@ -463,10 +495,10 @@ app.delete('/api/projects/:projectName/sessions/:sessionId', authenticateToken, 
 });
 
 // Delete project endpoint (only if empty)
-app.delete('/api/projects/:projectName', authenticateToken, async (req, res) => {
+app.delete('/api/projects/:projectId', authenticateToken, async (req, res) => {
     try {
-        const { projectName } = req.params;
-        await deleteProject(projectName);
+        const { dirName } = resolveProjectInfo(req.params.projectId);
+        await deleteProject(dirName);
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -551,21 +583,23 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
 });
 
 // Read file content endpoint
-app.get('/api/projects/:projectName/file', authenticateToken, async (req, res) => {
+app.get('/api/projects/:projectId/file', authenticateToken, async (req, res) => {
     try {
-        const { projectName } = req.params;
+        const { projectId } = req.params;
         const { filePath } = req.query;
 
-        console.log('[DEBUG] File read request:', projectName, filePath);
+        console.log('[DEBUG] File read request:', projectId, filePath);
 
         // Security: ensure the requested path is inside the project root
         if (!filePath) {
             return res.status(400).json({ error: 'Invalid file path' });
         }
 
-        const projectRoot = await extractProjectDirectory(projectName).catch(() => null);
-        if (!projectRoot) {
-            return res.status(404).json({ error: 'Project not found' });
+        let projectRoot;
+        try {
+            projectRoot = resolveProjectPath(projectId);
+        } catch (error) {
+            return res.status(400).json({ error: error.message });
         }
 
         // Handle both absolute and relative paths
@@ -592,21 +626,23 @@ app.get('/api/projects/:projectName/file', authenticateToken, async (req, res) =
 });
 
 // Serve binary file content endpoint (for images, etc.)
-app.get('/api/projects/:projectName/files/content', authenticateToken, async (req, res) => {
+app.get('/api/projects/:projectId/files/content', authenticateToken, async (req, res) => {
     try {
-        const { projectName } = req.params;
+        const { projectId } = req.params;
         const { path: filePath } = req.query;
 
-        console.log('[DEBUG] Binary file serve request:', projectName, filePath);
+        console.log('[DEBUG] Binary file serve request:', projectId, filePath);
 
         // Security: ensure the requested path is inside the project root
         if (!filePath) {
             return res.status(400).json({ error: 'Invalid file path' });
         }
 
-        const projectRoot = await extractProjectDirectory(projectName).catch(() => null);
-        if (!projectRoot) {
-            return res.status(404).json({ error: 'Project not found' });
+        let projectRoot;
+        try {
+            projectRoot = resolveProjectPath(projectId);
+        } catch (error) {
+            return res.status(400).json({ error: error.message });
         }
 
         const resolved = path.resolve(filePath);
@@ -699,12 +735,12 @@ app.get('/api/temp-image', authenticateToken, async (req, res) => {
 });
 
 // Save file content endpoint
-app.put('/api/projects/:projectName/file', authenticateToken, async (req, res) => {
+app.put('/api/projects/:projectId/file', authenticateToken, async (req, res) => {
     try {
-        const { projectName } = req.params;
+        const { projectId } = req.params;
         const { filePath, content } = req.body;
 
-        console.log('[DEBUG] File save request:', projectName, filePath);
+        console.log('[DEBUG] File save request:', projectId, filePath);
 
         // Security: ensure the requested path is inside the project root
         if (!filePath) {
@@ -715,9 +751,11 @@ app.put('/api/projects/:projectName/file', authenticateToken, async (req, res) =
             return res.status(400).json({ error: 'Content is required' });
         }
 
-        const projectRoot = await extractProjectDirectory(projectName).catch(() => null);
-        if (!projectRoot) {
-            return res.status(404).json({ error: 'Project not found' });
+        let projectRoot;
+        try {
+            projectRoot = resolveProjectPath(projectId);
+        } catch (error) {
+            return res.status(400).json({ error: error.message });
         }
 
         // Handle both absolute and relative paths
@@ -749,19 +787,15 @@ app.put('/api/projects/:projectName/file', authenticateToken, async (req, res) =
     }
 });
 
-app.get('/api/projects/:projectName/files', authenticateToken, async (req, res) => {
+app.get('/api/projects/:projectId/files', authenticateToken, async (req, res) => {
     try {
-
-        // Using fsPromises from import
-
-        // Use extractProjectDirectory to get the actual project path
+        // Resolve project path (requires database ID)
         let actualPath;
         try {
-            actualPath = await extractProjectDirectory(req.params.projectName);
+            actualPath = resolveProjectPath(req.params.projectId);
         } catch (error) {
-            console.error('Error extracting project directory:', error);
-            // Fallback to simple dash replacement
-            actualPath = req.params.projectName.replace(/-/g, '/');
+            console.error('Error resolving project path:', error);
+            return res.status(400).json({ error: error.message });
         }
 
         // Check if path exists
@@ -1429,19 +1463,13 @@ Agent instructions:`;
 });
 
 // Get token usage for a specific session
-app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authenticateToken, async (req, res) => {
+app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticateToken, async (req, res) => {
   try {
-    const { projectName, sessionId } = req.params;
+    const { projectId, sessionId } = req.params;
     const homeDir = os.homedir();
 
-    // Extract actual project path
-    let projectPath;
-    try {
-      projectPath = await extractProjectDirectory(projectName);
-    } catch (error) {
-      console.error('Error extracting project directory:', error);
-      return res.status(500).json({ error: 'Failed to determine project path' });
-    }
+    // Get project info from database ID
+    const { dirName } = resolveProjectInfo(projectId);
 
     // Allow only safe characters in sessionId
     const safeSessionId = String(sessionId).replace(/[^a-zA-Z0-9._-]/g, '');
@@ -1450,10 +1478,10 @@ app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authentica
     }
 
     // Try to find the session file in both Claude and CodeBuddy directories
-    // Claude format: -Users-waderli-tools-xxx
-    // CodeBuddy format: Users-waderli-tools-xxx (without leading -)
-    const claudeProjectName = projectName.startsWith('-') ? projectName : `-${projectName}`;
-    const codebuddyProjectName = projectName.startsWith('-') ? projectName.substring(1) : projectName;
+    // Claude format: -data-codes-xxx
+    // CodeBuddy format: data-codes-xxx (without leading -)
+    const claudeProjectName = dirName;
+    const codebuddyProjectName = dirName.startsWith('-') ? dirName.substring(1) : dirName;
     
     const candidatePaths = [
       // Try Claude directory first
@@ -1672,6 +1700,9 @@ async function startServer() {
     try {
         // Initialize authentication database
         await initializeDatabase();
+        
+        // Initialize projects database
+        initProjectsDb();
 
         // Check if running in production mode (dist folder exists)
         const distIndexPath = path.join(__dirname, '../dist/index.html');

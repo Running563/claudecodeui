@@ -63,6 +63,7 @@ import path from 'path';
 import readline from 'readline';
 import crypto from 'crypto';
 import sqlite3 from 'sqlite3';
+import { addProject as dbAddProject, getProjectByPath } from './db.js';
 import { open } from 'sqlite';
 import os from 'os';
 
@@ -197,51 +198,78 @@ async function detectTaskMasterFolder(projectPath) {
 // Cache for extracted project directories
 const projectDirectoryCache = new Map();
 
-// Smart path decoder for CodeBuddy format
-// CodeBuddy: Users-waderli-tools-my-project -> /Users/waderli/tools/my-project
-// Heuristic: First 3 segments are path (Users/username/parentdir), rest is project name
-function decodeCodeBuddyPath(projectName) {
-  // Remove leading - if present
-  const cleanName = projectName.startsWith('-') ? projectName.substring(1) : projectName;
-  
-  // Split by dash
-  const parts = cleanName.split('-');
-  
-  // Common patterns:
-  // - Users-username-dir-project
-  // - Users-username-dir-subdir-project  
-  // - home-username-dir-project
-  // - data-codes-project
-  
-  if (parts.length >= 3 && (parts[0] === 'Users' || parts[0] === 'home' || parts[0] === 'opt' || parts[0] === 'data' || parts[0] === 'mnt' || parts[0] === 'srv' || parts[0] === 'root' || parts[0] === 'var')) {
-    // Take first 3 parts as path components
-    const pathParts = parts.slice(0, 3);
-    const projectParts = parts.slice(3);
-    
-    // Join: /Users/username/parentdir/project-with-dashes
-    if (projectParts.length > 0) {
-      return `/${pathParts.join('/')}/${projectParts.join('-')}`;
-    } else {
-      // Project name is the 3rd part itself
-      return `/${pathParts.join('/')}`;
-    }
+// Cache for CodeBuddy trustedDirectories
+let trustedDirectoriesCache = null;
+
+// Load CodeBuddy trustedDirectories from settings.json
+async function loadCodeBuddyTrustedDirectories() {
+  if (trustedDirectoriesCache !== null) {
+    return trustedDirectoriesCache;
   }
   
-  // Fallback: just add leading slash
-  return `/${cleanName}`;
+  const settingsPath = path.join(process.env.HOME, '.codebuddy', 'settings.json');
+  try {
+    const content = await fs.readFile(settingsPath, 'utf8');
+    const settings = JSON.parse(content);
+    trustedDirectoriesCache = settings.trustedDirectories || [];
+    return trustedDirectoriesCache;
+  } catch {
+    trustedDirectoriesCache = [];
+    return [];
+  }
 }
 
-// Smart path decoder for Claude format  
-// Claude: -Users-waderli-tools-my-project -> /Users/waderli/tools/my-project
-function decodeClaudePath(projectName) {
-  // Claude always starts with -, remove it
+// Encode path to directory name format
+// /data/codes/stock-quant -> data-codes-stock-quant
+function encodePathToDirectoryName(projectPath) {
+  return projectPath.replace(/^\//, '').replace(/\//g, '-');
+}
+
+// Find matching path from trustedDirectories
+async function findTrustedPath(encodedName) {
+  const trustedDirs = await loadCodeBuddyTrustedDirectories();
+  const cleanName = encodedName.startsWith('-') ? encodedName.substring(1) : encodedName;
+  
+  for (const trustedPath of trustedDirs) {
+    const encoded = encodePathToDirectoryName(trustedPath);
+    if (encoded === cleanName) {
+      return trustedPath;
+    }
+  }
+  return null;
+}
+
+// Smart path decoder for Claude format
+// Returns array of possible paths to try (most likely first)
+function decodeClaudePathCandidates(projectName) {
   const cleanName = projectName.startsWith('-') ? projectName.substring(1) : projectName;
-  return decodeCodeBuddyPath(cleanName);
+  const parts = cleanName.split('-');
+  const candidates = [];
+  
+  const rootDirs = ['Users', 'home', 'opt', 'data', 'mnt', 'srv', 'root', 'var'];
+  
+  if (parts.length >= 3 && rootDirs.includes(parts[0])) {
+    for (let pathPartCount = 3; pathPartCount <= parts.length; pathPartCount++) {
+      const pathParts = parts.slice(0, pathPartCount);
+      const projectParts = parts.slice(pathPartCount);
+      
+      if (projectParts.length > 0) {
+        candidates.push(`/${pathParts.join('/')}/${projectParts.join('-')}`);
+      } else {
+        candidates.push(`/${pathParts.join('/')}`);
+      }
+    }
+  } else {
+    candidates.push(`/${cleanName}`);
+  }
+  
+  return candidates;
 }
 
 // Clear cache when needed (called when project files change)
 function clearProjectDirectoryCache() {
   projectDirectoryCache.clear();
+  trustedDirectoriesCache = null; // Also clear trustedDirectories cache
 }
 
 // Load project configuration file
@@ -309,26 +337,41 @@ async function extractProjectDirectory(projectName, projectsBaseDir = null) {
     return projectDirectoryCache.get(projectName);
   }
   
+  // Check project config for originalPath first (most reliable for manually added projects)
+  try {
+    const config = await loadProjectConfig();
+    if (config[projectName]?.originalPath) {
+      const originalPath = config[projectName].originalPath;
+      projectDirectoryCache.set(projectName, originalPath);
+      return originalPath;
+    }
+  } catch (e) {
+    // Config not available, continue with other methods
+  }
+  
   // If projectsBaseDir is specified, use it directly
   if (projectsBaseDir) {
     return extractProjectDirectoryFromDir(projectName, projectsBaseDir);
   }
   
-  // Otherwise, try both Claude and CodeBuddy directories with their naming conventions
-  // Claude: -Users-waderli-tools-xxx (with leading -)
-  // CodeBuddy: Users-waderli-tools-xxx (without leading -)
-  
+  // Determine naming conventions
   const claudeProjectName = projectName.startsWith('-') ? projectName : `-${projectName}`;
   const codebuddyProjectName = projectName.startsWith('-') ? projectName.substring(1) : projectName;
   
   const claudeDir = path.join(process.env.HOME, '.claude', 'projects');
   const codebuddyDir = path.join(process.env.HOME, '.codebuddy', 'projects');
   
-  // Try Claude directory first
+  // Try CodeBuddy first - use trustedDirectories for accurate path
+  const trustedPath = await findTrustedPath(codebuddyProjectName);
+  if (trustedPath) {
+    projectDirectoryCache.set(projectName, trustedPath);
+    return trustedPath;
+  }
+  
+  // Try Claude directory - use candidate paths
   try {
     const claudePath = await extractProjectDirectoryFromDir(claudeProjectName, claudeDir);
-    if (claudePath && !claudePath.includes('-')) {
-      // Cache with original name too
+    if (claudePath) {
       projectDirectoryCache.set(projectName, claudePath);
       return claudePath;
     }
@@ -336,22 +379,20 @@ async function extractProjectDirectory(projectName, projectsBaseDir = null) {
     // Claude directory doesn't have this project
   }
   
-  // Try CodeBuddy directory
-  try {
-    const codebuddyPath = await extractProjectDirectoryFromDir(codebuddyProjectName, codebuddyDir);
-    if (codebuddyPath && !codebuddyPath.includes('-')) {
-      projectDirectoryCache.set(projectName, codebuddyPath);
-      return codebuddyPath;
+  // Fallback: try all candidate paths and find one that exists
+  const candidates = decodeClaudePathCandidates(projectName);
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate);
+      projectDirectoryCache.set(projectName, candidate);
+      return candidate;
+    } catch (e) {
+      // This candidate doesn't exist, try next
     }
-  } catch (e) {
-    // CodeBuddy directory doesn't have this project either
   }
   
-  // Fallback: use smart decoding based on project name format
-  const fallbackPath = projectName.startsWith('-') 
-    ? decodeClaudePath(projectName)
-    : decodeCodeBuddyPath(projectName);
-  
+  // No valid path found, return first candidate as fallback
+  const fallbackPath = candidates[0];
   projectDirectoryCache.set(projectName, fallbackPath);
   return fallbackPath;
 }
@@ -363,30 +404,44 @@ async function extractProjectDirectoryFromDir(projectName, projectsBaseDir) {
   let latestCwd = null;
   let extractedPath;
   
-  // Detect if this is a CodeBuddy directory (doesn't start with -)
+  // Detect if this is a CodeBuddy directory
   const isCodeBuddy = !projectName.startsWith('-') && projectsBaseDir.includes('.codebuddy');
   
+  // For CodeBuddy, always use trustedDirectories
+  if (isCodeBuddy) {
+    const trustedPath = await findTrustedPath(projectName);
+    if (trustedPath) {
+      projectDirectoryCache.set(projectName, trustedPath);
+      return trustedPath;
+    }
+    // If not found in trustedDirectories, return null
+    return null;
+  }
+  
+  // For Claude, use existing logic
   try {
-    // Check if the project directory exists
     await fs.access(projectDir);
     
     const files = await fs.readdir(projectDir);
     const jsonlFiles = files.filter(file => file.endsWith('.jsonl'));
     
     if (jsonlFiles.length === 0) {
-      // Fall back: Use smart decoding based on provider
-      if (isCodeBuddy) {
-        // CodeBuddy format: Users-waderli-tools-projectname (no leading -)
-        // This is the full path encoded, so we just need to add / at the start
-        // and be smart about not replacing dashes in project names
-        extractedPath = decodeCodeBuddyPath(projectName);
-      } else {
-        // Claude format: -Users-waderli-tools-projectname (with leading -)
-        // Strip the leading - and decode
-        extractedPath = decodeClaudePath(projectName);
+      // Fall back: try all candidate paths
+      const candidates = decodeClaudePathCandidates(projectName);
+      for (const candidate of candidates) {
+        try {
+          await fs.access(candidate);
+          extractedPath = candidate;
+          break;
+        } catch (e) {
+          // continue
+        }
+      }
+      if (!extractedPath) {
+        extractedPath = candidates[0];
       }
     } else {
-      // Process all JSONL files to collect cwd values
+      // Process JSONL files to collect cwd values
       for (const file of jsonlFiles) {
         const jsonlFile = path.join(projectDir, file);
         const fileStream = fsSync.createReadStream(jsonlFile);
@@ -401,10 +456,8 @@ async function extractProjectDirectoryFromDir(projectName, projectsBaseDir) {
               const entry = JSON.parse(line);
               
               if (entry.cwd) {
-                // Count occurrences of each cwd
                 cwdCounts.set(entry.cwd, (cwdCounts.get(entry.cwd) || 0) + 1);
                 
-                // Track the most recent cwd
                 const timestamp = new Date(entry.timestamp || 0).getTime();
                 if (timestamp > latestTimestamp) {
                   latestTimestamp = timestamp;
@@ -420,11 +473,18 @@ async function extractProjectDirectoryFromDir(projectName, projectsBaseDir) {
       
       // Determine the best cwd to use
       if (cwdCounts.size === 0) {
-        // No cwd found, use smart decoding
-        if (isCodeBuddy) {
-          extractedPath = decodeCodeBuddyPath(projectName);
-        } else {
-          extractedPath = decodeClaudePath(projectName);
+        const candidates = decodeClaudePathCandidates(projectName);
+        for (const candidate of candidates) {
+          try {
+            await fs.access(candidate);
+            extractedPath = candidate;
+            break;
+          } catch (e) {
+            // continue
+          }
+        }
+        if (!extractedPath) {
+          extractedPath = candidates[0];
         }
       } else if (cwdCounts.size === 1) {
         // Only one cwd, use it
@@ -460,18 +520,22 @@ async function extractProjectDirectoryFromDir(projectName, projectsBaseDir) {
     return extractedPath;
     
   } catch (error) {
-    // If the directory doesn't exist, use smart decoding
-    if (error.code === 'ENOENT') {
-      extractedPath = isCodeBuddy ? decodeCodeBuddyPath(projectName) : decodeClaudePath(projectName);
-    } else {
-      console.error(`Error extracting project directory for ${projectName}:`, error);
-      // Fall back to smart decoding for other errors
-      extractedPath = isCodeBuddy ? decodeCodeBuddyPath(projectName) : decodeClaudePath(projectName);
+    // If error, try candidate paths
+    const candidates = decodeClaudePathCandidates(projectName);
+    for (const candidate of candidates) {
+      try {
+        await fs.access(candidate);
+        extractedPath = candidate;
+        break;
+      } catch (e) {
+        // continue
+      }
+    }
+    if (!extractedPath) {
+      extractedPath = candidates[0];
     }
     
-    // Cache the fallback result too
     projectDirectoryCache.set(projectName, extractedPath);
-    
     return extractedPath;
   }
 }
@@ -497,12 +561,15 @@ async function getProjects() {
           existingProjects.add(entry.name);
           const projectPath = path.join(projectsDir, entry.name);
           
-          // Extract actual project directory from JSONL sessions
+          // Extract actual project directory
+          // For CodeBuddy, this uses trustedDirectories
           const actualProjectDir = await extractProjectDirectory(entry.name, projectsDir);
           
-          // Use actualProjectDir as the merge key (since Claude and CodeBuddy use different naming)
-          // Claude uses: -Users-waderli-tools-xxx (with leading -)
-          // CodeBuddy uses: Users-waderli-tools-xxx (without leading -)
+          // Skip if path not found (e.g., CodeBuddy project not in trustedDirectories)
+          if (!actualProjectDir) {
+            continue;
+          }
+          
           let project = projectsMap.get(actualProjectDir);
           
           if (!project) {
@@ -513,8 +580,12 @@ async function getProjects() {
             const autoDisplayName = await generateDisplayName(entry.name, actualProjectDir);
             const fullPath = actualProjectDir;
             
+            // Sync to database and get ID
+            const dbProject = dbAddProject(actualProjectDir, customName || autoDisplayName);
+            
             // Create new project - prefer Claude's name format if available
             project = {
+              id: dbProject.id, // Database ID for API calls
               name: provider === 'claude' ? entry.name : `-${entry.name}`, // Standardize to Claude format
               path: actualProjectDir,
               displayName: customName || autoDisplayName,
@@ -621,7 +692,11 @@ async function getProjects() {
         }
       }
       
-              const project = {
+      // Sync to database and get ID
+      const dbProject = dbAddProject(actualProjectDir, projectConfig.displayName);
+      
+      const project = {
+          id: dbProject.id, // Database ID for API calls
           name: projectName,
           path: actualProjectDir,
           displayName: projectConfig.displayName || await generateDisplayName(projectName, actualProjectDir),
@@ -1489,8 +1564,11 @@ async function addProjectManually(projectPath, displayName = null) {
   
   await saveProjectConfig(config);
   
+  // Sync to database and get ID
+  const dbProject = dbAddProject(absolutePath, displayName);
   
   return {
+    id: dbProject.id, // Database ID for API calls
     name: projectName,
     path: absolutePath,
     fullPath: absolutePath,

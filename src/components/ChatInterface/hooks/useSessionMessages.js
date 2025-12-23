@@ -24,8 +24,8 @@ export function useSessionMessages() {
   const [totalMessages, setTotalMessages] = useState(0);
 
   // Load session messages from API with pagination
-  const loadSessionMessages = useCallback(async (projectName, sessionId, loadMore = false) => {
-    if (!projectName || !sessionId) return [];
+  const loadSessionMessages = useCallback(async (projectId, sessionId, loadMore = false) => {
+    if (!projectId || !sessionId) return [];
     
     const isInitialLoad = !loadMore;
     if (isInitialLoad) {
@@ -36,7 +36,7 @@ export function useSessionMessages() {
     
     try {
       const currentOffset = loadMore ? messagesOffset : 0;
-      const response = await api.sessionMessages(projectName, sessionId, MESSAGES_PER_PAGE, currentOffset);
+      const response = await api.sessionMessages(projectId, sessionId, MESSAGES_PER_PAGE, currentOffset);
       if (!response.ok) {
         throw new Error('Failed to load session messages');
       }

@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '../../../utils/api';
+import { api, getProjectId } from '../../../utils/api';
 
 /**
  * Flatten file tree to get all file paths
@@ -56,7 +56,7 @@ export function useFileDropdown({
       if (!selectedProject) return;
       
       try {
-        const response = await api.getFiles(selectedProject.name);
+        const response = await api.getFiles(getProjectId(selectedProject));
         if (response.ok) {
           const files = await response.json();
           const flatFiles = flattenFileTree(files);

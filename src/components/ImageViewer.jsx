@@ -4,7 +4,7 @@ import { X } from 'lucide-react';
 import { authenticatedFetch } from '../utils/api';
 
 function ImageViewer({ file, onClose }) {
-  const imagePath = `/api/projects/${file.projectName}/files/content?path=${encodeURIComponent(file.path)}`;
+  const imagePath = `/api/projects/${file.projectId}/files/content?path=${encodeURIComponent(file.path)}`;
   const [imageUrl, setImageUrl] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);

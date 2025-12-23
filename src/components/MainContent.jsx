@@ -18,6 +18,7 @@ import CodeEditor from './CodeEditor';
 import StandaloneShell from './StandaloneShell';
 import GitPanel from './GitPanel';
 import ErrorBoundary from './ErrorBoundary';
+import { getProjectId } from '../utils/api';
 import ClaudeLogo from './ClaudeLogo';
 import CursorLogo from './CursorLogo';
 import CodeBuddyLogo from './CodeBuddyLogo';
@@ -77,7 +78,7 @@ function MainContent({
     const file = {
       name: filePath.split('/').pop(),
       path: filePath,
-      projectName: selectedProject?.name,
+      projectId: getProjectId(selectedProject),
       diffInfo: diffInfo // Pass along diff information if available
     };
     setEditingFile(file);

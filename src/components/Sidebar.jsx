@@ -11,7 +11,7 @@ import ClaudeLogo from './ClaudeLogo';
 import CursorLogo from './CursorLogo.jsx';
 import CodeBuddyLogo from './CodeBuddyLogo.jsx';
 import ProjectCreationWizard from './ProjectCreationWizard';
-import { api } from '../utils/api';
+import { api, getProjectId } from '../utils/api';
 
 // Move formatTimeAgo outside component to avoid recreation on every render
 const formatTimeAgo = (dateString, currentTime) => {
@@ -271,7 +271,9 @@ function Sidebar({
 
   const saveProjectName = async (projectName) => {
     try {
-      const response = await api.renameProject(projectName, editingName);
+      const project = projects.find(p => p.name === projectName);
+      const projectId = getProjectId(project);
+      const response = await api.renameProject(projectId, editingName);
 
       if (response.ok) {
         // Refresh projects to get updated data
@@ -297,8 +299,10 @@ function Sidebar({
     }
 
     try {
-      console.log('[Sidebar] Deleting session:', { projectName, sessionId });
-      const response = await api.deleteSession(projectName, sessionId);
+      const project = projects.find(p => p.name === projectName);
+      const projectId = getProjectId(project);
+      console.log('[Sidebar] Deleting session:', { projectName, projectId, sessionId });
+      const response = await api.deleteSession(projectId, sessionId);
       console.log('[Sidebar] Delete response:', { ok: response.ok, status: response.status });
 
       if (response.ok) {
@@ -340,7 +344,9 @@ function Sidebar({
     }
 
     try {
-      const response = await api.deleteProject(projectName);
+      const project = projects.find(p => p.name === projectName);
+      const projectId = getProjectId(project);
+      const response = await api.deleteProject(projectId);
 
       if (response.ok) {
         // Call parent callback if provided
@@ -421,7 +427,8 @@ function Sidebar({
       // Load more from the provider that has more sessions
       // For now, use the combined offset approach - the API will return sessions from the appropriate provider
       const currentSessionCount = claudeSessionCount + codebuddySessionCount;
-      const response = await api.sessions(project.name, 10, currentSessionCount);
+      const projectId = getProjectId(project);
+      const response = await api.sessions(projectId, 10, currentSessionCount);
       
       if (response.ok) {
         const result = await response.json();

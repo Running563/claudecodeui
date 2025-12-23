@@ -19,7 +19,7 @@ import {
   formatUsageLimitText,
   extractBase64FromContent 
 } from '../utils';
-import { api, authenticatedFetch } from '../../../utils/api';
+import { api, authenticatedFetch, getProjectId } from '../../../utils/api';
 
 /**
  * Helper function to get toolResult content from either data structure:
@@ -265,7 +265,7 @@ const MessageComponent = memo(({
 
                                 try {
                                   // Fetch the current file (after the edit)
-                                  const response = await api.readFile(selectedProject?.name, input.file_path);
+                                  const response = await api.readFile(getProjectId(selectedProject), input.file_path);
                                   const data = await response.json();
 
                                   if (!response.ok || data.error) {
@@ -303,7 +303,7 @@ const MessageComponent = memo(({
 
                                     try {
                                       // Fetch the current file (after the edit)
-                                      const response = await api.readFile(selectedProject?.name, input.file_path);
+                                      const response = await api.readFile(getProjectId(selectedProject), input.file_path);
                                       const data = await response.json();
 
                                       if (!response.ok || data.error) {
@@ -423,7 +423,7 @@ const MessageComponent = memo(({
 
                                   try {
                                     // Fetch the written file from disk
-                                    const response = await api.readFile(selectedProject?.name, input.file_path);
+                                    const response = await api.readFile(getProjectId(selectedProject), input.file_path);
                                     const data = await response.json();
 
                                     const newContent = (response.ok && !data.error) ? data.content || '' : input.content || '';
@@ -456,7 +456,7 @@ const MessageComponent = memo(({
 
                                       try {
                                         // Fetch the written file from disk
-                                        const response = await api.readFile(selectedProject?.name, input.file_path);
+                                        const response = await api.readFile(getProjectId(selectedProject), input.file_path);
                                         const data = await response.json();
 
                                         const newContent = (response.ok && !data.error) ? data.content || '' : input.content || '';
@@ -1031,7 +1031,7 @@ const MessageComponent = memo(({
 
                                   // Fetch FULL file content with diff from git
                                   try {
-                                    const response = await authenticatedFetch(`/api/git/file-with-diff?project=${encodeURIComponent(selectedProject?.name)}&file=${encodeURIComponent(fileEditMatch[1])}`);
+                                    const response = await authenticatedFetch(`/api/git/file-with-diff?project=${encodeURIComponent(getProjectId(selectedProject))}&file=${encodeURIComponent(fileEditMatch[1])}`);
                                     const data = await response.json();
 
                                     if (!data.error && data.oldContent !== undefined && data.currentContent !== undefined) {
@@ -1069,7 +1069,7 @@ const MessageComponent = memo(({
 
                                   // Fetch FULL file content with diff from git
                                   try {
-                                    const response = await authenticatedFetch(`/api/git/file-with-diff?project=${encodeURIComponent(selectedProject?.name)}&file=${encodeURIComponent(fileCreateMatch[1])}`);
+                                    const response = await authenticatedFetch(`/api/git/file-with-diff?project=${encodeURIComponent(getProjectId(selectedProject))}&file=${encodeURIComponent(fileCreateMatch[1])}`);
                                     const data = await response.json();
 
                                     if (!data.error && data.oldContent !== undefined && data.currentContent !== undefined) {

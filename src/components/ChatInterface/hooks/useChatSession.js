@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { safeLocalStorage } from '../utils';
+import { getProjectId } from '../../../utils/api';
 
 /**
  * Custom hook for managing chat session lifecycle
@@ -112,7 +113,7 @@ export function useChatSession({
           setCurrentSessionId(selectedSession.id);
           
           if (!isSystemSessionChange) {
-            const messages = await loadSessionMessages(selectedProject.name, selectedSession.id, false);
+            const messages = await loadSessionMessages(getProjectId(selectedProject), selectedSession.id, false);
             setSessionMessages(messages);
           } else {
             setIsSystemSessionChange(false);
@@ -151,7 +152,7 @@ export function useChatSession({
             setSessionMessages([]);
             setChatMessages(converted);
           } else {
-            const messages = await loadSessionMessages(selectedProject.name, selectedSession.id, false);
+            const messages = await loadSessionMessages(getProjectId(selectedProject), selectedSession.id, false);
             setSessionMessages(messages);
 
             // Smart scroll behavior: only auto-scroll if user is near bottom

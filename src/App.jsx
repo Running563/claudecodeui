@@ -183,13 +183,20 @@ function AppContent() {
   useEffect(() => {
     if (messages.length > 0) {
       const latestMessageIndex = messages.length - 1;
+      const latestMessage = messages[latestMessageIndex];
+      
+      // Log all incoming messages for debugging
+      console.log('[App] WebSocket message:', latestMessage.type, {
+        index: latestMessageIndex,
+        lastProcessed: lastProcessedMessageIndexRef.current,
+        sessionId: latestMessage.sessionId
+      });
       
       // Skip if we've already processed this message
       if (latestMessageIndex <= lastProcessedMessageIndexRef.current) {
+        console.log('[App] Skipping already processed message');
         return;
       }
-      
-      const latestMessage = messages[latestMessageIndex];
       
       // Handle session title update from CodeBuddy
       if (latestMessage.type === 'session-title-update') {
@@ -277,10 +284,18 @@ function AppContent() {
         // Mark as processed immediately to prevent re-processing
         lastProcessedMessageIndexRef.current = latestMessageIndex;
         
+        console.log('[App] projects_updated received:', {
+          pendingSessionId: sessionStorage.getItem('pendingSessionId'),
+          selectedSession: selectedSession?.id,
+          activeSessions: Array.from(activeSessions),
+          projectsCount: latestMessage.projects?.length
+        });
+        
         // CRITICAL: Check for pending session (synchronous check via sessionStorage)
         // This catches the race condition where session-created has fired but React state hasn't updated yet
         const pendingSessionId = sessionStorage.getItem('pendingSessionId');
         if (pendingSessionId) {
+          console.log('[App] Skipping update: pendingSessionId exists:', pendingSessionId);
           return;
         }
 
@@ -297,6 +312,7 @@ function AppContent() {
             if (recentCompletion && recentCompletion.provider === latestMessage.provider) {
               const timeSinceCompletion = Date.now() - recentCompletion.timestamp;
               if (timeSinceCompletion < 3000) { // 3 seconds window
+                console.log('[App] Skipping update: recently completed session:', changedSessionId);
                 return;
               } else {
                 // Clean up old entry
@@ -343,11 +359,22 @@ function AppContent() {
         const hasActiveRealSession = activeSessions.size > 0 && 
                                      Array.from(activeSessions).some(id => !id.startsWith('new-session-'));
         
+        console.log('[App] Session protection check:', {
+          hasActiveSession,
+          hasActiveRealSession,
+          selectedSession: selectedSession?.id
+        });
+        
         if (hasActiveSession || hasActiveRealSession) {
-          // For new sessions (no selectedSession yet), block all updates to prevent interface refresh
-          // This is especially important for CodeBuddy/Cursor which create session files early
+          // For new sessions (no selectedSession yet), we still want to update the sidebar
+          // to show the new session, but we should NOT change selectedProject/selectedSession
+          // which would cause interface refresh
           if (!selectedSession && (hasActiveSession || hasActiveRealSession)) {
-             return;
+            // Update projects list for sidebar display, but skip selectedProject/selectedSession updates
+            console.log('[App] Updating projects for new session (sidebar only)');
+            const updatedProjects = latestMessage.projects;
+            setProjects(updatedProjects);
+            return;
           }
           
           // Allow updates but be selective: permit additions, prevent changes to existing items
@@ -357,14 +384,18 @@ function AppContent() {
           // Check if this is purely additive (new sessions/projects) vs modification of existing ones
           const isAdditiveUpdate = isUpdateAdditive(currentProjects, updatedProjects, selectedProject, selectedSession);
           
+          console.log('[App] isAdditiveUpdate:', isAdditiveUpdate);
+          
           if (!isAdditiveUpdate) {
             // Skip updates that would modify existing selected session/project
+            console.log('[App] Skipping non-additive update');
             return;
           }
           // Continue with additive updates below
         }
         
         // Update projects state with the new data from WebSocket
+        console.log('[App] Updating projects state');
         const updatedProjects = latestMessage.projects;
         setProjects(updatedProjects);
 
@@ -423,6 +454,7 @@ function AppContent() {
       setProjects(prevProjects => {
         // If no previous projects, just set the new data
         if (prevProjects.length === 0) {
+          console.log('[App] fetchProjects: No previous projects, setting new data');
           return data;
         }
         
@@ -432,15 +464,23 @@ function AppContent() {
           if (!prevProject) return true;
           
           // Compare key properties that would affect UI
+          const sessionsChanged = JSON.stringify(newProject.sessions) !== JSON.stringify(prevProject.sessions);
+          if (sessionsChanged) {
+            console.log('[App] Sessions changed for project:', newProject.name, 
+              'prev:', prevProject.sessions?.length, 'new:', newProject.sessions?.length);
+          }
+          
           return (
             newProject.name !== prevProject.name ||
             newProject.displayName !== prevProject.displayName ||
             newProject.fullPath !== prevProject.fullPath ||
             JSON.stringify(newProject.sessionMeta) !== JSON.stringify(prevProject.sessionMeta) ||
-            JSON.stringify(newProject.sessions) !== JSON.stringify(prevProject.sessions) ||
+            sessionsChanged ||
             JSON.stringify(newProject.cursorSessions) !== JSON.stringify(prevProject.cursorSessions)
           );
         }) || data.length !== prevProjects.length;
+        
+        console.log('[App] fetchProjects: hasChanges =', hasChanges, 'projects:', data.length);
         
         // Only update if there are actual changes
         return hasChanges ? data : prevProjects;
@@ -584,6 +624,13 @@ function AppContent() {
   const handleSidebarRefresh = async () => {
     // Refresh only the sessions for all projects, don't change selected state
     try {
+      // First sync with Claude/CodeBuddy directories
+      try {
+        await api.db.sync();
+      } catch (syncError) {
+        console.warn('Sync failed (non-critical):', syncError);
+      }
+      
       const response = await api.projects();
       const freshProjects = await response.json();
       
@@ -712,6 +759,7 @@ function AppContent() {
   // This maintains protection continuity during the transition from temporary to real session
   const replaceTemporarySession = useCallback((realSessionId) => {
     if (realSessionId) {
+      console.log('[App] replaceTemporarySession called with:', realSessionId);
       setActiveSessions(prev => {
         const newSet = new Set();
         // Keep all non-temporary sessions and add the real session ID
@@ -723,8 +771,12 @@ function AppContent() {
         newSet.add(realSessionId);
         return newSet;
       });
+      
+      // Refresh project list - session is now saved in database
+      console.log('[App] Refreshing projects after session-created');
+      fetchProjects();
     }
-  }, []);
+  }, [fetchProjects]);
 
   // Quick Terminals Functions
   const handleCreateTerminal = useCallback(() => {
