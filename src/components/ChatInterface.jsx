@@ -17,53 +17,28 @@
  */
 
 import React, { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
-import { useDropzone } from 'react-dropzone';
+// Note: useDropzone is now used internally by useImageUpload hook
 
 // Import utilities from refactored modules
 import {
-  stripAnsi,
-  decodeHtmlEntities,
-  normalizeInlineCodeFences,
-  unescapeWithMathProtection,
-  formatUsageLimitText,
   safeLocalStorage,
-  extractBase64FromContent,
-  hasImageContent,
   createMemoizedDiff,
-  convertSessionMessages,
-  loadCursorSessionMessages,
 } from './ChatInterface/utils';
 
-// Import syntax highlighter configuration
-import { SyntaxHighlighter, vscDarkPlus } from './ChatInterface/config/syntaxHighlighter';
+// Import custom hooks
+import { useTokenBudget, useProviderState, useImageUpload, useFileDropdown, useSessionMessages, useSlashCommands, useScrollManagement, useWebSocketMessages } from './ChatInterface/hooks';
 
-// Import Markdown components
-import Markdown from './ChatInterface/components/Markdown';
-import { markdownComponents } from './ChatInterface/components/MarkdownComponents';
-import UserMessageContent from './ChatInterface/components/UserMessageContent';
-import InlineImagePreview from './ChatInterface/components/InlineImagePreview';
+// Import components
 import ImageAttachment from './ChatInterface/components/ImageAttachment';
 import ImagePreviewModal from './ChatInterface/components/ImagePreviewModal';
 import ToolResultModal from './ChatInterface/components/ToolResultModal';
-import MessageComponent from './ChatInterface/components/MessageComponent';
-import ProviderSelector from './ChatInterface/components/ProviderSelector';
 import MessageList from './ChatInterface/components/MessageList';
-
-import TodoList from './TodoList';
-import ClaudeLogo from './ClaudeLogo.jsx';
-import CursorLogo from './CursorLogo.jsx';
-import CodeBuddyLogo from './CodeBuddyLogo.jsx';
 
 import ClaudeStatus from './ClaudeStatus';
 import TokenUsagePie from './TokenUsagePie';
 import { MicButton } from './MicButton.jsx';
-import { api, authenticatedFetch } from '../utils/api';
-import Fuse from 'fuse.js';
+import { authenticatedFetch } from '../utils/api';
 import CommandMenu from './CommandMenu';
-
-
-// MessageComponent is now imported from './ChatInterface/components/MessageComponent'
-// This reduces the main file size significantly (~1370 lines moved)
 
 // ChatInterface: Main chat component with Session Protection System integration
 // 
@@ -90,226 +65,176 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
   const [isLoading, setIsLoading] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState(selectedSession?.id || null);
   const [isInputFocused, setIsInputFocused] = useState(false);
-  const [sessionMessages, setSessionMessages] = useState([]);
   
   // Edit message states
   const [editingMessageIndex, setEditingMessageIndex] = useState(null);
   const [originalInput, setOriginalInput] = useState('');
-  const [isLoadingSessionMessages, setIsLoadingSessionMessages] = useState(false);
-  const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
-  const isLoadingMoreMessagesRef = useRef(false); // Ref to immediately block duplicate scroll triggers
-  const pendingScrollRestoreRef = useRef(null); // Pending scroll position to restore after loading more messages
-  const [messagesOffset, setMessagesOffset] = useState(0);
-  const [hasMoreMessages, setHasMoreMessages] = useState(false);
-  const [totalMessages, setTotalMessages] = useState(0);
-  const MESSAGES_PER_PAGE = 20;
   const [isSystemSessionChange, setIsSystemSessionChange] = useState(false);
-  const [permissionMode, setPermissionMode] = useState('default');
-  const [attachedImages, setAttachedImages] = useState([]);
-  const [uploadingImages, setUploadingImages] = useState(new Map());
-  const [imageErrors, setImageErrors] = useState(new Map());
+  
+  // Session messages management via custom hook
+  const {
+    sessionMessages,
+    setSessionMessages,
+    isLoadingSessionMessages,
+    isLoadingMoreMessages,
+    setIsLoadingMoreMessages,
+    messagesOffset,
+    setMessagesOffset,
+    hasMoreMessages,
+    setHasMoreMessages,
+    totalMessages,
+    setTotalMessages,
+    loadSessionMessages,
+    loadCursorSessionMessagesWithState,
+    convertedMessages,
+    resetPagination,
+    MESSAGES_PER_PAGE
+  } = useSessionMessages();
+  
+  // Provider and model state management via custom hook
+  const {
+    provider,
+    setProvider,
+    cursorModel,
+    setCursorModel,
+    codebuddyModel,
+    setCodebuddyModel,
+    permissionMode,
+    setPermissionMode,
+    cyclePermissionMode
+  } = useProviderState({ selectedSession });
+  // Image upload management via custom hook
+  const {
+    attachedImages,
+    setAttachedImages,
+    uploadingImages,
+    setUploadingImages,
+    imageErrors,
+    setImageErrors,
+    handleImageFiles,
+    handlePaste: handleImagePaste,
+    removeImage,
+    clearImages,
+    getRootProps,
+    getInputProps,
+    isDragActive,
+    openFilePicker
+  } = useImageUpload({ maxFiles: 5, maxSize: 5 * 1024 * 1024 });
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const inputContainerRef = useRef(null);
   const scrollContainerRef = useRef(null);
   const isLoadingSessionRef = useRef(false); // Track session loading to prevent multiple scrolls
-  // Streaming throttle buffers
-  const streamBufferRef = useRef('');
-  const streamTimerRef = useRef(null);
-  const commandQueryTimerRef = useRef(null);
-  // Pending tool results queue (for handling race conditions)
-  const pendingToolResultsRef = useRef(new Map());
+  // Note: Streaming buffers and pending tool results are now managed by useWebSocketMessages hook
+  // Note: commandQueryTimerRef is now provided by useSlashCommands hook
   const [debouncedInput, setDebouncedInput] = useState('');
-  const [showFileDropdown, setShowFileDropdown] = useState(false);
-  const [fileList, setFileList] = useState([]);
-  const [filteredFiles, setFilteredFiles] = useState([]);
-  const [selectedFileIndex, setSelectedFileIndex] = useState(-1);
   const [cursorPosition, setCursorPosition] = useState(0);
-  const [atSymbolPosition, setAtSymbolPosition] = useState(-1);
+  // File dropdown management via custom hook
+  const {
+    showFileDropdown,
+    setShowFileDropdown,
+    fileList,
+    filteredFiles,
+    selectedFileIndex,
+    setSelectedFileIndex,
+    atSymbolPosition,
+    selectFile,
+    closeDropdown: closeFileDropdown
+  } = useFileDropdown({
+    selectedProject,
+    input,
+    cursorPosition,
+    setInput,
+    setCursorPosition,
+    textareaRef
+  });
   const [imagePreview, setImagePreview] = useState(null); // { url: string, filename: string }
   const [toolResultModal, setToolResultModal] = useState(null); // { message: object, toolName: string }
   const [canAbortSession, setCanAbortSession] = useState(false);
-  const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
-  const scrollPositionRef = useRef({ height: 0, top: 0 });
-  const [showCommandMenu, setShowCommandMenu] = useState(false);
-  const [slashCommands, setSlashCommands] = useState([]);
-  const [filteredCommands, setFilteredCommands] = useState([]);
-  const [commandQuery, setCommandQuery] = useState('');
   const [isTextareaExpanded, setIsTextareaExpanded] = useState(false);
-  const [tokenBudget, setTokenBudget] = useState(null);
-  const [selectedCommandIndex, setSelectedCommandIndex] = useState(-1);
-  const [slashPosition, setSlashPosition] = useState(-1);
+  // Token budget management via custom hook
+  const { tokenBudget, setTokenBudget, fetchUpdatedTokenUsage, resetTokenBudget } = useTokenBudget({
+    selectedProject,
+    selectedSession
+  });
+  // Slash commands management via custom hook
+  const {
+    slashCommands,
+    filteredCommands,
+    setFilteredCommands,
+    commandQuery,
+    setCommandQuery,
+    selectedCommandIndex,
+    setSelectedCommandIndex,
+    showCommandMenu,
+    setShowCommandMenu,
+    slashPosition,
+    setSlashPosition,
+    frequentCommands,
+    updateCommandHistory,
+    detectSlashCommand,
+    closeCommandMenu,
+    toggleCommandMenu,
+    resetCommandMenu,
+    commandQueryTimerRef
+  } = useSlashCommands({ selectedProject });
   const [visibleMessageCount, setVisibleMessageCount] = useState(100);
   const [claudeStatus, setClaudeStatus] = useState(null);
-  const [provider, setProvider] = useState(() => {
-    return localStorage.getItem('selected-provider') || 'claude';
+  // Note: Provider/model state and permission mode are now managed by useProviderState hook
+
+  // Scroll management via custom hook
+  // Note: Must be called after scrollContainerRef, hasMoreMessages, selectedSession, selectedProject, loadSessionMessages are defined
+  const {
+    isUserScrolledUp,
+    setIsUserScrolledUp,
+    scrollToBottom,
+    isNearBottom,
+    handleScroll,
+    handleTouchStart,
+    handleTouchMove,
+    handleWheel,
+    captureScrollPosition,
+    handleAutoScroll,
+    isLoadingMoreMessagesRef,
+    pendingScrollRestoreRef
+  } = useScrollManagement({
+    scrollContainerRef,
+    autoScrollToBottom,
+    chatMessages,
+    hasMoreMessages,
+    selectedSession,
+    selectedProject,
+    loadSessionMessages,
+    setSessionMessages
   });
-  const [cursorModel, setCursorModel] = useState(() => {
-    return localStorage.getItem('cursor-model') || 'gpt-5';
+
+  // WebSocket message handling via custom hook
+  const {
+    streamBufferRef,
+    streamTimerRef,
+    pendingToolResultsRef
+  } = useWebSocketMessages({
+    messages,
+    currentSessionId,
+    selectedSession,
+    selectedProject,
+    provider,
+    setChatMessages,
+    setIsLoading,
+    setCanAbortSession,
+    setClaudeStatus,
+    setCurrentSessionId,
+    setIsSystemSessionChange,
+    setSessionMessages,
+    fetchUpdatedTokenUsage,
+    onSessionActive,
+    onSessionInactive,
+    onSessionProcessing,
+    onSessionNotProcessing,
+    onSessionCompleted,
+    onReplaceTemporarySession,
+    onNavigateToSession
   });
-  const [codebuddyModel, setCodebuddyModel] = useState(() => {
-    return localStorage.getItem('codebuddy-model') || 'default';
-  });
-  // Load permission mode for the current session
-  useEffect(() => {
-    if (selectedSession?.id) {
-      const savedMode = localStorage.getItem(`permissionMode-${selectedSession.id}`);
-      if (savedMode) {
-        setPermissionMode(savedMode);
-      } else {
-        setPermissionMode('default');
-      }
-    }
-  }, [selectedSession?.id]);
-
-  // When selecting a session from Sidebar, auto-switch provider to match session's origin
-  useEffect(() => {
-    if (selectedSession && selectedSession.__provider && selectedSession.__provider !== provider) {
-      setProvider(selectedSession.__provider);
-      localStorage.setItem('selected-provider', selectedSession.__provider);
-    }
-  }, [selectedSession]);
-  
-  // Load Cursor default model from config
-  useEffect(() => {
-    if (provider === 'cursor') {
-      authenticatedFetch('/api/cursor/config')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && data.config?.model?.modelId) {
-          // Map Cursor model IDs to our simplified names
-          const modelMap = {
-            'gpt-5': 'gpt-5',
-            'claude-4-sonnet': 'sonnet-4',
-            'sonnet-4': 'sonnet-4',
-            'claude-4-opus': 'opus-4.1',
-            'opus-4.1': 'opus-4.1'
-          };
-          const mappedModel = modelMap[data.config.model.modelId] || data.config.model.modelId;
-          if (!localStorage.getItem('cursor-model')) {
-            setCursorModel(mappedModel);
-          }
-        }
-      })
-      .catch(err => console.error('Error loading Cursor config:', err));
-    }
-  }, [provider]);
-
-  // Fetch slash commands on mount and when project changes
-  useEffect(() => {
-    const fetchCommands = async () => {
-      if (!selectedProject) return;
-
-      try {
-        const response = await authenticatedFetch('/api/commands/list', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            projectPath: selectedProject.path
-          })
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch commands');
-        }
-
-        const data = await response.json();
-
-        // Combine built-in and custom commands
-        const allCommands = [
-          ...(data.builtIn || []).map(cmd => ({ ...cmd, type: 'built-in' })),
-          ...(data.custom || []).map(cmd => ({ ...cmd, type: 'custom' }))
-        ];
-
-        setSlashCommands(allCommands);
-
-        // Load command history from localStorage
-        const historyKey = `command_history_${selectedProject.name}`;
-        const history = safeLocalStorage.getItem(historyKey);
-        if (history) {
-          try {
-            const parsedHistory = JSON.parse(history);
-            // Sort commands by usage frequency
-            const sortedCommands = allCommands.sort((a, b) => {
-              const aCount = parsedHistory[a.name] || 0;
-              const bCount = parsedHistory[b.name] || 0;
-              return bCount - aCount;
-            });
-            setSlashCommands(sortedCommands);
-          } catch (e) {
-            console.error('Error parsing command history:', e);
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching slash commands:', error);
-        setSlashCommands([]);
-      }
-    };
-
-    fetchCommands();
-  }, [selectedProject]);
-
-  // Create Fuse instance for fuzzy search
-  const fuse = useMemo(() => {
-    if (!slashCommands.length) return null;
-
-    return new Fuse(slashCommands, {
-      keys: [
-        { name: 'name', weight: 2 },
-        { name: 'description', weight: 1 }
-      ],
-      threshold: 0.4,
-      includeScore: true,
-      minMatchCharLength: 1
-    });
-  }, [slashCommands]);
-
-  // Filter commands based on query
-  useEffect(() => {
-    if (!commandQuery) {
-      setFilteredCommands(slashCommands);
-      return;
-    }
-
-    if (!fuse) {
-      setFilteredCommands([]);
-      return;
-    }
-
-    const results = fuse.search(commandQuery);
-    setFilteredCommands(results.map(result => result.item));
-  }, [commandQuery, slashCommands, fuse]);
-
-  // Calculate frequently used commands
-  const frequentCommands = useMemo(() => {
-    if (!selectedProject || slashCommands.length === 0) return [];
-
-    const historyKey = `command_history_${selectedProject.name}`;
-    const history = safeLocalStorage.getItem(historyKey);
-
-    if (!history) return [];
-
-    try {
-      const parsedHistory = JSON.parse(history);
-
-      // Sort commands by usage count
-      const commandsWithUsage = slashCommands
-        .map(cmd => ({
-          ...cmd,
-          usageCount: parsedHistory[cmd.name] || 0
-        }))
-        .filter(cmd => cmd.usageCount > 0)
-        .sort((a, b) => b.usageCount - a.usageCount)
-        .slice(0, 5); // Top 5 most used
-
-      return commandsWithUsage;
-    } catch (e) {
-      console.error('Error parsing command history:', e);
-      return [];
-    }
-  }, [selectedProject, slashCommands]);
 
   // Command selection callback with history tracking
   const handleCommandSelect = useCallback((command, index, isHover) => {
@@ -322,22 +247,11 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     }
 
     // Update command history
-    const historyKey = `command_history_${selectedProject.name}`;
-    const history = safeLocalStorage.getItem(historyKey);
-    let parsedHistory = {};
-
-    try {
-      parsedHistory = history ? JSON.parse(history) : {};
-    } catch (e) {
-      console.error('Error parsing command history:', e);
-    }
-
-    parsedHistory[command.name] = (parsedHistory[command.name] || 0) + 1;
-    safeLocalStorage.setItem(historyKey, JSON.stringify(parsedHistory));
+    updateCommandHistory(command);
 
     // Execute the command
     executeCommand(command);
-  }, [selectedProject]);
+  }, [selectedProject, updateCommandHistory]);
 
   // Execute a command
   const handleBuiltInCommand = useCallback((result) => {
@@ -515,10 +429,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
 
       // Clear the input after successful execution
       setInput('');
-      setShowCommandMenu(false);
-      setSlashPosition(-1);
-      setCommandQuery('');
-      setSelectedCommandIndex(-1);
+      resetCommandMenu();
 
     } catch (error) {
       console.error('Error executing command:', error);
@@ -529,7 +440,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
         timestamp: Date.now()
       }]);
     }
-  }, [input, selectedProject, currentSessionId, provider, cursorModel, tokenBudget]);
+  }, [input, selectedProject, currentSessionId, provider, cursorModel, tokenBudget, resetCommandMenu]);
 
   // Handle built-in command actions
 
@@ -537,181 +448,14 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
   // Memoized diff calculation to prevent recalculating on every render
   const createDiff = useMemo(() => createMemoizedDiff(100), []);
 
-  // Load session messages from API with pagination
-  const loadSessionMessages = useCallback(async (projectName, sessionId, loadMore = false) => {
-    if (!projectName || !sessionId) return [];
-    
-    const isInitialLoad = !loadMore;
-    if (isInitialLoad) {
-      setIsLoadingSessionMessages(true);
-    } else {
-      // Only set state, ref is managed by handleScroll caller
-      setIsLoadingMoreMessages(true);
-    }
-    
-    try {
-      const currentOffset = loadMore ? messagesOffset : 0;
-      const response = await api.sessionMessages(projectName, sessionId, MESSAGES_PER_PAGE, currentOffset);
-      if (!response.ok) {
-        throw new Error('Failed to load session messages');
-      }
-      const data = await response.json();
-      // console.log('📩 loadSessionMessages response:', { messageCount: data.messages?.length, hasMore: data.hasMore, total: data.total });
-      
-      // Handle paginated response
-      if (data.hasMore !== undefined) {
-        setHasMoreMessages(data.hasMore);
-        setTotalMessages(data.total);
-        setMessagesOffset(currentOffset + (data.messages?.length || 0));
-        return data.messages || [];
-      } else {
-        // Backward compatibility for non-paginated response
-        const messages = data.messages || [];
-        setHasMoreMessages(false);
-        setTotalMessages(messages.length);
-        return messages;
-      }
-    } catch (error) {
-      console.error('Error loading session messages:', error);
-      return [];
-    } finally {
-      if (isInitialLoad) {
-        setIsLoadingSessionMessages(false);
-      } else {
-        // Reset both ref and state
-        isLoadingMoreMessagesRef.current = false;
-        setIsLoadingMoreMessages(false);
-      }
-    }
-  }, [messagesOffset]);
-
-  // Wrapper for loadCursorSessionMessages that manages loading state
-  const loadCursorSessionMessagesWithState = useCallback(async (projectPath, sessionId) => {
-    if (!projectPath || !sessionId) return [];
-    setIsLoadingSessionMessages(true);
-    try {
-      return await loadCursorSessionMessages(projectPath, sessionId);
-    } finally {
-      setIsLoadingSessionMessages(false);
-    }
-  }, []);
-
-  // Memoize expensive convertSessionMessages operation
-  const convertedMessages = useMemo(() => {
-    return convertSessionMessages(sessionMessages);
-  }, [sessionMessages]);
+  // Note: loadSessionMessages, loadCursorSessionMessagesWithState, and convertedMessages
+  // are now provided by useSessionMessages hook
 
   // Note: Token budgets are not saved to JSONL files, only sent via WebSocket
   // So we don't try to extract them from loaded sessionMessages
 
-  // Define scroll functions early to avoid hoisting issues in useEffect dependencies
-  const scrollToBottom = useCallback(() => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
-      // Don't reset isUserScrolledUp here - let the scroll handler manage it
-      // This prevents fighting with user's scroll position during streaming
-    }
-  }, []);
-
-  // Check if user is near the bottom of the scroll container
-  const isNearBottom = useCallback(() => {
-    if (!scrollContainerRef.current) return false;
-    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-    // Consider "near bottom" if within 50px of the bottom
-    return scrollHeight - scrollTop - clientHeight < 50;
-  }, []);
-
-  // Throttle ref to prevent rapid scroll loading (minimum 2 seconds between loads)
-  const lastScrollLoadTimeRef = useRef(0);
-  // Track pull-down gesture for loading more messages
-  const touchStartYRef = useRef(0);
-  const pullDownTriggeredRef = useRef(false);
-
-  // Load more messages when pull-down is triggered
-  const loadMoreMessagesOnPullDown = useCallback(async () => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-    
-    const provider = localStorage.getItem('selected-provider') || 'claude';
-    
-    // Throttle: minimum 2 seconds between load requests
-    const now = Date.now();
-    if (now - lastScrollLoadTimeRef.current < 2000) {
-      return;
-    }
-    
-    // Use ref for immediate check to prevent duplicate triggers (state is async)
-    if (hasMoreMessages && !isLoadingMoreMessagesRef.current && selectedSession && selectedProject && provider !== 'cursor') {
-      // IMMEDIATELY set ref and timestamp to block any concurrent scroll events
-      isLoadingMoreMessagesRef.current = true;
-      lastScrollLoadTimeRef.current = now;
-      
-      // Save distance from bottom (this stays constant after prepending content)
-      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-      
-      try {
-        // Load more messages
-        const moreMessages = await loadSessionMessages(selectedProject.name, selectedSession.id, true);
-        
-        if (moreMessages.length > 0) {
-          // Save scroll restore info to ref - will be used by useEffect after chatMessages updates
-          pendingScrollRestoreRef.current = {
-            distanceFromBottom
-          };
-          
-          // Prepend new messages to the existing ones
-          setSessionMessages(prev => [...moreMessages, ...prev]);
-        }
-      } catch (error) {
-        console.error('Error loading more messages:', error);
-        // Reset ref on error so user can retry
-        isLoadingMoreMessagesRef.current = false;
-      }
-    }
-  }, [hasMoreMessages, selectedSession, selectedProject, loadSessionMessages]);
-
-  // Handle scroll events to detect when user manually scrolls up and load more messages
-  const handleScroll = useCallback(() => {
-    if (scrollContainerRef.current) {
-      const nearBottom = isNearBottom();
-      setIsUserScrolledUp(!nearBottom);
-    }
-  }, [isNearBottom]);
-
-  // Handle touch start - record initial Y position
-  const handleTouchStart = useCallback((e) => {
-    touchStartYRef.current = e.touches[0].clientY;
-    pullDownTriggeredRef.current = false;
-  }, []);
-
-  // Handle touch move - detect pull-down gesture at top
-  const handleTouchMove = useCallback((e) => {
-    if (!scrollContainerRef.current || pullDownTriggeredRef.current) return;
-    
-    const container = scrollContainerRef.current;
-    const atTop = container.scrollTop === 0;
-    const touchY = e.touches[0].clientY;
-    const pullDistance = touchY - touchStartYRef.current;
-    
-    // Trigger load when: at top + pulling down more than 50px
-    if (atTop && pullDistance > 50) {
-      pullDownTriggeredRef.current = true;
-      loadMoreMessagesOnPullDown();
-    }
-  }, [loadMoreMessagesOnPullDown]);
-
-  // Handle wheel event for desktop - detect scroll up at top
-  const handleWheel = useCallback((e) => {
-    if (!scrollContainerRef.current) return;
-    
-    const container = scrollContainerRef.current;
-    const atTop = container.scrollTop === 0;
-    
-    // Trigger load when: at top + scrolling up (negative deltaY)
-    if (atTop && e.deltaY < -30) {
-      loadMoreMessagesOnPullDown();
-    }
-  }, [loadMoreMessagesOnPullDown]);
+  // Note: scrollToBottom, isNearBottom, handleScroll, handleTouchStart, handleTouchMove, handleWheel
+  // and related refs are now provided by useScrollManagement hook
 
   useEffect(() => {
     // Load session messages when session changes
@@ -727,12 +471,10 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
 
         if (sessionChanged) {
           // Reset pagination state when switching sessions
-          setMessagesOffset(0);
-          setHasMoreMessages(false);
-          setTotalMessages(0);
+          resetPagination();
           // Reset token budget when switching sessions
           // It will update when user sends a message and receives new budget from WebSocket
-          setTokenBudget(null);
+          resetTokenBudget();
           // Reset loading state when switching sessions (unless the new session is processing)
           // The restore effect will set it back to true if needed
           setIsLoading(false);
@@ -747,9 +489,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           }
         } else if (currentSessionId === null) {
           // Initial load - reset pagination but not token budget
-          setMessagesOffset(0);
-          setHasMoreMessages(false);
-          setTotalMessages(0);
+          resetPagination();
 
           // Check if the session is currently processing on the backend
           if (ws && sendMessage) {
@@ -803,9 +543,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
         }
         setCurrentSessionId(null);
         sessionStorage.removeItem('cursorSessionId');
-        setMessagesOffset(0);
-        setHasMoreMessages(false);
-        setTotalMessages(0);
+        resetPagination();
       }
 
       // Mark loading as complete after messages are set
@@ -816,7 +554,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     };
 
     loadMessages();
-  }, [selectedSession, selectedProject, loadCursorSessionMessagesWithState, scrollToBottom, isSystemSessionChange]);
+  }, [selectedSession, selectedProject, loadCursorSessionMessagesWithState, scrollToBottom, isSystemSessionChange, resetPagination, loadSessionMessages]);
 
   // External Message Update Handler: Reload messages when external CLI modifies current session
   // This triggers when App.jsx detects a JSONL file change for the currently-viewed session
@@ -935,1068 +673,10 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     }
   }, [currentSessionId, processingSessions]);
 
-  useEffect(() => {
-    // Handle WebSocket messages
-    if (messages.length > 0) {
-      const latestMessage = messages[messages.length - 1];
-
-      // Filter messages by session ID to prevent cross-session interference
-      // Skip filtering for global messages that apply to all sessions
-      const globalMessageTypes = ['projects_updated', 'session-created', 'claude-complete'];
-      const isGlobalMessage = globalMessageTypes.includes(latestMessage.type);
-
-      // For new sessions (currentSessionId is null), allow messages through
-      if (!isGlobalMessage && latestMessage.sessionId && currentSessionId && latestMessage.sessionId !== currentSessionId) {
-        // Message is for a different session, ignore it
-        console.log('⏭️ Skipping message for different session:', latestMessage.sessionId, 'current:', currentSessionId);
-        return;
-      }
-
-      switch (latestMessage.type) {
-        case 'session-created':
-          // New session created by Claude CLI - we receive the real session ID here
-          // Store it temporarily until conversation completes (prevents premature session association)
-          if (latestMessage.sessionId && !currentSessionId) {
-            sessionStorage.setItem('pendingSessionId', latestMessage.sessionId);
-            
-            // Session Protection: Replace temporary "new-session-*" identifier with real session ID
-            // This maintains protection continuity - no gap between temp ID and real ID
-            // The temporary session is removed and real session is marked as active
-            if (onReplaceTemporarySession) {
-              onReplaceTemporarySession(latestMessage.sessionId);
-            }
-          }
-          break;
-
-        case 'session-resume-failed':
-          // Issue 3 fix: Handle session resume failure notification from backend
-          console.warn('⚠️ Session resume failed:', {
-            requested: latestMessage.requestedSessionId,
-            created: latestMessage.newSessionId,
-            message: latestMessage.message
-          });
-          
-          // Show a warning message to the user
-          setChatMessages(prev => [...prev, {
-            type: 'system',
-            content: `注意: 无法恢复之前的会话，已创建新会话。${latestMessage.message || ''}`,
-            isWarning: true,
-            timestamp: new Date()
-          }]);
-          
-          // Update the pending session ID to the new one
-          if (latestMessage.newSessionId) {
-            sessionStorage.setItem('pendingSessionId', latestMessage.newSessionId);
-            if (onReplaceTemporarySession) {
-              onReplaceTemporarySession(latestMessage.newSessionId);
-            }
-          }
-          break;
-
-        case 'token-budget':
-          // Token budget now fetched via API after message completion instead of WebSocket
-          // This case is kept for compatibility but does nothing
-          break;
-
-        case 'claude-response':
-          const messageData = latestMessage.data.message || latestMessage.data;
-          
-          // Debug log for CodeBuddy messages
-          console.log('📨 claude-response received:', messageData?.type, messageData);
-          
-          // Handle Cursor streaming format (content_block_start / content_block_delta / content_block_stop)
-          if (messageData && typeof messageData === 'object' && messageData.type) {
-            // Handle content_block_start for tool_use (from CodeBuddy)
-            if (messageData.type === 'content_block_start' && messageData.content_block) {
-              const contentBlock = messageData.content_block;
-              if (contentBlock.type === 'tool_use') {
-                const toolId = contentBlock.id;
-                // Check if we have a pending result for this tool
-                const pendingResult = pendingToolResultsRef.current.get(toolId);
-                
-                // Add tool use message (with pending result if available)
-                const toolInput = contentBlock.input ? JSON.stringify(contentBlock.input, null, 2) : '';
-                setChatMessages(prev => [...prev, {
-                  type: 'assistant',
-                  content: '',
-                  timestamp: new Date(),
-                  isToolUse: true,
-                  toolName: contentBlock.name,
-                  toolInput: toolInput,
-                  toolId: toolId,
-                  toolResult: pendingResult || null
-                }]);
-                
-                // Remove from pending queue if we used it
-                if (pendingResult) {
-                  console.log('✅ Applied pending result for:', toolId);
-                  pendingToolResultsRef.current.delete(toolId);
-                }
-              }
-              return;
-            }
-            
-            // Handle tool_result (from CodeBuddy)
-            if (messageData.type === 'tool_result') {
-              // Keep content array if it contains images, otherwise convert to string
-              let resultContent = messageData.content;
-              
-              if (Array.isArray(resultContent) && !hasImageContent(resultContent)) {
-                // Extract text from content array (common format: [{type: 'text', text: '...'}])
-                resultContent = resultContent
-                  .map(item => item.text || (typeof item === 'string' ? item : JSON.stringify(item)))
-                  .join('\n');
-              } else if (typeof resultContent === 'object' && resultContent !== null && !hasImageContent(resultContent)) {
-                resultContent = JSON.stringify(resultContent, null, 2);
-              }
-              // If hasImageContent, keep resultContent as-is (the array with image objects)
-              
-              const toolUseId = messageData.tool_use_id;
-              // Issue 8 fix: Use consistent toolUseResult structure for tool results
-              const toolResultData = {
-                toolUseResult: {
-                  content: resultContent,
-                  isError: messageData.is_error
-                },
-                timestamp: new Date()
-              };
-              
-              console.log('📥 Received tool_result:', toolUseId, 'content:', String(resultContent).slice(0, 100));
-              
-              // Store in pending queue first
-              pendingToolResultsRef.current.set(toolUseId, toolResultData);
-              
-              // Try to apply the result immediately
-              setChatMessages(prev => {
-                const toolUseIndex = prev.findIndex(msg => msg.isToolUse && msg.toolId === toolUseId);
-                if (toolUseIndex !== -1) {
-                  console.log('✅ Matched tool_use:', prev[toolUseIndex].toolName, toolUseId);
-                  // Remove from pending queue since we found a match
-                  pendingToolResultsRef.current.delete(toolUseId);
-                  const updated = [...prev];
-                  updated[toolUseIndex] = {
-                    ...updated[toolUseIndex],
-                    toolResult: toolResultData
-                  };
-                  return updated;
-                }
-                // If not found, keep in pending queue and return unchanged
-                console.log('⏳ Tool use not found yet, queued:', toolUseId);
-                return prev;
-              });
-              return;
-            }
-            
-            if (messageData.type === 'content_block_delta' && messageData.delta?.text) {
-              // Decode HTML entities and buffer deltas
-              const decodedText = decodeHtmlEntities(messageData.delta.text);
-              streamBufferRef.current += decodedText;
-              if (!streamTimerRef.current) {
-                streamTimerRef.current = setTimeout(() => {
-                  const chunk = streamBufferRef.current;
-                  streamBufferRef.current = '';
-                  streamTimerRef.current = null;
-                  if (!chunk) return;
-                  setChatMessages(prev => {
-                    const updated = [...prev];
-                    const last = updated[updated.length - 1];
-                    if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
-                      last.content = (last.content || '') + chunk;
-                    } else {
-                      updated.push({ type: 'assistant', content: chunk, timestamp: new Date(), isStreaming: true });
-                    }
-                    return updated;
-                  });
-                }, 100);
-              }
-              return;
-            }
-            if (messageData.type === 'content_block_stop') {
-              // Flush any buffered text and mark streaming message complete
-              // NOTE: Don't clear loading state here - CodeBuddy sends multiple content_block_stop
-              // (one per tool call). Loading state is cleared in codebuddy-result/codebuddy-complete.
-              if (streamTimerRef.current) {
-                clearTimeout(streamTimerRef.current);
-                streamTimerRef.current = null;
-              }
-              const chunk = streamBufferRef.current;
-              streamBufferRef.current = '';
-              if (chunk) {
-                setChatMessages(prev => {
-                  const updated = [...prev];
-                  const last = updated[updated.length - 1];
-                  if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
-                    last.content = (last.content || '') + chunk;
-                  } else {
-                    updated.push({ type: 'assistant', content: chunk, timestamp: new Date(), isStreaming: true });
-                  }
-                  return updated;
-                });
-              }
-              setChatMessages(prev => {
-                const updated = [...prev];
-                const last = updated[updated.length - 1];
-                if (last && last.type === 'assistant' && last.isStreaming) {
-                  last.isStreaming = false;
-                }
-                return updated;
-              });
-              return;
-            }
-            if (messageData.type === 'message_stop') {
-              // message_stop indicates the entire message is complete
-              // Flush any buffered text
-              if (streamTimerRef.current) {
-                clearTimeout(streamTimerRef.current);
-                streamTimerRef.current = null;
-              }
-              const chunk = streamBufferRef.current;
-              streamBufferRef.current = '';
-              if (chunk) {
-                setChatMessages(prev => {
-                  const updated = [...prev];
-                  const last = updated[updated.length - 1];
-                  if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
-                    last.content = (last.content || '') + chunk;
-                  } else {
-                    updated.push({ type: 'assistant', content: chunk, timestamp: new Date(), isStreaming: true });
-                  }
-                  return updated;
-                });
-              }
-              setChatMessages(prev => {
-                const updated = [...prev];
-                const last = updated[updated.length - 1];
-                if (last && last.type === 'assistant' && last.isStreaming) {
-                  last.isStreaming = false;
-                }
-                return updated;
-              });
-              
-              // Clear loading state only on message_stop (not content_block_stop)
-              setIsLoading(false);
-              setCanAbortSession(false);
-              
-              return;
-            }
-          }
-
-          // Handle Claude CLI session duplication bug workaround:
-          // When resuming a session, Claude CLI creates a new session instead of resuming.
-          // We detect this by checking for system/init messages with session_id that differs
-          // from our current session. When found, we need to switch the user to the new session.
-          // This works exactly like new session detection - preserve messages during navigation.
-          if (latestMessage.data.type === 'system' && 
-              latestMessage.data.subtype === 'init' && 
-              latestMessage.data.session_id && 
-              currentSessionId && 
-              latestMessage.data.session_id !== currentSessionId) {
-            
-            console.log('🔄 Claude CLI session duplication detected:', {
-              originalSession: currentSessionId,
-              newSession: latestMessage.data.session_id
-            });
-            
-            // Mark this as a system-initiated session change to preserve messages
-            // This works exactly like new session init - messages stay visible during navigation
-            setIsSystemSessionChange(true);
-            
-            // Switch to the new session using React Router navigation
-            // This triggers the session loading logic in App.jsx without a page reload
-            if (onNavigateToSession) {
-              onNavigateToSession(latestMessage.data.session_id);
-            }
-            return; // Don't process the message further, let the navigation handle it
-          }
-          
-          // Handle system/init for new sessions (when currentSessionId is null)
-          if (latestMessage.data.type === 'system' && 
-              latestMessage.data.subtype === 'init' && 
-              latestMessage.data.session_id && 
-              !currentSessionId) {
-            
-            console.log('🔄 New session init detected:', {
-              newSession: latestMessage.data.session_id
-            });
-            
-            // Mark this as a system-initiated session change to preserve messages
-            setIsSystemSessionChange(true);
-            
-            // Switch to the new session
-            if (onNavigateToSession) {
-              onNavigateToSession(latestMessage.data.session_id);
-            }
-            return; // Don't process the message further, let the navigation handle it
-          }
-          
-          // For system/init messages that match current session, just ignore them
-          if (latestMessage.data.type === 'system' && 
-              latestMessage.data.subtype === 'init' && 
-              latestMessage.data.session_id && 
-              currentSessionId && 
-              latestMessage.data.session_id === currentSessionId) {
-            console.log('🔄 System init message for current session, ignoring');
-            return; // Don't process the message further
-          }
-          
-          // Handle different types of content in the response
-          if (Array.isArray(messageData.content)) {
-            for (const part of messageData.content) {
-              if (part.type === 'tool_use') {
-                // Add tool use message
-                const toolInput = part.input ? JSON.stringify(part.input, null, 2) : '';
-                setChatMessages(prev => [...prev, {
-                  type: 'assistant',
-                  content: '',
-                  timestamp: new Date(),
-                  isToolUse: true,
-                  toolName: part.name,
-                  toolInput: toolInput,
-                  toolId: part.id,
-                  toolResult: null // Will be updated when result comes in
-                }]);
-              } else if (part.type === 'text' && part.text?.trim()) {
-                // Decode HTML entities and normalize usage limit message to local time
-                let content = decodeHtmlEntities(part.text);
-                content = formatUsageLimitText(content);
-
-                // Add regular text message
-                setChatMessages(prev => [...prev, {
-                  type: 'assistant',
-                  content: content,
-                  timestamp: new Date()
-                }]);
-              }
-            }
-          } else if (typeof messageData.content === 'string' && messageData.content.trim()) {
-            // Decode HTML entities and normalize usage limit message to local time
-            let content = decodeHtmlEntities(messageData.content);
-            content = formatUsageLimitText(content);
-
-            // Add regular text message
-            setChatMessages(prev => [...prev, {
-              type: 'assistant',
-              content: content,
-              timestamp: new Date()
-            }]);
-          }
-          
-          // Handle tool results from user messages (these come separately)
-          if (messageData.role === 'user' && Array.isArray(messageData.content)) {
-            for (const part of messageData.content) {
-              if (part.type === 'tool_result') {
-                // Find the corresponding tool use and update it with the result
-                setChatMessages(prev => prev.map(msg => {
-                  if (msg.isToolUse && msg.toolId === part.tool_use_id) {
-                    return {
-                      ...msg,
-                      toolResult: {
-                        content: part.content,
-                        isError: part.is_error,
-                        timestamp: new Date()
-                      }
-                    };
-                  }
-                  return msg;
-                }));
-              }
-            }
-          }
-          break;
-          
-        case 'claude-output':
-          {
-            const cleaned = String(latestMessage.data || '');
-            if (cleaned.trim()) {
-              streamBufferRef.current += (streamBufferRef.current ? `\n${cleaned}` : cleaned);
-              if (!streamTimerRef.current) {
-                streamTimerRef.current = setTimeout(() => {
-                  const chunk = streamBufferRef.current;
-                  streamBufferRef.current = '';
-                  streamTimerRef.current = null;
-                  if (!chunk) return;
-                  setChatMessages(prev => {
-                    const updated = [...prev];
-                    const last = updated[updated.length - 1];
-                    if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
-                      last.content = last.content ? `${last.content}\n${chunk}` : chunk;
-                    } else {
-                      updated.push({ type: 'assistant', content: chunk, timestamp: new Date(), isStreaming: true });
-                    }
-                    return updated;
-                  });
-                }, 100);
-              }
-            }
-          }
-          break;
-        case 'claude-interactive-prompt':
-          // Handle interactive prompts from CLI
-          setChatMessages(prev => [...prev, {
-            type: 'assistant',
-            content: latestMessage.data,
-            timestamp: new Date(),
-            isInteractivePrompt: true
-          }]);
-          break;
-
-        case 'claude-error':
-          setChatMessages(prev => [...prev, {
-            type: 'error',
-            content: `Error: ${latestMessage.error}`,
-            timestamp: new Date()
-          }]);
-          break;
-          
-        case 'cursor-system':
-          // Handle Cursor system/init messages similar to Claude
-          try {
-            const cdata = latestMessage.data;
-            if (cdata && cdata.type === 'system' && cdata.subtype === 'init' && cdata.session_id) {
-              // If we already have a session and this differs, switch (duplication/redirect)
-              if (currentSessionId && cdata.session_id !== currentSessionId) {
-                console.log('🔄 Cursor session switch detected:', { originalSession: currentSessionId, newSession: cdata.session_id });
-                setIsSystemSessionChange(true);
-                if (onNavigateToSession) {
-                  onNavigateToSession(cdata.session_id);
-                }
-                return;
-              }
-              // If we don't yet have a session, adopt this one
-              if (!currentSessionId) {
-                console.log('🔄 Cursor new session init detected:', { newSession: cdata.session_id });
-                setIsSystemSessionChange(true);
-                if (onNavigateToSession) {
-                  onNavigateToSession(cdata.session_id);
-                }
-                return;
-              }
-            }
-            // For other cursor-system messages, avoid dumping raw objects to chat
-          } catch (e) {
-            console.warn('Error handling cursor-system message:', e);
-          }
-          break;
-          
-        case 'cursor-user':
-          // Handle Cursor user messages (usually echoes)
-          // Don't add user messages as they're already shown from input
-          break;
-          
-        case 'cursor-tool-use':
-          // Handle Cursor tool use messages
-          setChatMessages(prev => [...prev, {
-            type: 'assistant',
-            content: `Using tool: ${latestMessage.tool} ${latestMessage.input ? `with ${latestMessage.input}` : ''}`,
-            timestamp: new Date(),
-            isToolUse: true,
-            toolName: latestMessage.tool,
-            toolInput: latestMessage.input
-          }]);
-          break;
-        
-        case 'cursor-error':
-          // Show Cursor errors as error messages in chat
-          setChatMessages(prev => [...prev, {
-            type: 'error',
-            content: `Cursor error: ${latestMessage.error || 'Unknown error'}`,
-            timestamp: new Date()
-          }]);
-          break;
-          
-        case 'cursor-result':
-          // Get session ID from message or fall back to current session
-          const cursorCompletedSessionId = latestMessage.sessionId || currentSessionId;
-
-          // Only update UI state if this is the current session
-          if (cursorCompletedSessionId === currentSessionId) {
-            setIsLoading(false);
-            setCanAbortSession(false);
-            setClaudeStatus(null);
-          }
-
-          // Always mark the completed session as inactive and not processing
-          if (cursorCompletedSessionId) {
-            // Mark as recently completed to prevent file watcher race conditions
-            if (onSessionCompleted) {
-              onSessionCompleted(cursorCompletedSessionId, 'cursor');
-            }
-            if (onSessionInactive) {
-              onSessionInactive(cursorCompletedSessionId);
-            }
-            if (onSessionNotProcessing) {
-              onSessionNotProcessing(cursorCompletedSessionId);
-            }
-          }
-
-          // Only process result for current session
-          if (cursorCompletedSessionId === currentSessionId) {
-            try {
-              const r = latestMessage.data || {};
-              const textResult = typeof r.result === 'string' ? r.result : '';
-              // Flush buffered deltas before finalizing
-              if (streamTimerRef.current) {
-                clearTimeout(streamTimerRef.current);
-                streamTimerRef.current = null;
-              }
-              const pendingChunk = streamBufferRef.current;
-              streamBufferRef.current = '';
-
-              setChatMessages(prev => {
-                const updated = [...prev];
-                // Try to consolidate into the last streaming assistant message
-                const last = updated[updated.length - 1];
-                if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
-                  // Replace streaming content with the final content so deltas don't remain
-                  const finalContent = textResult && textResult.trim() ? textResult : (last.content || '') + (pendingChunk || '');
-                  last.content = finalContent;
-                  last.isStreaming = false;
-                } else if (textResult && textResult.trim()) {
-                  updated.push({ type: r.is_error ? 'error' : 'assistant', content: textResult, timestamp: new Date(), isStreaming: false });
-                }
-                return updated;
-              });
-            } catch (e) {
-              console.warn('Error handling cursor-result message:', e);
-            }
-          }
-
-          // Store session ID for new sessions ONLY (to avoid refresh on every message)
-          // Check pendingSessionId to ensure this is truly a new session
-          const pendingCursorSessionId = sessionStorage.getItem('pendingSessionId');
-          if (cursorCompletedSessionId && !currentSessionId && cursorCompletedSessionId === pendingCursorSessionId) {
-            setCurrentSessionId(cursorCompletedSessionId);
-            sessionStorage.removeItem('pendingSessionId');
-
-            // Mark as system session change to preserve messages during navigation
-            setIsSystemSessionChange(true);
-            
-            // Navigate to the new session immediately (like Claude does)
-            // The projects_updated WebSocket message will handle sidebar refresh
-            if (onNavigateToSession) {
-              onNavigateToSession(cursorCompletedSessionId);
-            }
-          }
-          break;
-
-        case 'cursor-output':
-          // Handle Cursor raw terminal output; strip ANSI and ignore empty control-only payloads
-          try {
-            const raw = String(latestMessage.data ?? '');
-            const cleaned = raw.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim();
-            if (cleaned) {
-              streamBufferRef.current += (streamBufferRef.current ? `\n${cleaned}` : cleaned);
-              if (!streamTimerRef.current) {
-                streamTimerRef.current = setTimeout(() => {
-                  const chunk = streamBufferRef.current;
-                  streamBufferRef.current = '';
-                  streamTimerRef.current = null;
-                  if (!chunk) return;
-                  setChatMessages(prev => {
-                    const updated = [...prev];
-                    const last = updated[updated.length - 1];
-                    if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
-                      last.content = last.content ? `${last.content}\n${chunk}` : chunk;
-                    } else {
-                      updated.push({ type: 'assistant', content: chunk, timestamp: new Date(), isStreaming: true });
-                    }
-                    return updated;
-                  });
-                }, 100);
-              }
-            }
-          } catch (e) {
-            console.warn('Error handling cursor-output message:', e);
-          }
-          break;
-          
-        // CodeBuddy message handlers (similar to Cursor)
-        case 'codebuddy-system':
-          // Handle CodeBuddy system/init messages similar to Cursor
-          try {
-            const cbdata = latestMessage.data;
-            if (cbdata && cbdata.type === 'system' && cbdata.subtype === 'init' && cbdata.session_id) {
-              // If we already have a session and this differs, switch (duplication/redirect)
-              if (currentSessionId && cbdata.session_id !== currentSessionId) {
-                console.log('🔄 CodeBuddy session switch detected:', { originalSession: currentSessionId, newSession: cbdata.session_id });
-                setIsSystemSessionChange(true);
-                if (onNavigateToSession) {
-                  onNavigateToSession(cbdata.session_id);
-                }
-              }
-            }
-          } catch (e) {
-            console.warn('Error handling codebuddy-system message:', e);
-          }
-          break;
-
-        case 'codebuddy-user':
-          // Handle CodeBuddy user messages
-          break;
-
-        case 'codebuddy-error':
-          // Use classified error message if available for user-friendly display
-          const errorMessage = latestMessage.userMessage || latestMessage.error || 'Unknown error';
-          const errorDetails = latestMessage.details?.raw || latestMessage.error;
-          const errorType = latestMessage.errorType || 'unknown';
-          
-          setChatMessages(prev => [...prev, {
-            type: 'error',
-            content: `CodeBuddy error: ${errorMessage}`,
-            errorType: errorType,
-            errorDetails: errorDetails !== errorMessage ? errorDetails : null,
-            timestamp: new Date()
-          }]);
-          
-          // Log technical details for debugging
-          if (errorDetails) {
-            console.error('CodeBuddy error details:', { type: errorType, details: errorDetails });
-          }
-          break;
-          
-        case 'codebuddy-result':
-          // Get session ID from message or fall back to current session
-          const codebuddyCompletedSessionId = latestMessage.sessionId || currentSessionId;
-
-          // Only update UI state if this is the current session
-          if (codebuddyCompletedSessionId === currentSessionId) {
-            setIsLoading(false);
-            setCanAbortSession(false);
-            setClaudeStatus(null);
-          }
-
-          // Always mark the completed session as inactive and not processing
-          if (codebuddyCompletedSessionId) {
-            if (onSessionInactive) {
-              onSessionInactive(codebuddyCompletedSessionId);
-            }
-            if (onSessionNotProcessing) {
-              onSessionNotProcessing(codebuddyCompletedSessionId);
-            }
-          }
-
-          // Only process result for current session
-          if (codebuddyCompletedSessionId === currentSessionId) {
-            try {
-              const r = latestMessage.data || {};
-              const textResult = typeof r.result === 'string' ? r.result : '';
-              // Flush buffered deltas before finalizing
-              if (streamTimerRef.current) {
-                clearTimeout(streamTimerRef.current);
-                streamTimerRef.current = null;
-              }
-              const pendingChunk = streamBufferRef.current;
-              streamBufferRef.current = '';
-
-              setChatMessages(prev => {
-                const updated = [...prev];
-                // Try to consolidate into the last streaming assistant message
-                const last = updated[updated.length - 1];
-                if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
-                  // Replace streaming content with the final content so deltas don't remain
-                  const finalContent = textResult && textResult.trim() ? textResult : (last.content || '') + (pendingChunk || '');
-                  last.content = finalContent;
-                  last.isStreaming = false;
-                } else if (textResult && textResult.trim()) {
-                  updated.push({ type: r.is_error ? 'error' : 'assistant', content: textResult, timestamp: new Date(), isStreaming: false });
-                }
-                return updated;
-              });
-            } catch (e) {
-              console.warn('Error handling codebuddy-result message:', e);
-            }
-          }
-
-          // Store session ID for future use (for new sessions)
-          const pendingCodeBuddySessionId = sessionStorage.getItem('pendingSessionId');
-          if (codebuddyCompletedSessionId && !currentSessionId && codebuddyCompletedSessionId === pendingCodeBuddySessionId) {
-            console.log('✅ New CodeBuddy session in codebuddy-result, ID set to:', codebuddyCompletedSessionId);
-            setCurrentSessionId(codebuddyCompletedSessionId);
-            sessionStorage.removeItem('pendingSessionId');
-
-            // Mark as system session change to preserve messages during navigation
-            setIsSystemSessionChange(true);
-            
-            // Navigate to the new session immediately
-            // The projects_updated WebSocket message will handle sidebar refresh
-            if (onNavigateToSession) {
-              onNavigateToSession(codebuddyCompletedSessionId);
-              console.log('🔄 Navigated to new CodeBuddy session in codebuddy-result:', codebuddyCompletedSessionId);
-            }
-          }
-          break;
-
-        case 'codebuddy-output':
-          // Handle CodeBuddy raw terminal output; strip ANSI and ignore empty control-only payloads
-          try {
-            const cbraw = String(latestMessage.data ?? '');
-            const cbcleaned = cbraw
-              .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '') // Remove CSI sequences
-              .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '') // Remove other control chars
-              .trim();
-            if (cbcleaned) {
-              streamBufferRef.current += (streamBufferRef.current ? `\n${cbcleaned}` : cbcleaned);
-              if (!streamTimerRef.current) {
-                streamTimerRef.current = setTimeout(() => {
-                  const chunk = streamBufferRef.current;
-                  streamBufferRef.current = '';
-                  streamTimerRef.current = null;
-                  if (!chunk) return;
-                  setChatMessages(prev => {
-                    const updated = [...prev];
-                    const last = updated[updated.length - 1];
-                    if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
-                      last.content = last.content ? `${last.content}\n${chunk}` : chunk;
-                    } else {
-                      updated.push({ type: 'assistant', content: chunk, timestamp: new Date(), isStreaming: true });
-                    }
-                    return updated;
-                  });
-                }, 100);
-              }
-            }
-          } catch (e) {
-            console.warn('Error handling codebuddy-output message:', e);
-          }
-          break;
-
-        case 'codebuddy-complete':
-          // Handle CodeBuddy session completion
-          const cbCompletedSessionId = latestMessage.sessionId || currentSessionId;
-          
-          console.log('📋 codebuddy-complete received:', {
-            messageSessionId: latestMessage.sessionId,
-            currentSessionId: currentSessionId,
-            isNewSession: latestMessage.isNewSession,
-            exitCode: latestMessage.exitCode,
-            pendingSessionId: sessionStorage.getItem('pendingSessionId')
-          });
-
-          // Update UI state if this is the current session
-          if (cbCompletedSessionId === currentSessionId || !currentSessionId) {
-            setIsLoading(false);
-            setCanAbortSession(false);
-            setClaudeStatus(null);
-
-            // Fetch updated token usage after message completes (same as Claude)
-            if (selectedProject && selectedSession?.id) {
-              const fetchUpdatedTokenUsage = async () => {
-                try {
-                  const url = `/api/projects/${selectedProject.name}/sessions/${selectedSession.id}/token-usage`;
-                  const response = await authenticatedFetch(url);
-                  if (response.ok) {
-                    const data = await response.json();
-                    setTokenBudget(data);
-                  }
-                } catch (error) {
-                  console.error('Failed to fetch updated token usage:', error);
-                }
-              };
-              fetchUpdatedTokenUsage();
-            }
-            
-            // Issue 9 fix: Clean up pending tool results to prevent memory leaks
-            if (pendingToolResultsRef.current.size > 0) {
-              console.log('🧹 Cleaning up pending tool results:', pendingToolResultsRef.current.size);
-              pendingToolResultsRef.current.clear();
-            }
-            
-            // Issue 10 fix: Flush any remaining stream buffer content
-            if (streamTimerRef.current) {
-              clearTimeout(streamTimerRef.current);
-              streamTimerRef.current = null;
-            }
-            if (streamBufferRef.current) {
-              const finalChunk = streamBufferRef.current;
-              streamBufferRef.current = '';
-              if (finalChunk.trim()) {
-                setChatMessages(prev => {
-                  const updated = [...prev];
-                  const last = updated[updated.length - 1];
-                  if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
-                    last.content = (last.content || '') + finalChunk;
-                    last.isStreaming = false;
-                  } else {
-                    updated.push({ type: 'assistant', content: finalChunk, timestamp: new Date(), isStreaming: false });
-                  }
-                  return updated;
-                });
-              }
-            }
-          }
-
-          // Always mark the completed session as inactive and not processing
-          if (cbCompletedSessionId) {
-            // Mark as recently completed to prevent file watcher race conditions
-            if (onSessionCompleted) {
-              onSessionCompleted(cbCompletedSessionId, 'codebuddy');
-            }
-            if (onSessionInactive) {
-              onSessionInactive(cbCompletedSessionId);
-            }
-            if (onSessionNotProcessing) {
-              onSessionNotProcessing(cbCompletedSessionId);
-            }
-          }
-
-          // Store session ID for new sessions ONLY if we don't have one yet
-          // AND this is marked as a new session by the backend
-          // Note: In most cases, codebuddy-result will have already set the session ID
-          // This is a fallback in case the order is different
-          if (latestMessage.isNewSession && cbCompletedSessionId && !currentSessionId) {
-            const pendingCbSessionId = sessionStorage.getItem('pendingSessionId');
-            
-            // Only update if this matches the pending session
-            if (cbCompletedSessionId === pendingCbSessionId) {
-              console.log('✅ New CodeBuddy session complete (fallback), ID set to:', cbCompletedSessionId);
-              setCurrentSessionId(cbCompletedSessionId);
-              sessionStorage.removeItem('pendingSessionId');
-
-              // Mark as system session change to preserve messages during navigation
-              setIsSystemSessionChange(true);
-              
-              // Navigate to the new session immediately (like Claude does)
-              // The projects_updated WebSocket message will handle sidebar refresh
-              if (onNavigateToSession) {
-                onNavigateToSession(cbCompletedSessionId);
-              }
-              
-              console.log('🔄 Navigated to new CodeBuddy session (fallback):', cbCompletedSessionId);
-            } else {
-              console.log('⚠️ Session ID mismatch, NOT setting current session:', {
-                completed: cbCompletedSessionId,
-                pending: pendingCbSessionId
-              });
-            }
-          } else {
-            console.log('✅ CodeBuddy session complete, NO action needed:', {
-              isNewSession: latestMessage.isNewSession,
-              hasSessionId: !!cbCompletedSessionId,
-              hasCurrentSessionId: !!currentSessionId
-            });
-          }
-          break;
-          
-        case 'claude-complete':
-          // Get session ID from message or fall back to current session
-          const completedSessionId = latestMessage.sessionId || currentSessionId || sessionStorage.getItem('pendingSessionId');
-
-          // Update UI state if this is the current session OR if we don't have a session ID yet (new session)
-          if (completedSessionId === currentSessionId || !currentSessionId) {
-            setIsLoading(false);
-            setCanAbortSession(false);
-            setClaudeStatus(null);
-
-            // Fetch updated token usage after message completes
-            if (selectedProject && selectedSession?.id) {
-              const fetchUpdatedTokenUsage = async () => {
-                try {
-                  const url = `/api/projects/${selectedProject.name}/sessions/${selectedSession.id}/token-usage`;
-                  const response = await authenticatedFetch(url);
-                  if (response.ok) {
-                    const data = await response.json();
-                    setTokenBudget(data);
-                  }
-                } catch (error) {
-                  console.error('Failed to fetch updated token usage:', error);
-                }
-              };
-              fetchUpdatedTokenUsage();
-            }
-          }
-
-          // Always mark the completed session as inactive and not processing
-          if (completedSessionId) {
-            // Mark as recently completed to prevent file watcher race conditions
-            if (onSessionCompleted) {
-              onSessionCompleted(completedSessionId, 'claude');
-            }
-            if (onSessionInactive) {
-              onSessionInactive(completedSessionId);
-            }
-            if (onSessionNotProcessing) {
-              onSessionNotProcessing(completedSessionId);
-            }
-          }
-          
-          // If we have a pending session ID and the conversation completed successfully, use it
-          const pendingSessionId = sessionStorage.getItem('pendingSessionId');
-          if (pendingSessionId && !currentSessionId && latestMessage.exitCode === 0) {
-            setCurrentSessionId(pendingSessionId);
-            sessionStorage.removeItem('pendingSessionId');
-
-            // Mark as system session change to preserve messages during navigation
-            setIsSystemSessionChange(true);
-            
-            // Navigate to the new session immediately
-            // The projects_updated WebSocket message will handle sidebar refresh
-            if (onNavigateToSession) {
-              onNavigateToSession(pendingSessionId);
-            }
-            
-            console.log('✅ New Claude session complete, ID set to:', pendingSessionId);
-            console.log('🔄 Navigated to new Claude session:', pendingSessionId);
-          }
-          
-          // Clear persisted chat messages after successful completion
-          if (selectedProject && latestMessage.exitCode === 0) {
-            safeLocalStorage.removeItem(`chat_messages_${selectedProject.name}`);
-          }
-          break;
-          
-        case 'session-aborted': {
-          // Get session ID from message or fall back to current session
-          const abortedSessionId = latestMessage.sessionId || currentSessionId;
-
-          // Only update UI state if this is the current session
-          if (abortedSessionId === currentSessionId) {
-            setIsLoading(false);
-            setCanAbortSession(false);
-            setClaudeStatus(null);
-          }
-
-          // Always mark the aborted session as inactive and not processing
-          if (abortedSessionId) {
-            if (onSessionInactive) {
-              onSessionInactive(abortedSessionId);
-            }
-            if (onSessionNotProcessing) {
-              onSessionNotProcessing(abortedSessionId);
-            }
-          }
-
-          setChatMessages(prev => [...prev, {
-            type: 'assistant',
-            content: 'Session interrupted by user.',
-            timestamp: new Date()
-          }]);
-          break;
-        }
-
-        case 'session-status': {
-          const statusSessionId = latestMessage.sessionId;
-          const isCurrentSession = statusSessionId === currentSessionId ||
-                                   (selectedSession && statusSessionId === selectedSession.id);
-          if (isCurrentSession && latestMessage.isProcessing) {
-            // Session is currently processing, restore UI state
-            setIsLoading(true);
-            setCanAbortSession(true);
-            if (onSessionProcessing) {
-              onSessionProcessing(statusSessionId);
-            }
-          }
-          break;
-        }
-
-        case 'claude-status':
-          // Handle Claude working status messages
-          const statusData = latestMessage.data;
-          if (statusData) {
-            // Parse the status message to extract relevant information
-            let statusInfo = {
-              text: 'Working...',
-              tokens: 0,
-              can_interrupt: true
-            };
-            
-            // Check for different status message formats
-            if (statusData.message) {
-              statusInfo.text = statusData.message;
-            } else if (statusData.status) {
-              statusInfo.text = statusData.status;
-            } else if (typeof statusData === 'string') {
-              statusInfo.text = statusData;
-            }
-            
-            // Extract token count
-            if (statusData.tokens) {
-              statusInfo.tokens = statusData.tokens;
-            } else if (statusData.token_count) {
-              statusInfo.tokens = statusData.token_count;
-            }
-            
-            // Check if can interrupt
-            if (statusData.can_interrupt !== undefined) {
-              statusInfo.can_interrupt = statusData.can_interrupt;
-            }
-            
-            setClaudeStatus(statusInfo);
-            setIsLoading(true);
-            setCanAbortSession(statusInfo.can_interrupt);
-          }
-          break;
-  
-      }
-    }
-  }, [messages]);
+  // Note: WebSocket message handling is now managed by useWebSocketMessages hook
 
   // Load file list when project changes
-  useEffect(() => {
-    if (selectedProject) {
-      fetchProjectFiles();
-    }
-  }, [selectedProject]);
-
-  const fetchProjectFiles = async () => {
-    try {
-      const response = await api.getFiles(selectedProject.name);
-      if (response.ok) {
-        const files = await response.json();
-        // Flatten the file tree to get all file paths
-        const flatFiles = flattenFileTree(files);
-        setFileList(flatFiles);
-      }
-    } catch (error) {
-      console.error('Error fetching files:', error);
-    }
-  };
-
-  const flattenFileTree = (files, basePath = '') => {
-    let result = [];
-    for (const file of files) {
-      const fullPath = basePath ? `${basePath}/${file.name}` : file.name;
-      if (file.type === 'directory' && file.children) {
-        result = result.concat(flattenFileTree(file.children, fullPath));
-      } else if (file.type === 'file') {
-        result.push({
-          name: file.name,
-          path: fullPath,
-          relativePath: file.path
-        });
-      }
-    }
-    return result;
-  };
-
-  // Handle @ symbol detection and file filtering
-  useEffect(() => {
-    const textBeforeCursor = input.slice(0, cursorPosition);
-    const lastAtIndex = textBeforeCursor.lastIndexOf('@');
-    
-    if (lastAtIndex !== -1) {
-      const textAfterAt = textBeforeCursor.slice(lastAtIndex + 1);
-      // Check if there's a space after the @ symbol (which would end the file reference)
-      if (!textAfterAt.includes(' ')) {
-        setAtSymbolPosition(lastAtIndex);
-        setShowFileDropdown(true);
-        
-        // Filter files based on the text after @
-        const filtered = fileList.filter(file => 
-          file.name.toLowerCase().includes(textAfterAt.toLowerCase()) ||
-          file.path.toLowerCase().includes(textAfterAt.toLowerCase())
-        ).slice(0, 10); // Limit to 10 results
-        
-        setFilteredFiles(filtered);
-        setSelectedFileIndex(-1);
-      } else {
-        setShowFileDropdown(false);
-        setAtSymbolPosition(-1);
-      }
-    } else {
-      setShowFileDropdown(false);
-      setAtSymbolPosition(-1);
-    }
-  }, [input, cursorPosition, fileList]);
+  // Note: File fetching and @ symbol detection are now handled by useFileDropdown hook
 
   // Debounced input handling
   useEffect(() => {
@@ -2017,38 +697,13 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
 
   // Capture scroll position before render when auto-scroll is disabled
   useEffect(() => {
-    if (!autoScrollToBottom && scrollContainerRef.current) {
-      const container = scrollContainerRef.current;
-      scrollPositionRef.current = {
-        height: container.scrollHeight,
-        top: container.scrollTop
-      };
-    }
+    captureScrollPosition();
   });
 
   useEffect(() => {
     // Auto-scroll to bottom when new messages arrive
-    if (scrollContainerRef.current && chatMessages.length > 0) {
-      if (autoScrollToBottom) {
-        // If auto-scroll is enabled, always scroll to bottom unless user has manually scrolled up
-        if (!isUserScrolledUp) {
-          setTimeout(() => scrollToBottom(), 50); // Small delay to ensure DOM is updated
-        }
-      } else {
-        // When auto-scroll is disabled, preserve the visual position
-        const container = scrollContainerRef.current;
-        const prevHeight = scrollPositionRef.current.height;
-        const prevTop = scrollPositionRef.current.top;
-        const newHeight = container.scrollHeight;
-        const heightDiff = newHeight - prevHeight;
-
-        // If content was added above the current view, adjust scroll position
-        if (heightDiff > 0 && prevTop > 0) {
-          container.scrollTop = prevTop + heightDiff;
-        }
-      }
-    }
-  }, [chatMessages.length, isUserScrolledUp, scrollToBottom, autoScrollToBottom]);
+    handleAutoScroll();
+  }, [chatMessages.length, handleAutoScroll]);
 
   // Scroll to bottom when messages first load after session switch
   useEffect(() => {
@@ -2064,24 +719,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     }
   }, [selectedSession?.id, selectedProject?.name]); // Only trigger when session/project changes
 
-  // Add scroll event listener to detect user scrolling
-  useEffect(() => {
-    const scrollContainer = scrollContainerRef.current;
-    if (scrollContainer) {
-      scrollContainer.addEventListener('scroll', handleScroll);
-      // Touch events for mobile pull-down gesture
-      scrollContainer.addEventListener('touchstart', handleTouchStart, { passive: true });
-      scrollContainer.addEventListener('touchmove', handleTouchMove, { passive: true });
-      // Wheel event for desktop scroll-up gesture
-      scrollContainer.addEventListener('wheel', handleWheel, { passive: true });
-      return () => {
-        scrollContainer.removeEventListener('scroll', handleScroll);
-        scrollContainer.removeEventListener('touchstart', handleTouchStart);
-        scrollContainer.removeEventListener('touchmove', handleTouchMove);
-        scrollContainer.removeEventListener('wheel', handleWheel);
-      };
-    }
-  }, [handleScroll, handleTouchStart, handleTouchMove, handleWheel]);
+  // Note: Scroll event listeners (scroll, touchstart, touchmove, wheel) are now
+  // set up internally by useScrollManagement hook
 
   // Initial textarea setup - set to 2 rows height
   useEffect(() => {
@@ -2104,34 +743,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     }
   }, [input]);
 
-  // Load token usage when session changes (but don't poll to avoid conflicts with WebSocket)
-  useEffect(() => {
-    if (!selectedProject || !selectedSession?.id || selectedSession.id.startsWith('new-session-')) {
-      // Reset for new/empty sessions
-      setTokenBudget(null);
-      return;
-    }
-
-    // Fetch token usage once when session loads
-    const fetchInitialTokenUsage = async () => {
-      try {
-        const url = `/api/projects/${selectedProject.name}/sessions/${selectedSession.id}/token-usage`;
-
-        const response = await authenticatedFetch(url);
-
-        if (response.ok) {
-          const data = await response.json();
-          setTokenBudget(data);
-        } else {
-          setTokenBudget(null);
-        }
-      } catch (error) {
-        console.error('Failed to fetch initial token usage:', error);
-      }
-    };
-
-    fetchInitialTokenUsage();
-  }, [selectedSession?.id, selectedProject?.path]);
+  // Note: Token usage loading is now handled by useTokenBudget hook
 
   const handleTranscript = useCallback((text) => {
     if (text.trim()) {
@@ -2161,77 +773,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     setVisibleMessageCount(prevCount => prevCount + 100);
   }, []);
 
-  // Handle image files from drag & drop or file picker
-  const handleImageFiles = useCallback((files) => {
-    const validFiles = files.filter(file => {
-      try {
-        // Validate file object and properties
-        if (!file || typeof file !== 'object') {
-          console.warn('Invalid file object:', file);
-          return false;
-        }
-
-        if (!file.type || !file.type.startsWith('image/')) {
-          return false;
-        }
-
-        if (!file.size || file.size > 5 * 1024 * 1024) {
-          // Safely get file name with fallback
-          const fileName = file.name || 'Unknown file';
-          setImageErrors(prev => {
-            const newMap = new Map(prev);
-            newMap.set(fileName, 'File too large (max 5MB)');
-            return newMap;
-          });
-          return false;
-        }
-
-        return true;
-      } catch (error) {
-        console.error('Error validating file:', error, file);
-        return false;
-      }
-    });
-
-    if (validFiles.length > 0) {
-      setAttachedImages(prev => [...prev, ...validFiles].slice(0, 5)); // Max 5 images
-    }
-  }, []);
-
-  // Handle clipboard paste for images
-  const handlePaste = useCallback(async (e) => {
-    const items = Array.from(e.clipboardData.items);
-    
-    for (const item of items) {
-      if (item.type.startsWith('image/')) {
-        const file = item.getAsFile();
-        if (file) {
-          handleImageFiles([file]);
-        }
-      }
-    }
-    
-    // Fallback for some browsers/platforms
-    if (items.length === 0 && e.clipboardData.files.length > 0) {
-      const files = Array.from(e.clipboardData.files);
-      const imageFiles = files.filter(f => f.type.startsWith('image/'));
-      if (imageFiles.length > 0) {
-        handleImageFiles(imageFiles);
-      }
-    }
-  }, [handleImageFiles]);
-
-  // Setup dropzone
-  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
-    accept: {
-      'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg']
-    },
-    maxSize: 5 * 1024 * 1024, // 5MB
-    maxFiles: 5,
-    onDrop: handleImageFiles,
-    noClick: true, // We'll use our own button
-    noKeyboard: true
-  });
+  // Note: handleImageFiles, handlePaste, and dropzone setup are now provided by useImageUpload hook
 
   // Handle edit message
   const handleEditMessage = useCallback((messageIndex) => {
@@ -2530,9 +1072,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     }
 
     setInput('');
-    setAttachedImages([]);
-    setUploadingImages(new Map());
-    setImageErrors(new Map());
+    clearImages(); // Clear attached images, uploading state, and errors
     setIsTextareaExpanded(false);
 
     // Clear editing state after message is sent
@@ -2550,7 +1090,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     if (selectedProject) {
       safeLocalStorage.removeItem(`draft_input_${selectedProject.name}`);
     }
-  }, [input, isLoading, selectedProject, attachedImages, currentSessionId, selectedSession, provider, permissionMode, onSessionActive, cursorModel, codebuddyModel, sendMessage, setInput, setAttachedImages, setUploadingImages, setImageErrors, setIsTextareaExpanded, textareaRef, setChatMessages, setIsLoading, setCanAbortSession, setClaudeStatus, setIsUserScrolledUp, scrollToBottom, chatMessages, editingMessageIndex, setEditingMessageIndex, setOriginalInput]);
+  }, [input, isLoading, selectedProject, attachedImages, currentSessionId, selectedSession, provider, permissionMode, onSessionActive, cursorModel, codebuddyModel, sendMessage, setInput, clearImages, setIsTextareaExpanded, textareaRef, setChatMessages, setIsLoading, setCanAbortSession, setClaudeStatus, setIsUserScrolledUp, scrollToBottom, chatMessages, editingMessageIndex, setEditingMessageIndex, setOriginalInput]);
 
   // Store handleSubmit in ref so handleCustomCommand can access it
   useEffect(() => {
@@ -2571,16 +1111,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     // Update input temporarily so executeCommand can parse arguments
     setInput(newInput);
 
-    // Hide command menu
-    setShowCommandMenu(false);
-    setSlashPosition(-1);
-    setCommandQuery('');
-    setSelectedCommandIndex(-1);
-
-    // Clear debounce timer
-    if (commandQueryTimerRef.current) {
-      clearTimeout(commandQueryTimerRef.current);
-    }
+    // Hide command menu and clear debounce timer
+    closeCommandMenu();
 
     // Execute the command (which will load its content and send to Claude)
     executeCommand(command);
@@ -2614,13 +1146,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
       }
       if (e.key === 'Escape') {
         e.preventDefault();
-        setShowCommandMenu(false);
-        setSlashPosition(-1);
-        setCommandQuery('');
-        setSelectedCommandIndex(-1);
-        if (commandQueryTimerRef.current) {
-          clearTimeout(commandQueryTimerRef.current);
-        }
+        closeCommandMenu();
         return;
       }
     }
@@ -2652,7 +1178,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
       }
       if (e.key === 'Escape') {
         e.preventDefault();
-        setShowFileDropdown(false);
+        closeFileDropdown();
         return;
       }
     }
@@ -2660,16 +1186,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     // Handle Tab key for mode switching (only when dropdowns are not showing)
     if (e.key === 'Tab' && !showFileDropdown && !showCommandMenu) {
       e.preventDefault();
-      const modes = ['default', 'acceptEdits', 'bypassPermissions', 'plan'];
-      const currentIndex = modes.indexOf(permissionMode);
-      const nextIndex = (currentIndex + 1) % modes.length;
-      const newMode = modes[nextIndex];
-      setPermissionMode(newMode);
-
-      // Save mode for this session
-      if (selectedSession?.id) {
-        localStorage.setItem(`permissionMode-${selectedSession.id}`, newMode);
-      }
+      cyclePermissionMode();
       return;
     }
     
@@ -2695,42 +1212,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     }
   };
 
-  const selectFile = (file) => {
-    const textBeforeAt = input.slice(0, atSymbolPosition);
-    const textAfterAtQuery = input.slice(atSymbolPosition);
-    const spaceIndex = textAfterAtQuery.indexOf(' ');
-    const textAfterQuery = spaceIndex !== -1 ? textAfterAtQuery.slice(spaceIndex) : '';
-    
-    const newInput = textBeforeAt + '@' + file.path + ' ' + textAfterQuery;
-    const newCursorPos = textBeforeAt.length + 1 + file.path.length + 1;
-    
-    // Immediately ensure focus is maintained
-    if (textareaRef.current && !textareaRef.current.matches(':focus')) {
-      textareaRef.current.focus();
-    }
-    
-    // Update input and cursor position
-    setInput(newInput);
-    setCursorPosition(newCursorPos);
-    
-    // Hide dropdown
-    setShowFileDropdown(false);
-    setAtSymbolPosition(-1);
-    
-    // Set cursor position synchronously 
-    if (textareaRef.current) {
-      // Use requestAnimationFrame for smoother updates
-      requestAnimationFrame(() => {
-        if (textareaRef.current) {
-          textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
-          // Ensure focus is maintained
-          if (!textareaRef.current.matches(':focus')) {
-            textareaRef.current.focus();
-          }
-        }
-      });
-    }
-  };
+  // Note: selectFile function is now provided by useFileDropdown hook
 
   const handleInputChange = (e) => {
     const newValue = e.target.value;
@@ -2749,60 +1231,12 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     if (!newValue.trim()) {
       e.target.style.height = 'auto';
       setIsTextareaExpanded(false);
-      setShowCommandMenu(false);
-      setSlashPosition(-1);
-      setCommandQuery('');
+      closeCommandMenu();
       return;
     }
 
-    // Detect slash command at cursor position
-    // Look backwards from cursor to find a slash that starts a command
-    const textBeforeCursor = newValue.slice(0, cursorPos);
-
-    // Check if we're in a code block (simple heuristic: between triple backticks)
-    const backticksBefore = (textBeforeCursor.match(/```/g) || []).length;
-    const inCodeBlock = backticksBefore % 2 === 1;
-
-    if (inCodeBlock) {
-      // Don't show command menu in code blocks
-      setShowCommandMenu(false);
-      setSlashPosition(-1);
-      setCommandQuery('');
-      return;
-    }
-
-    // Find the last slash before cursor that could start a command
-    // Slash is valid if it's at the start or preceded by whitespace
-    const slashPattern = /(^|\s)\/(\S*)$/;
-    const match = textBeforeCursor.match(slashPattern);
-
-    if (match) {
-      const slashPos = match.index + match[1].length; // Position of the slash
-      const query = match[2]; // Text after the slash
-
-      // Update states with debouncing for query
-      setSlashPosition(slashPos);
-      setShowCommandMenu(true);
-      setSelectedCommandIndex(-1);
-
-      // Debounce the command query update
-      if (commandQueryTimerRef.current) {
-        clearTimeout(commandQueryTimerRef.current);
-      }
-
-      commandQueryTimerRef.current = setTimeout(() => {
-        setCommandQuery(query);
-      }, 150); // 150ms debounce
-    } else {
-      // No slash command detected
-      setShowCommandMenu(false);
-      setSlashPosition(-1);
-      setCommandQuery('');
-
-      if (commandQueryTimerRef.current) {
-        clearTimeout(commandQueryTimerRef.current);
-      }
-    }
+    // Detect slash command at cursor position (handled by hook)
+    detectSlashCommand(newValue, cursorPos);
   };
 
   const handleTextareaClick = (e) => {
@@ -2811,13 +1245,6 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
 
 
 
-  const handleNewSession = () => {
-    setChatMessages([]);
-    setInput('');
-    setIsLoading(false);
-    setCanAbortSession(false);
-  };
-  
   const handleAbortSession = () => {
     if (currentSessionId && canAbortSession) {
       sendMessage({
@@ -2825,19 +1252,6 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
         sessionId: currentSessionId,
         provider: provider
       });
-    }
-  };
-
-  const handleModeSwitch = () => {
-    const modes = ['default', 'acceptEdits', 'bypassPermissions', 'plan'];
-    const currentIndex = modes.indexOf(permissionMode);
-    const nextIndex = (currentIndex + 1) % modes.length;
-    const newMode = modes[nextIndex];
-    setPermissionMode(newMode);
-
-    // Save mode for this session
-    if (selectedSession?.id) {
-      localStorage.setItem(`permissionMode-${selectedSession.id}`, newMode);
     }
   };
 
@@ -2920,7 +1334,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           <div className="flex items-center justify-center gap-3">
             <button
               type="button"
-              onClick={handleModeSwitch}
+              onClick={cyclePermissionMode}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-all duration-200 ${
                 permissionMode === 'default' 
                   ? 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -2960,16 +1374,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
             <button
               type="button"
               onClick={() => {
-                const isOpening = !showCommandMenu;
-                setShowCommandMenu(isOpening);
-                setCommandQuery('');
-                setSelectedCommandIndex(-1);
-
-                // When opening, ensure all commands are shown
-                if (isOpening) {
-                  setFilteredCommands(slashCommands);
-                }
-
+                toggleCommandMenu();
                 if (textareaRef.current) {
                   textareaRef.current.focus();
                 }
@@ -3085,9 +1490,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                   <ImageAttachment
                     key={index}
                     file={file}
-                    onRemove={() => {
-                      setAttachedImages(prev => prev.filter((_, i) => i !== index));
-                    }}
+                    onRemove={() => removeImage(index)}
                     uploadProgress={uploadingImages.get(file.name)}
                     error={imageErrors.get(file.name)}
                   />
@@ -3184,7 +1587,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
               onChange={handleInputChange}
               onClick={handleTextareaClick}
               onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
+              onPaste={handleImagePaste}
               onFocus={() => setIsInputFocused(true)}
               onBlur={() => setIsInputFocused(false)}
               onInput={(e) => {
@@ -3208,7 +1611,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                open();
+                openFilePicker();
               }}
               className="absolute left-2 top-1/2 transform -translate-y-1/2 p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors z-20"
               title="Attach images"

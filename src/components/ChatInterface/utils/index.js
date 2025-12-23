@@ -27,3 +27,15 @@ export {
 export { convertSessionMessages } from './messageConverter';
 
 export { loadCursorSessionMessages } from './cursorMessageLoader';
+
+export {
+  processContentBlockDelta,
+  processContentBlockStop,
+  processToolUseBlock,
+  processToolResult,
+  processClaudeResponseContent,
+  processUserToolResults,
+  processRawOutput,
+  flushStreamBuffer,
+  parseClaudeStatus,
+} from './messageHandlers';

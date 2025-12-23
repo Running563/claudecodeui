@@ -12,3 +12,6 @@ export { default as ImageAttachment } from './ImageAttachment';
 export { default as ImagePreviewModal } from './ImagePreviewModal';
 export { default as ToolResultModal } from './ToolResultModal';
 export { default as MessageComponent } from './MessageComponent';
+export { default as InputArea } from './InputArea';
+export { default as ProviderSelector } from './ProviderSelector';
+export { default as MessageList } from './MessageList';
