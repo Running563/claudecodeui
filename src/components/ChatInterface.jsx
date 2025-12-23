@@ -26,7 +26,19 @@ import {
 } from './ChatInterface/utils';
 
 // Import custom hooks
-import { useTokenBudget, useProviderState, useImageUpload, useFileDropdown, useSessionMessages, useSlashCommands, useScrollManagement, useWebSocketMessages } from './ChatInterface/hooks';
+import { 
+  useTokenBudget, 
+  useProviderState, 
+  useImageUpload, 
+  useFileDropdown, 
+  useSessionMessages, 
+  useSlashCommands, 
+  useScrollManagement, 
+  useWebSocketMessages,
+  useCommandExecution,
+  useMessageEditing,
+  useMessageSubmit
+} from './ChatInterface/hooks';
 
 // Import components
 import ImageAttachment from './ChatInterface/components/ImageAttachment';
@@ -37,7 +49,6 @@ import MessageList from './ChatInterface/components/MessageList';
 import ClaudeStatus from './ClaudeStatus';
 import TokenUsagePie from './TokenUsagePie';
 import { MicButton } from './MicButton.jsx';
-import { authenticatedFetch } from '../utils/api';
 import CommandMenu from './CommandMenu';
 
 // ChatInterface: Main chat component with Session Protection System integration
@@ -65,10 +76,6 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
   const [isLoading, setIsLoading] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState(selectedSession?.id || null);
   const [isInputFocused, setIsInputFocused] = useState(false);
-  
-  // Edit message states
-  const [editingMessageIndex, setEditingMessageIndex] = useState(null);
-  const [originalInput, setOriginalInput] = useState('');
   const [isSystemSessionChange, setIsSystemSessionChange] = useState(false);
   
   // Session messages management via custom hook
@@ -236,6 +243,73 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     onNavigateToSession
   });
 
+  // Message editing via custom hook
+  const {
+    editingMessageIndex,
+    setEditingMessageIndex,
+    originalInput,
+    setOriginalInput,
+    handleEditMessage,
+    handleDeleteMessage,
+    handleCancelEdit,
+    truncateForEdit,
+    clearEditingState
+  } = useMessageEditing({
+    selectedProject,
+    currentSessionId,
+    isLoading,
+    chatMessages,
+    setChatMessages,
+    setInput,
+    textareaRef
+  });
+
+  // Message submission via custom hook
+  const {
+    uploadImages,
+    submitMessage,
+    handleSubmit: handleMessageSubmit,
+    getToolsSettings
+  } = useMessageSubmit({
+    selectedProject,
+    selectedSession,
+    currentSessionId,
+    provider,
+    cursorModel,
+    codebuddyModel,
+    permissionMode,
+    attachedImages,
+    sendMessage,
+    setChatMessages,
+    setIsLoading,
+    setCanAbortSession,
+    setClaudeStatus,
+    setIsUserScrolledUp,
+    scrollToBottom,
+    clearImages,
+    onSessionActive
+  });
+
+  // Command execution via custom hook
+  const {
+    executeCommand,
+    handleBuiltInCommand,
+    handleCustomCommand,
+    setHandleSubmitRef
+  } = useCommandExecution({
+    selectedProject,
+    currentSessionId,
+    provider,
+    cursorModel,
+    tokenBudget,
+    setChatMessages,
+    setSessionMessages,
+    setInput,
+    resetCommandMenu,
+    onFileOpen,
+    onShowSettings
+  });
+
   // Command selection callback with history tracking
   const handleCommandSelect = useCallback((command, index, isHover) => {
     if (!command || !selectedProject) return;
@@ -250,200 +324,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     updateCommandHistory(command);
 
     // Execute the command
-    executeCommand(command);
-  }, [selectedProject, updateCommandHistory]);
-
-  // Execute a command
-  const handleBuiltInCommand = useCallback((result) => {
-    const { action, data } = result;
-
-    switch (action) {
-      case 'clear':
-        // Clear conversation history
-        setChatMessages([]);
-        setSessionMessages([]);
-        break;
-
-      case 'help':
-        // Show help content
-        setChatMessages(prev => [...prev, {
-          role: 'assistant',
-          content: data.content,
-          timestamp: Date.now()
-        }]);
-        break;
-
-      case 'model':
-        // Show model information
-        setChatMessages(prev => [...prev, {
-          role: 'assistant',
-          content: `**Current Model**: ${data.current.model}\n\n**Available Models**:\n\nClaude: ${data.available.claude.join(', ')}\n\nCursor: ${data.available.cursor.join(', ')}`,
-          timestamp: Date.now()
-        }]);
-        break;
-
-      case 'cost': {
-        const costMessage = `**Token Usage**: ${data.tokenUsage.used.toLocaleString()} / ${data.tokenUsage.total.toLocaleString()} (${data.tokenUsage.percentage}%)\n\n**Estimated Cost**:\n- Input: $${data.cost.input}\n- Output: $${data.cost.output}\n- **Total**: $${data.cost.total}\n\n**Model**: ${data.model}`;
-        setChatMessages(prev => [...prev, { role: 'assistant', content: costMessage, timestamp: Date.now() }]);
-        break;
-      }
-
-      case 'status': {
-        const statusMessage = `**System Status**\n\n- Version: ${data.version}\n- Uptime: ${data.uptime}\n- Model: ${data.model}\n- Provider: ${data.provider}\n- Node.js: ${data.nodeVersion}\n- Platform: ${data.platform}`;
-        setChatMessages(prev => [...prev, { role: 'assistant', content: statusMessage, timestamp: Date.now() }]);
-        break;
-      }
-      case 'memory':
-        // Show memory file info
-        if (data.error) {
-          setChatMessages(prev => [...prev, {
-            role: 'assistant',
-            content: `⚠️ ${data.message}`,
-            timestamp: Date.now()
-          }]);
-        } else {
-          setChatMessages(prev => [...prev, {
-            role: 'assistant',
-            content: `📝 ${data.message}\n\nPath: \`${data.path}\``,
-            timestamp: Date.now()
-          }]);
-          // Optionally open file in editor
-          if (data.exists && onFileOpen) {
-            onFileOpen(data.path);
-          }
-        }
-        break;
-
-      case 'config':
-        // Open settings
-        if (onShowSettings) {
-          onShowSettings();
-        }
-        break;
-
-      case 'rewind':
-        // Rewind conversation
-        if (data.error) {
-          setChatMessages(prev => [...prev, {
-            role: 'assistant',
-            content: `⚠️ ${data.message}`,
-            timestamp: Date.now()
-          }]);
-        } else {
-          // Remove last N messages
-          setChatMessages(prev => prev.slice(0, -data.steps * 2)); // Remove user + assistant pairs
-          setChatMessages(prev => [...prev, {
-            role: 'assistant',
-            content: `⏪ ${data.message}`,
-            timestamp: Date.now()
-          }]);
-        }
-        break;
-
-      default:
-        console.warn('Unknown built-in command action:', action);
-    }
-  }, [onFileOpen, onShowSettings]);
-
-  // Ref to store handleSubmit so we can call it from handleCustomCommand
-  const handleSubmitRef = useRef(null);
-
-  // Handle custom command execution
-  const handleCustomCommand = useCallback(async (result, args) => {
-    const { content, hasBashCommands, hasFileIncludes } = result;
-
-    // Show confirmation for bash commands
-    if (hasBashCommands) {
-      const confirmed = window.confirm(
-        'This command contains bash commands that will be executed. Do you want to proceed?'
-      );
-      if (!confirmed) {
-        setChatMessages(prev => [...prev, {
-          role: 'assistant',
-          content: '❌ Command execution cancelled',
-          timestamp: Date.now()
-        }]);
-        return;
-      }
-    }
-
-    // Set the input to the command content
-    setInput(content);
-
-    // Wait for state to update, then directly call handleSubmit
-    setTimeout(() => {
-      if (handleSubmitRef.current) {
-        // Create a fake event to pass to handleSubmit
-        const fakeEvent = { preventDefault: () => {} };
-        handleSubmitRef.current(fakeEvent);
-      }
-    }, 50);
-  }, []);
-  const executeCommand = useCallback(async (command) => {
-    if (!command || !selectedProject) return;
-
-    try {
-      // Parse command and arguments from current input
-      const commandMatch = input.match(new RegExp(`${command.name}\\s*(.*)`));
-      const args = commandMatch && commandMatch[1]
-        ? commandMatch[1].trim().split(/\s+/)
-        : [];
-
-      // Prepare context for command execution
-      const context = {
-        projectPath: selectedProject.path,
-        projectName: selectedProject.name,
-        sessionId: currentSessionId,
-        provider,
-        model: provider === 'cursor' ? cursorModel : 'claude-sonnet-4.5',
-        tokenUsage: tokenBudget
-      };
-
-      // Call the execute endpoint
-      const response = await authenticatedFetch('/api/commands/execute', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          commandName: command.name,
-          commandPath: command.path,
-          args,
-          context
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to execute command');
-      }
-
-      const result = await response.json();
-
-      // Handle built-in commands
-      if (result.type === 'builtin') {
-        handleBuiltInCommand(result);
-      } else if (result.type === 'custom') {
-        // Handle custom commands - inject as system message
-        await handleCustomCommand(result, args);
-      }
-
-      // Clear the input after successful execution
-      setInput('');
-      resetCommandMenu();
-
-    } catch (error) {
-      console.error('Error executing command:', error);
-      // Show error message to user
-      setChatMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `Error executing command: ${error.message}`,
-        timestamp: Date.now()
-      }]);
-    }
-  }, [input, selectedProject, currentSessionId, provider, cursorModel, tokenBudget, resetCommandMenu]);
-
-  // Handle built-in command actions
-
+    executeCommand(command, input);
+  }, [selectedProject, updateCommandHistory, executeCommand, input]);
 
   // Memoized diff calculation to prevent recalculating on every render
   const createDiff = useMemo(() => createMemoizedDiff(100), []);
@@ -774,99 +656,9 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
   }, []);
 
   // Note: handleImageFiles, handlePaste, and dropzone setup are now provided by useImageUpload hook
+  // Note: handleEditMessage, handleDeleteMessage, handleCancelEdit are now provided by useMessageEditing hook
 
-  // Handle edit message
-  const handleEditMessage = useCallback((messageIndex) => {
-    // Prevent editing if already in edit mode or loading
-    if (editingMessageIndex !== null || isLoading) return;
-    
-    const message = chatMessages[messageIndex];
-    if (!message || message.type !== 'user') return;
-
-    // Save original input in case user cancels
-    setOriginalInput(input);
-    
-    // Fill input with message content
-    setInput(message.content || '');
-    
-    // Mark this message as being edited
-    setEditingMessageIndex(messageIndex);
-    
-    // Focus the input
-    if (textareaRef.current) {
-      textareaRef.current.focus();
-    }
-  }, [chatMessages, input, editingMessageIndex, isLoading]);
-
-  // Handle delete message
-  const handleDeleteMessage = useCallback(async (messageIndex) => {
-    if (isLoading || !selectedProject) return;
-    
-    try {
-      // Find the timestamp to keep until
-      // If we are deleting from index 0, we want to keep nothing (or until epoch)
-      // If we are deleting from index > 0, we want to keep up to the previous message
-      let keepUntilTimestamp;
-      
-      if (messageIndex > 0) {
-        const previousMessage = chatMessages[messageIndex - 1];
-        if (previousMessage && previousMessage.timestamp) {
-           keepUntilTimestamp = previousMessage.timestamp;
-        } else {
-           console.error('Cannot delete: previous message missing timestamp');
-           return;
-        }
-      } else {
-        // Deleting the first message means clearing everything.
-        // Use a very old timestamp to delete all
-        keepUntilTimestamp = new Date(0).toISOString(); 
-      }
-
-      // Format timestamp correctly
-      if (typeof keepUntilTimestamp === 'number') {
-        keepUntilTimestamp = new Date(keepUntilTimestamp).toISOString();
-      } else if (keepUntilTimestamp instanceof Date) {
-        keepUntilTimestamp = keepUntilTimestamp.toISOString();
-      }
-      
-      // Call backend to truncate
-      const response = await authenticatedFetch(
-        `/api/projects/${encodeURIComponent(selectedProject.name)}/sessions/${currentSessionId}/truncate`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            keepUntilTimestamp
-          })
-        }
-      );
-      
-      if (!response.ok) {
-         const error = await response.json();
-         throw new Error(error.error || 'Failed to truncate session');
-      }
-      
-      // Update frontend state immediately
-      setChatMessages(prev => prev.slice(0, messageIndex));
-
-    } catch (error) {
-      console.error('Failed to delete message:', error);
-      setChatMessages(prev => [...prev, {
-        type: 'error',
-        content: `Failed to delete message: ${error.message}`,
-        timestamp: new Date()
-      }]);
-    }
-  }, [isLoading, chatMessages, selectedProject, currentSessionId]);
-
-  // Cancel editing
-  const handleCancelEdit = useCallback(() => {
-    // Restore original input
-    setInput(originalInput);
-    setEditingMessageIndex(null);
-    setOriginalInput('');
-  }, [originalInput]);
-
+  // Main form submit handler - combines editing and message submission
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
     if (!input.trim() || isLoading || !selectedProject) return;
@@ -876,226 +668,33 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
 
     // If editing a message, truncate first
     if (wasEditing) {
-      const messageToEdit = chatMessages[editingMessageIndex];
-      if (!messageToEdit || !messageToEdit.timestamp) {
-        console.error('Cannot edit message: missing timestamp');
-        setEditingMessageIndex(null);
-        return;
-      }
-
-      try {
-        // We need to find the message BEFORE the one being edited
-        // to use as the truncation point
-        const messageBeforeEdit = editingMessageIndex > 0 
-          ? chatMessages[editingMessageIndex - 1] 
-          : null;
-
-        if (messageBeforeEdit && messageBeforeEdit.timestamp) {
-          // Convert timestamp to ISO string
-          let timestampISO = messageBeforeEdit.timestamp;
-          if (typeof timestampISO === 'number') {
-            timestampISO = new Date(timestampISO).toISOString();
-          } else if (timestampISO instanceof Date) {
-            timestampISO = timestampISO.toISOString();
-          }
-
-          // Truncate backend messages (keep messages up to and including the one before)
-          const response = await authenticatedFetch(
-            `/api/projects/${encodeURIComponent(selectedProject.name)}/sessions/${currentSessionId}/truncate`,
-            {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                keepUntilTimestamp: timestampISO
-              })
-            }
-          );
-
-          if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error || 'Failed to truncate session');
-          }
-        }
-
-        // Truncate frontend messages - keep messages BEFORE the one being edited
-        const truncatedMessages = chatMessages.slice(0, editingMessageIndex);
-        setChatMessages(truncatedMessages);
-        
-      } catch (error) {
-        console.error('Failed to truncate messages:', error);
-        setChatMessages(prev => [...prev, {
-          type: 'error',
-          content: `Failed to edit message: ${error.message}`,
-          timestamp: new Date()
-        }]);
-        setEditingMessageIndex(null);
-        setOriginalInput('');
-        return;
-      }
+      const success = await truncateForEdit();
+      if (!success) return;
     }
 
-    // Upload images first if any
-    let uploadedImages = [];
-    if (attachedImages.length > 0) {
-      const formData = new FormData();
-      attachedImages.forEach(file => {
-        formData.append('images', file);
-      });
-      
-      try {
-        const response = await authenticatedFetch(`/api/projects/${selectedProject.name}/upload-images`, {
-          method: 'POST',
-          headers: {}, // Let browser set Content-Type for FormData
-          body: formData
-        });
-        
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error || 'Failed to upload images');
-        }
-        
-        const result = await response.json();
-        uploadedImages = result.images;
-      } catch (error) {
-        console.error('Image upload failed:', error);
-        setChatMessages(prev => [...prev, {
-          type: 'error',
-          content: `Failed to upload images: ${error.message}`,
-          timestamp: new Date()
-        }]);
-        return;
-      }
-    }
-
-    const userMessage = {
-      type: 'user',
-      content: input,
-      images: uploadedImages,
-      timestamp: new Date()
-    };
-
-    setChatMessages(prev => [...prev, userMessage]);
-    setIsLoading(true);
-    setCanAbortSession(true);
-    // Set a default status when starting
-    setClaudeStatus({
-      text: 'Processing',
-      tokens: 0,
-      can_interrupt: true
-    });
+    // Submit the message using the hook
+    const success = await handleMessageSubmit(input);
     
-    // Always scroll to bottom when user sends a message and reset scroll state
-    setIsUserScrolledUp(false); // Reset scroll state so auto-scroll works for Claude's response
-    setTimeout(() => scrollToBottom(), 100); // Longer delay to ensure message is rendered
+    if (success) {
+      setInput('');
+      setIsTextareaExpanded(false);
 
-    // Determine effective session id for replies to avoid race on state updates
-    const effectiveSessionId = currentSessionId || selectedSession?.id || sessionStorage.getItem('cursorSessionId');
-
-    // Session Protection: Mark session as active to prevent automatic project updates during conversation
-    // Use existing session if available; otherwise a temporary placeholder until backend provides real ID
-    const sessionToActivate = effectiveSessionId || `new-session-${Date.now()}`;
-    if (onSessionActive) {
-      onSessionActive(sessionToActivate);
-    }
-
-    // Get tools settings from localStorage based on provider
-    const getToolsSettings = () => {
-      try {
-        const settingsKey = provider === 'cursor' ? 'cursor-tools-settings' : 'claude-settings';
-        const savedSettings = safeLocalStorage.getItem(settingsKey);
-        if (savedSettings) {
-          return JSON.parse(savedSettings);
-        }
-      } catch (error) {
-        console.error('Error loading tools settings:', error);
+      // Clear editing state after message is sent
+      if (wasEditing) {
+        clearEditingState();
       }
-      return {
-        allowedTools: [],
-        disallowedTools: [],
-        skipPermissions: false
-      };
-    };
 
-    const toolsSettings = getToolsSettings();
-
-    // Send command based on provider
-    if (provider === 'cursor') {
-      // Send Cursor command (always use cursor-command; include resume/sessionId when replying)
-      sendMessage({
-        type: 'cursor-command',
-        command: input,
-        sessionId: effectiveSessionId,
-        options: {
-          // Prefer fullPath (actual cwd for project), fallback to path
-          cwd: selectedProject.fullPath || selectedProject.path,
-          projectPath: selectedProject.fullPath || selectedProject.path,
-          sessionId: effectiveSessionId,
-          resume: !!effectiveSessionId,
-          model: cursorModel,
-          skipPermissions: toolsSettings?.skipPermissions || false,
-          toolsSettings: toolsSettings
-        }
-      });
-    } else if (provider === 'codebuddy') {
-      // Send CodeBuddy command (similar to Cursor)
-      // Don't generate temp session ID - let CodeBuddy CLI create it
-      sendMessage({
-        type: 'codebuddy-command',
-        command: input,
-        sessionId: effectiveSessionId, // null for new sessions
-        options: {
-          cwd: selectedProject.fullPath || selectedProject.path,
-          projectPath: selectedProject.fullPath || selectedProject.path,
-          sessionId: effectiveSessionId, // null for new sessions
-          resume: !!effectiveSessionId,
-          model: codebuddyModel,
-          toolsSettings: toolsSettings,
-          permissionMode: permissionMode,
-          images: uploadedImages // Pass images to backend (reserved for future CLI support)
-        }
-      });
-    } else {
-      // Send Claude command (existing code)
-      sendMessage({
-        type: 'claude-command',
-        command: input,
-        options: {
-          projectPath: selectedProject.path,
-          cwd: selectedProject.fullPath,
-          sessionId: currentSessionId,
-          resume: !!currentSessionId,
-          toolsSettings: toolsSettings,
-          permissionMode: permissionMode,
-          images: uploadedImages // Pass images to backend
-        }
-      });
+      // Reset textarea height
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
     }
-
-    setInput('');
-    clearImages(); // Clear attached images, uploading state, and errors
-    setIsTextareaExpanded(false);
-
-    // Clear editing state after message is sent
-    if (wasEditing) {
-      setEditingMessageIndex(null);
-      setOriginalInput('');
-    }
-
-    // Reset textarea height
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
-
-    // Clear the saved draft since message was sent
-    if (selectedProject) {
-      safeLocalStorage.removeItem(`draft_input_${selectedProject.name}`);
-    }
-  }, [input, isLoading, selectedProject, attachedImages, currentSessionId, selectedSession, provider, permissionMode, onSessionActive, cursorModel, codebuddyModel, sendMessage, setInput, clearImages, setIsTextareaExpanded, textareaRef, setChatMessages, setIsLoading, setCanAbortSession, setClaudeStatus, setIsUserScrolledUp, scrollToBottom, chatMessages, editingMessageIndex, setEditingMessageIndex, setOriginalInput]);
+  }, [input, isLoading, selectedProject, editingMessageIndex, truncateForEdit, handleMessageSubmit, clearEditingState, textareaRef]);
 
   // Store handleSubmit in ref so handleCustomCommand can access it
   useEffect(() => {
-    handleSubmitRef.current = handleSubmit;
-  }, [handleSubmit]);
+    setHandleSubmitRef(handleSubmit);
+  }, [handleSubmit, setHandleSubmitRef]);
 
   const selectCommand = (command) => {
     if (!command) return;
@@ -1115,7 +714,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     closeCommandMenu();
 
     // Execute the command (which will load its content and send to Claude)
-    executeCommand(command);
+    executeCommand(command, newInput);
   };
 
   const handleKeyDown = (e) => {

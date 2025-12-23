@@ -10,3 +10,6 @@ export { useSessionMessages } from './useSessionMessages';
 export { useProviderState } from './useProviderState';
 export { useTokenBudget } from './useTokenBudget';
 export { useWebSocketMessages } from './useWebSocketMessages';
+export { useCommandExecution } from './useCommandExecution';
+export { useMessageEditing } from './useMessageEditing';
+export { useMessageSubmit } from './useMessageSubmit';
