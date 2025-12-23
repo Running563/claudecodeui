@@ -10,12 +10,13 @@
  * - Claude status display
  */
 
-import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import React, { useCallback } from 'react';
 import ImageAttachment from './ImageAttachment';
 import CommandMenu from '../../CommandMenu';
 import TokenUsagePie from '../../TokenUsagePie';
 import ClaudeStatus from '../../ClaudeStatus';
 import { MicButton } from '../../MicButton.jsx';
+import { useInputKeyboard } from '../hooks';
 
 /**
  * InputArea component for chat input
@@ -28,8 +29,6 @@ function InputArea({
   isInputFocused,
   setIsInputFocused,
   handleSubmit,
-  provider,
-  selectedProject,
   sendByCtrlEnter,
   // Permission mode
   permissionMode,
@@ -84,14 +83,18 @@ function InputArea({
   // Claude status
   claudeStatus,
   handleAbortSession,
+  provider,
   showThinking,
   // Transcript
   handleTranscript,
-  // Textarea state
+  // Textarea state & handlers from useInputManagement
   isTextareaExpanded,
-  setIsTextareaExpanded,
   cursorPosition,
-  setCursorPosition
+  setCursorPosition,
+  handleTextareaClick,
+  handleTextareaInput,
+  handleClearInput,
+  placeholderText
 }) {
   // Select command handler
   const selectCommand = useCallback((command) => {
@@ -115,106 +118,6 @@ function InputArea({
     handleCommandSelect(command, -1, false);
   }, [input, slashPosition, setInput, closeCommandMenu, handleCommandSelect]);
 
-  // Keyboard handler
-  const handleKeyDown = useCallback((e) => {
-    // Handle command menu navigation
-    if (showCommandMenu && filteredCommands.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setSelectedCommandIndex(prev =>
-          prev < filteredCommands.length - 1 ? prev + 1 : 0
-        );
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setSelectedCommandIndex(prev =>
-          prev > 0 ? prev - 1 : filteredCommands.length - 1
-        );
-        return;
-      }
-      if (e.key === 'Tab' || e.key === 'Enter') {
-        e.preventDefault();
-        if (selectedCommandIndex >= 0) {
-          selectCommand(filteredCommands[selectedCommandIndex]);
-        } else if (filteredCommands.length > 0) {
-          selectCommand(filteredCommands[0]);
-        }
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        closeCommandMenu();
-        return;
-      }
-    }
-
-    // Handle file dropdown navigation
-    if (showFileDropdown && filteredFiles.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setSelectedFileIndex(prev => 
-          prev < filteredFiles.length - 1 ? prev + 1 : 0
-        );
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setSelectedFileIndex(prev => 
-          prev > 0 ? prev - 1 : filteredFiles.length - 1
-        );
-        return;
-      }
-      if (e.key === 'Tab' || e.key === 'Enter') {
-        e.preventDefault();
-        if (selectedFileIndex >= 0) {
-          selectFile(filteredFiles[selectedFileIndex]);
-        } else if (filteredFiles.length > 0) {
-          selectFile(filteredFiles[0]);
-        }
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        closeFileDropdown();
-        return;
-      }
-    }
-    
-    // Handle Tab key for mode switching (only when dropdowns are not showing)
-    if (e.key === 'Tab' && !showFileDropdown && !showCommandMenu) {
-      e.preventDefault();
-      cyclePermissionMode();
-      return;
-    }
-    
-    // Handle Enter key: Ctrl+Enter (Cmd+Enter on Mac) sends, Shift+Enter creates new line
-    if (e.key === 'Enter') {
-      // If we're in composition, don't send message
-      if (e.nativeEvent.isComposing) {
-        return; // Let IME handle the Enter key
-      }
-      
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
-        // Ctrl+Enter or Cmd+Enter: Send message
-        e.preventDefault();
-        handleSubmit(e);
-      } else if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
-        // Plain Enter: Send message only if not in IME composition
-        if (!sendByCtrlEnter) {
-          e.preventDefault();
-          handleSubmit(e);
-        }
-      }
-      // Shift+Enter: Allow default behavior (new line)
-    }
-  }, [
-    showCommandMenu, filteredCommands, selectedCommandIndex, setSelectedCommandIndex,
-    showFileDropdown, filteredFiles, selectedFileIndex, setSelectedFileIndex,
-    selectFile, selectCommand, closeCommandMenu, closeFileDropdown,
-    cyclePermissionMode, handleSubmit, sendByCtrlEnter
-  ]);
-
   // Input change handler
   const handleInputChange = useCallback((e) => {
     const newValue = e.target.value;
@@ -226,49 +129,32 @@ function InputArea({
     // Handle height reset when input becomes empty
     if (!newValue.trim()) {
       e.target.style.height = 'auto';
-      setIsTextareaExpanded(false);
       closeCommandMenu();
       return;
     }
 
     // Detect slash command at cursor position
     detectSlashCommand(newValue, cursorPos);
-  }, [setInput, setCursorPosition, setIsTextareaExpanded, closeCommandMenu, detectSlashCommand]);
+  }, [setInput, setCursorPosition, closeCommandMenu, detectSlashCommand]);
 
-  // Textarea click handler
-  const handleTextareaClick = useCallback((e) => {
-    setCursorPosition(e.target.selectionStart);
-  }, [setCursorPosition]);
-
-  // Textarea input handler for auto-resize
-  const handleTextareaInput = useCallback((e) => {
-    e.target.style.height = 'auto';
-    e.target.style.height = e.target.scrollHeight + 'px';
-    setCursorPosition(e.target.selectionStart);
-
-    // Check if textarea is expanded (more than 2 lines worth of height)
-    const lineHeight = parseInt(window.getComputedStyle(e.target).lineHeight);
-    const isExpanded = e.target.scrollHeight > lineHeight * 2;
-    setIsTextareaExpanded(isExpanded);
-  }, [setCursorPosition, setIsTextareaExpanded]);
-
-  // Clear input handler
-  const handleClearInput = useCallback((e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setInput('');
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.focus();
-    }
-    setIsTextareaExpanded(false);
-  }, [setInput, textareaRef, setIsTextareaExpanded]);
-
-  // Placeholder text
-  const placeholderText = useMemo(() => {
-    const providerName = provider === 'cursor' ? 'Cursor' : provider === 'codebuddy' ? 'CodeBuddy' : 'Claude';
-    return `输入 / 执行命令、@ 选择文件,或向 ${providerName} 提问...`;
-  }, [provider]);
+  // Keyboard handler via hook
+  const { handleKeyDown } = useInputKeyboard({
+    showCommandMenu,
+    filteredCommands,
+    selectedCommandIndex,
+    setSelectedCommandIndex,
+    closeCommandMenu,
+    showFileDropdown,
+    filteredFiles,
+    selectedFileIndex,
+    setSelectedFileIndex,
+    selectFile,
+    closeFileDropdown,
+    selectCommand,
+    cyclePermissionMode,
+    handleSubmit,
+    sendByCtrlEnter
+  });
 
   return (
     <div className={`p-2 sm:p-4 md:p-4 flex-shrink-0 ${

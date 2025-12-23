@@ -16,11 +16,10 @@
  * This ensures uninterrupted chat experience by coordinating with App.jsx to pause sidebar updates.
  */
 
-import React, { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 
 // Import utilities from refactored modules
 import {
-  safeLocalStorage,
   createMemoizedDiff,
 } from './ChatInterface/utils';
 
@@ -98,18 +97,12 @@ function ChatInterface({
     setSessionMessages,
     isLoadingSessionMessages,
     isLoadingMoreMessages,
-    setIsLoadingMoreMessages,
-    messagesOffset,
-    setMessagesOffset,
     hasMoreMessages,
-    setHasMoreMessages,
     totalMessages,
-    setTotalMessages,
     loadSessionMessages,
     loadCursorSessionMessagesWithState,
     convertedMessages,
-    resetPagination,
-    MESSAGES_PER_PAGE
+    resetPagination
   } = useSessionMessages();
   
   // Provider and model state management via custom hook
@@ -131,24 +124,20 @@ function ChatInterface({
     selectedSession
   });
 
-  // Scroll management via custom hook
+  // Scroll management via custom hook (chatMessages passed later via effect)
   const {
     isUserScrolledUp,
     setIsUserScrolledUp,
     scrollToBottom,
     isNearBottom,
-    handleScroll,
-    handleTouchStart,
-    handleTouchMove,
-    handleWheel,
     captureScrollPosition,
     handleAutoScroll,
+    updateChatMessagesLength,
     isLoadingMoreMessagesRef,
     pendingScrollRestoreRef
   } = useScrollManagement({
     scrollContainerRef,
     autoScrollToBottom,
-    chatMessages: [], // Will be updated after useChatSession
     hasMoreMessages,
     selectedSession,
     selectedProject,
@@ -210,7 +199,6 @@ function ChatInterface({
   const {
     input,
     setInput,
-    debouncedInput,
     cursorPosition,
     setCursorPosition,
     isTextareaExpanded,
@@ -218,21 +206,22 @@ function ChatInterface({
     isInputFocused,
     setIsInputFocused,
     handleTranscript,
-    clearInput
+    handleTextareaClick,
+    handleTextareaInput,
+    handleClearInput,
+    placeholderText
   } = useInputManagement({
     selectedProject,
-    textareaRef
+    textareaRef,
+    provider
   });
 
   // File dropdown management via custom hook
   const {
     showFileDropdown,
-    setShowFileDropdown,
-    fileList,
     filteredFiles,
     selectedFileIndex,
     setSelectedFileIndex,
-    atSymbolPosition,
     selectFile,
     closeDropdown: closeFileDropdown
   } = useFileDropdown({
@@ -248,7 +237,6 @@ function ChatInterface({
   const {
     slashCommands,
     filteredCommands,
-    setFilteredCommands,
     commandQuery,
     setCommandQuery,
     selectedCommandIndex,
@@ -262,16 +250,11 @@ function ChatInterface({
     detectSlashCommand,
     closeCommandMenu,
     toggleCommandMenu,
-    resetCommandMenu,
-    commandQueryTimerRef
+    resetCommandMenu
   } = useSlashCommands({ selectedProject });
 
   // WebSocket message handling via custom hook
-  const {
-    streamBufferRef,
-    streamTimerRef,
-    pendingToolResultsRef
-  } = useWebSocketMessages({
+  useWebSocketMessages({
     messages,
     currentSessionId,
     selectedSession,
@@ -297,9 +280,6 @@ function ChatInterface({
   // Message editing via custom hook
   const {
     editingMessageIndex,
-    setEditingMessageIndex,
-    originalInput,
-    setOriginalInput,
     handleEditMessage,
     handleDeleteMessage,
     handleCancelEdit,
@@ -317,10 +297,7 @@ function ChatInterface({
 
   // Message submission via custom hook
   const {
-    uploadImages,
-    submitMessage,
-    handleSubmit: handleMessageSubmit,
-    getToolsSettings
+    handleSubmit: handleMessageSubmit
   } = useMessageSubmit({
     selectedProject,
     selectedSession,
@@ -344,8 +321,6 @@ function ChatInterface({
   // Command execution via custom hook
   const {
     executeCommand,
-    handleBuiltInCommand,
-    handleCustomCommand,
     setHandleSubmitRef
   } = useCommandExecution({
     selectedProject,
@@ -472,8 +447,9 @@ function ChatInterface({
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
+    updateChatMessagesLength(chatMessages.length);
     handleAutoScroll();
-  }, [chatMessages.length, handleAutoScroll]);
+  }, [chatMessages.length, handleAutoScroll, updateChatMessagesLength]);
 
   // Scroll to bottom when messages first load after session switch
   useEffect(() => {
@@ -558,8 +534,6 @@ function ChatInterface({
           isInputFocused={isInputFocused}
           setIsInputFocused={setIsInputFocused}
           handleSubmit={handleSubmit}
-          provider={provider}
-          selectedProject={selectedProject}
           sendByCtrlEnter={sendByCtrlEnter}
           // Permission mode
           permissionMode={permissionMode}
@@ -614,14 +588,17 @@ function ChatInterface({
           // Claude status
           claudeStatus={claudeStatus}
           handleAbortSession={handleAbortSession}
+          provider={provider}
           showThinking={showThinking}
-          // Transcript
+          // Transcript & input handlers from useInputManagement
           handleTranscript={handleTranscript}
-          // Textarea state
           isTextareaExpanded={isTextareaExpanded}
-          setIsTextareaExpanded={setIsTextareaExpanded}
           cursorPosition={cursorPosition}
           setCursorPosition={setCursorPosition}
+          handleTextareaClick={handleTextareaClick}
+          handleTextareaInput={handleTextareaInput}
+          handleClearInput={handleClearInput}
+          placeholderText={placeholderText}
         />
 
         {/* Image Preview Modal */}

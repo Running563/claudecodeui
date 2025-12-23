@@ -15,3 +15,4 @@ export { useMessageEditing } from './useMessageEditing';
 export { useMessageSubmit } from './useMessageSubmit';
 export { useChatSession } from './useChatSession';
 export { useInputManagement } from './useInputManagement';
+export { useInputKeyboard } from './useInputKeyboard';

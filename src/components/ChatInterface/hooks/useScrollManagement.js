@@ -10,16 +10,15 @@ import { useState, useCallback, useRef, useEffect } from 'react';
  * @param {Object} params
  * @param {React.RefObject} params.scrollContainerRef - Ref to scroll container
  * @param {boolean} params.autoScrollToBottom - Whether auto-scroll is enabled
- * @param {Array} params.chatMessages - Current chat messages
  * @param {boolean} params.hasMoreMessages - Whether there are more messages to load
  * @param {Object} params.selectedSession - Currently selected session
  * @param {Object} params.selectedProject - Currently selected project
  * @param {Function} params.loadSessionMessages - Function to load more messages
+ * @param {Function} params.setSessionMessages - Function to update session messages
  */
 export function useScrollManagement({
   scrollContainerRef,
   autoScrollToBottom,
-  chatMessages,
   hasMoreMessages,
   selectedSession,
   selectedProject,
@@ -33,6 +32,8 @@ export function useScrollManagement({
   const lastScrollLoadTimeRef = useRef(0);
   const touchStartYRef = useRef(0);
   const pullDownTriggeredRef = useRef(false);
+  // Store chatMessages length in ref to avoid dependency issues
+  const chatMessagesLengthRef = useRef(0);
 
   // Scroll to bottom
   const scrollToBottom = useCallback(() => {
@@ -150,7 +151,7 @@ export function useScrollManagement({
 
   // Handle auto-scroll behavior
   const handleAutoScroll = useCallback(() => {
-    if (scrollContainerRef.current && chatMessages.length > 0) {
+    if (scrollContainerRef.current && chatMessagesLengthRef.current > 0) {
       if (autoScrollToBottom) {
         if (!isUserScrolledUp) {
           setTimeout(() => scrollToBottom(), 50);
@@ -167,7 +168,12 @@ export function useScrollManagement({
         }
       }
     }
-  }, [autoScrollToBottom, chatMessages.length, isUserScrolledUp, scrollToBottom, scrollContainerRef]);
+  }, [autoScrollToBottom, isUserScrolledUp, scrollToBottom, scrollContainerRef]);
+
+  // Update chatMessages length ref (call this from parent component)
+  const updateChatMessagesLength = useCallback((length) => {
+    chatMessagesLengthRef.current = length;
+  }, []);
 
   // Setup scroll event listeners
   useEffect(() => {
@@ -191,13 +197,10 @@ export function useScrollManagement({
     setIsUserScrolledUp,
     scrollToBottom,
     isNearBottom,
-    handleScroll,
-    handleTouchStart,
-    handleTouchMove,
-    handleWheel,
     captureScrollPosition,
     restoreScrollPosition,
     handleAutoScroll,
+    updateChatMessagesLength,
     isLoadingMoreMessagesRef,
     pendingScrollRestoreRef
   };

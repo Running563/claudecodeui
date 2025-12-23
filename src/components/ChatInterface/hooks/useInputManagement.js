@@ -7,9 +7,10 @@
  * - Textarea expansion state
  * - Draft persistence to localStorage
  * - Transcript handling (voice input)
+ * - Keyboard navigation for dropdowns/menus
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { safeLocalStorage } from '../utils';
 
 /**
@@ -17,7 +18,8 @@ import { safeLocalStorage } from '../utils';
  */
 export function useInputManagement({
   selectedProject,
-  textareaRef
+  textareaRef,
+  provider
 }) {
   // Input state
   const [input, setInput] = useState(() => {
@@ -105,30 +107,6 @@ export function useInputManagement({
     }
   }, [textareaRef]);
 
-  // Handle input change with height adjustment
-  const handleInputChange = useCallback((e, { closeCommandMenu, detectSlashCommand } = {}) => {
-    const newValue = e.target.value;
-    const cursorPos = e.target.selectionStart;
-
-    setInput(newValue);
-    setCursorPosition(cursorPos);
-
-    // Handle height reset when input becomes empty
-    if (!newValue.trim()) {
-      e.target.style.height = 'auto';
-      setIsTextareaExpanded(false);
-      if (closeCommandMenu) {
-        closeCommandMenu();
-      }
-      return;
-    }
-
-    // Detect slash command at cursor position
-    if (detectSlashCommand) {
-      detectSlashCommand(newValue, cursorPos);
-    }
-  }, []);
-
   // Handle textarea click to update cursor position
   const handleTextareaClick = useCallback((e) => {
     setCursorPosition(e.target.selectionStart);
@@ -155,6 +133,24 @@ export function useInputManagement({
     }
   }, [textareaRef]);
 
+  // Clear input button handler (prevents event propagation)
+  const handleClearInput = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setInput('');
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.focus();
+    }
+    setIsTextareaExpanded(false);
+  }, [textareaRef]);
+
+  // Placeholder text based on provider
+  const placeholderText = useMemo(() => {
+    const providerName = provider === 'cursor' ? 'Cursor' : provider === 'codebuddy' ? 'CodeBuddy' : 'Claude';
+    return `输入 / 执行命令、@ 选择文件,或向 ${providerName} 提问...`;
+  }, [provider]);
+
   return {
     input,
     setInput,
@@ -166,10 +162,11 @@ export function useInputManagement({
     isInputFocused,
     setIsInputFocused,
     handleTranscript,
-    handleInputChange,
     handleTextareaClick,
     handleTextareaInput,
-    clearInput
+    clearInput,
+    handleClearInput,
+    placeholderText
   };
 }
 
