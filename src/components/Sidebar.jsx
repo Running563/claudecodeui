@@ -309,12 +309,12 @@ function Sidebar({
         
         // Update local additionalSessions state to remove the deleted session
         setAdditionalSessions(prev => {
-          const projectSessions = prev[projectName];
+          const projectSessions = prev[projectPath];
           if (projectSessions && projectSessions.length > 0) {
             const filtered = projectSessions.filter(s => s.id !== sessionId);
             return {
               ...prev,
-              [projectName]: filtered
+              [projectPath]: filtered
             };
           }
           return prev;

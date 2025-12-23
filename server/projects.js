@@ -785,8 +785,18 @@ async function getSessionsFromDir(projectName, limit = 5, offset = 0, projectsBa
   
   const projectDir = path.join(projectsBaseDir, projectName);
 
+  let files;
   try {
-    const files = await fs.readdir(projectDir);
+    files = await fs.readdir(projectDir);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      // Directory doesn't exist, return empty result
+      return { sessions: [], hasMore: false, total: 0 };
+    }
+    throw error;
+  }
+
+  try {
     // agent-*.jsonl files contain session start data at this point. This needs to be revisited
     // periodically to make sure only accurate data is there and no new functionality is added there
     const jsonlFiles = files.filter(file => file.endsWith('.jsonl') && !file.startsWith('agent-'));
@@ -1436,7 +1446,8 @@ async function deleteSession(projectName, sessionId) {
   }
   
   if (!deleted) {
-    throw new Error(`Session ${sessionId} not found in Claude, Cursor or CodeBuddy projects`);
+    // Session not found is not an error - the end result is the same (session doesn't exist)
+    console.log(`Session ${sessionId} not found in any project, treating as already deleted`);
   }
   
   return true;
