@@ -63,7 +63,6 @@ function TerminalDetailView({
   // Create a project-like object for Shell component
   const terminalProject = {
     path: terminal.workingDir,
-    fullPath: terminal.workingDir,
     displayName: terminal.workingDir.split('/').pop() || 'Terminal'
   };
 

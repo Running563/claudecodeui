@@ -112,7 +112,7 @@ function Sidebar({
   // Auto-expand project folder when a session is selected
   useEffect(() => {
     if (selectedSession && selectedProject) {
-      setExpandedProjects(prev => new Set([...prev, selectedProject.name]));
+      setExpandedProjects(prev => new Set([...prev, selectedProject.path]));
     }
   }, [selectedSession, selectedProject]);
 
@@ -122,7 +122,7 @@ function Sidebar({
       const newLoaded = new Set();
       projects.forEach(project => {
         if (project.sessions && project.sessions.length >= 0) {
-          newLoaded.add(project.name);
+          newLoaded.add(project.path);
         }
       });
       setInitialSessionsLoaded(newLoaded);
@@ -181,7 +181,9 @@ function Sidebar({
 
   // Wrapper to attach project context when session is clicked
   const handleSessionClick = (session, projectName) => {
-    onSessionSelect({ ...session, __projectName: projectName });
+    // Use session.provider if available, otherwise determine from context
+    const provider = session.provider || 'claude';
+    onSessionSelect({ ...session, __projectName: projectName, provider, __provider: provider });
   };
 
   // Starred projects utility functions
@@ -208,18 +210,15 @@ function Sidebar({
 
   // Helper function to get all sessions for a project (initial + additional)
   const getAllSessions = (project) => {
-    // Combine Claude, CodeBuddy and Cursor sessions; Sidebar will display icon per row
-    // Initial sessions from getProjects API (need to add __provider)
-    const claudeSessions = (project.sessions || []).map(s => ({ ...s, __provider: 'claude' }));
-    const codebuddySessions = (project.codebuddySessions || []).map(s => ({ ...s, __provider: 'codebuddy' }));
-    const cursorSessions = (project.cursorSessions || []).map(s => ({ ...s, __provider: 'cursor' }));
+    // Sessions now come from backend with model field indicating type: 'claude' | 'codebuddy' | 'cursor'
+    const sessions = project.sessions || [];
     
-    // Additional sessions from loadMoreSessions API already have __provider set
-    const additionalSessionsList = additionalSessions[project.name] || [];
+    // Additional sessions from loadMoreSessions API
+    const additionalSessionsList = additionalSessions[project.path] || [];
     
     // Sort by most recent activity/date
-    const normalizeDate = (s) => new Date(s.__provider === 'cursor' || s.__provider === 'codebuddy' ? s.createdAt || s.lastActivity : s.lastActivity);
-    return [...claudeSessions, ...codebuddySessions, ...cursorSessions, ...additionalSessionsList].sort((a, b) => normalizeDate(b) - normalizeDate(a));
+    const normalizeDate = (s) => new Date(s.updatedAt || s.lastActivity || s.createdAt);
+    return [...sessions, ...additionalSessionsList].sort((a, b) => normalizeDate(b) - normalizeDate(a));
   };
 
   // Helper function to get the last activity date for a project
@@ -240,8 +239,8 @@ function Sidebar({
 
   // Combined sorting: starred projects first, then by selected order
   const sortedProjects = [...projects].sort((a, b) => {
-    const aStarred = isProjectStarred(a.name);
-    const bStarred = isProjectStarred(b.name);
+    const aStarred = isProjectStarred(a.path);
+    const bStarred = isProjectStarred(b.path);
     
     // First, sort by starred status
     if (aStarred && !bStarred) return -1;
@@ -252,15 +251,15 @@ function Sidebar({
       // Sort by most recent activity (descending)
       return getProjectLastActivity(b) - getProjectLastActivity(a);
     } else {
-      // Sort by display name (user-defined) or fallback to name (ascending)
-      const nameA = a.displayName || a.name;
-      const nameB = b.displayName || b.name;
+      // Sort by display name (user-defined) or fallback to path (ascending)
+      const nameA = a.displayName || a.path;
+      const nameB = b.displayName || b.path;
       return nameA.localeCompare(nameB);
     }
   });
 
   const startEditing = (project) => {
-    setEditingProject(project.name);
+    setEditingProject(project.path);
     setEditingName(project.displayName);
   };
 
@@ -269,9 +268,9 @@ function Sidebar({
     setEditingName('');
   };
 
-  const saveProjectName = async (projectName) => {
+  const saveProjectName = async (projectPath) => {
     try {
-      const project = projects.find(p => p.name === projectName);
+      const project = projects.find(p => p.path === projectPath);
       const projectId = getProjectId(project);
       const response = await api.renameProject(projectId, editingName);
 
@@ -293,15 +292,15 @@ function Sidebar({
     setEditingName('');
   };
 
-  const deleteSession = async (projectName, sessionId) => {
+  const deleteSession = async (projectPath, sessionId) => {
     if (!confirm('确定要删除此会话吗？此操作无法撤消。')) {
       return;
     }
 
     try {
-      const project = projects.find(p => p.name === projectName);
+      const project = projects.find(p => p.path === projectPath);
       const projectId = getProjectId(project);
-      console.log('[Sidebar] Deleting session:', { projectName, projectId, sessionId });
+      console.log('[Sidebar] Deleting session:', { projectPath, projectId, sessionId });
       const response = await api.deleteSession(projectId, sessionId);
       console.log('[Sidebar] Delete response:', { ok: response.ok, status: response.status });
 
@@ -338,20 +337,20 @@ function Sidebar({
     }
   };
 
-  const deleteProject = async (projectName) => {
+  const deleteProject = async (projectPath) => {
     if (!confirm('确定要删除此空项目吗？此操作无法撤消。')) {
       return;
     }
 
     try {
-      const project = projects.find(p => p.name === projectName);
+      const project = projects.find(p => p.path === projectPath);
       const projectId = getProjectId(project);
       const response = await api.deleteProject(projectId);
 
       if (response.ok) {
         // Call parent callback if provided
         if (onProjectDelete) {
-          onProjectDelete(projectName);
+          onProjectDelete(projectPath);
         }
       } else {
         const error = await response.json();
@@ -408,25 +407,19 @@ function Sidebar({
   };
 
   const loadMoreSessions = async (project) => {
-    // Check if we can load more sessions (either Claude or CodeBuddy)
-    const canLoadMoreClaude = project.sessionMeta?.hasMore !== false;
-    const canLoadMoreCodeBuddy = project.codebuddySessionMeta?.hasMore !== false;
-    const canLoadMore = canLoadMoreClaude || canLoadMoreCodeBuddy;
+    // Check if we can load more sessions
+    const canLoadMore = project.sessionMeta?.hasMore !== false;
     
-    if (!canLoadMore || loadingSessions[project.name]) {
+    if (!canLoadMore || loadingSessions[project.path]) {
       return;
     }
 
-    setLoadingSessions(prev => ({ ...prev, [project.name]: true }));
+    setLoadingSessions(prev => ({ ...prev, [project.path]: true }));
 
     try {
       // Calculate offset based on all loaded sessions
-      const claudeSessionCount = (project.sessions?.length || 0) + (additionalSessions[project.name]?.length || 0);
-      const codebuddySessionCount = project.codebuddySessions?.length || 0;
+      const currentSessionCount = (project.sessions?.length || 0) + (additionalSessions[project.path]?.length || 0);
       
-      // Load more from the provider that has more sessions
-      // For now, use the combined offset approach - the API will return sessions from the appropriate provider
-      const currentSessionCount = claudeSessionCount + codebuddySessionCount;
       const projectId = getProjectId(project);
       const response = await api.sessions(projectId, 10, currentSessionCount);
       
@@ -436,8 +429,8 @@ function Sidebar({
         // Store additional sessions locally
         setAdditionalSessions(prev => ({
           ...prev,
-          [project.name]: [
-            ...(prev[project.name] || []),
+          [project.path]: [
+            ...(prev[project.path] || []),
             ...result.sessions
           ]
         }));
@@ -446,13 +439,12 @@ function Sidebar({
         if (result.hasMore === false) {
           // Mark that there are no more sessions to load
           project.sessionMeta = { ...project.sessionMeta, hasMore: false };
-          project.codebuddySessionMeta = { ...project.codebuddySessionMeta, hasMore: false };
         }
       }
     } catch (error) {
       console.error('Error loading more sessions:', error);
     } finally {
-      setLoadingSessions(prev => ({ ...prev, [project.name]: false }));
+      setLoadingSessions(prev => ({ ...prev, [project.path]: false }));
     }
   };
 
@@ -461,8 +453,8 @@ function Sidebar({
     if (!searchFilter.trim()) return true;
     
     const searchLower = searchFilter.toLowerCase();
-    const displayName = (project.displayName || project.name).toLowerCase();
-    const projectName = project.name.toLowerCase();
+    const displayName = (project.displayName || project.path).toLowerCase();
+    const projectName = project.path.toLowerCase();
     
     // Search in both display name and actual project name/path
     return displayName.includes(searchLower) || projectName.includes(searchLower);
@@ -524,24 +516,43 @@ function Sidebar({
               </div>
             </div>
           )}
-          {onToggleSidebar && (
+          <div className="flex items-center gap-1">
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 w-8 px-0 hover:bg-accent transition-colors duration-200"
-              onClick={onToggleSidebar}
-              title="隐藏侧边栏"
+              className="h-8 w-8 px-0 hover:bg-accent transition-colors duration-200 group"
+              onClick={async () => {
+                setIsRefreshing(true);
+                try {
+                  await onRefresh();
+                } finally {
+                  setIsRefreshing(false);
+                }
+              }}
+              disabled={isRefreshing}
+              title="同步项目和会话 (Ctrl+R)"
             >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''} group-hover:rotate-180 transition-transform duration-300`} />
             </Button>
-          )}
+            {onToggleSidebar && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 px-0 hover:bg-accent transition-colors duration-200"
+                onClick={onToggleSidebar}
+                title="隐藏侧边栏"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </Button>
+            )}
+          </div>
         </div>
         
         {/* Mobile Header */}
@@ -693,12 +704,12 @@ function Sidebar({
             </div>
           ) : (
             filteredProjects.map((project) => {
-              const isExpanded = expandedProjects.has(project.name);
-              const isSelected = selectedProject?.name === project.name;
-              const isStarred = isProjectStarred(project.name);
+              const isExpanded = expandedProjects.has(project.path);
+              const isSelected = selectedProject?.path === project.path;
+              const isStarred = isProjectStarred(project.path);
               
               return (
-                <div key={project.name} className="md:space-y-1">
+                <div key={project.path} className="md:space-y-1">
                   {/* Project Header */}
                   <div className="group md:group">
                     {/* Mobile Project Item */}
@@ -711,9 +722,9 @@ function Sidebar({
                         )}
                         onClick={() => {
                           // On mobile, just toggle the folder - don't select the project
-                          toggleProject(project.name);
+                          toggleProject(project.path);
                         }}
-                        onTouchEnd={handleTouchClick(() => toggleProject(project.name))}
+                        onTouchEnd={handleTouchClick(() => toggleProject(project.path))}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -728,7 +739,7 @@ function Sidebar({
                               )}
                             </div>
                             <div className="min-w-0 flex-1">
-                              {editingProject === project.name ? (
+                              {editingProject === project.path ? (
                                 <input
                                   type="text"
                                   value={editingName}
@@ -739,7 +750,7 @@ function Sidebar({
                                   autoComplete="off"
                                   onClick={(e) => e.stopPropagation()}
                                   onKeyDown={(e) => {
-                                    if (e.key === 'Enter') saveProjectName(project.name);
+                                    if (e.key === 'Enter') saveProjectName(project.path);
                                     if (e.key === 'Escape') cancelEditing();
                                   }}
                                   style={{
@@ -758,7 +769,7 @@ function Sidebar({
                                   <p className="text-xs text-muted-foreground">
                                     {(() => {
                                       const sessionCount = getAllSessions(project).length;
-                                      const hasMore = project.sessionMeta?.hasMore !== false || project.codebuddySessionMeta?.hasMore !== false;
+                                      const hasMore = project.sessionMeta?.hasMore !== false;
                                       const count = hasMore && sessionCount >= 5 ? `${sessionCount}+` : sessionCount;
                                       return `${count} 个会话`;
                                     })()}
@@ -768,13 +779,13 @@ function Sidebar({
                             </div>
                           </div>
                           <div className="flex items-center gap-1">
-                            {editingProject === project.name ? (
+                            {editingProject === project.path ? (
                               <>
                                 <button
                                   className="w-8 h-8 rounded-lg bg-green-500 dark:bg-green-600 flex items-center justify-center active:scale-90 transition-all duration-150 shadow-sm active:shadow-none"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    saveProjectName(project.name);
+                                    saveProjectName(project.path);
                                   }}
                                 >
                                   <Check className="w-4 h-4 text-white" />
@@ -801,9 +812,9 @@ function Sidebar({
                                   )}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    toggleStarProject(project.name);
+                                    toggleStarProject(project.path);
                                   }}
-                                  onTouchEnd={handleTouchClick(() => toggleStarProject(project.name))}
+                                  onTouchEnd={handleTouchClick(() => toggleStarProject(project.path))}
                                   title={isStarred ? "取消收藏" : "添加到收藏"}
                                 >
                                   <Star className={cn(
@@ -818,9 +829,9 @@ function Sidebar({
                                     className="w-8 h-8 rounded-lg bg-red-500/10 dark:bg-red-900/30 flex items-center justify-center active:scale-90 border border-red-200 dark:border-red-800"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      deleteProject(project.name);
+                                      deleteProject(project.path);
                                     }}
-                                    onTouchEnd={handleTouchClick(() => deleteProject(project.name))}
+                                    onTouchEnd={handleTouchClick(() => deleteProject(project.path))}
                                   >
                                     <Trash2 className="w-4 h-4 text-red-600 dark:text-red-400" />
                                   </button>
@@ -859,16 +870,16 @@ function Sidebar({
                       )}
                       onClick={() => {
                         // Desktop behavior: select project and toggle
-                        if (selectedProject?.name !== project.name) {
+                        if (selectedProject?.path !== project.path) {
                           handleProjectSelect(project);
                         }
-                        toggleProject(project.name);
+                        toggleProject(project.path);
                       }}
                       onTouchEnd={handleTouchClick(() => {
-                        if (selectedProject?.name !== project.name) {
+                        if (selectedProject?.path !== project.path) {
                           handleProjectSelect(project);
                         }
-                        toggleProject(project.name);
+                        toggleProject(project.path);
                       })}
                     >
                       <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -878,7 +889,7 @@ function Sidebar({
                           <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                         )}
                         <div className="min-w-0 flex-1 text-left">
-                          {editingProject === project.name ? (
+                          {editingProject === project.path ? (
                             <div className="space-y-1">
                               <input
                                 type="text"
@@ -888,12 +899,12 @@ function Sidebar({
                                 placeholder="Project name"
                                 autoFocus
                                 onKeyDown={(e) => {
-                                  if (e.key === 'Enter') saveProjectName(project.name);
+                                  if (e.key === 'Enter') saveProjectName(project.path);
                                   if (e.key === 'Escape') cancelEditing();
                                 }}
                               />
-                              <div className="text-xs text-muted-foreground truncate" title={project.fullPath}>
-                                {project.fullPath}
+                              <div className="text-xs text-muted-foreground truncate" title={project.path}>
+                                {project.path}
                               </div>
                             </div>
                           ) : (
@@ -904,12 +915,12 @@ function Sidebar({
                               <div className="text-xs text-muted-foreground">
                                 {(() => {
                                   const sessionCount = getAllSessions(project).length;
-                                  const hasMore = project.sessionMeta?.hasMore !== false || project.codebuddySessionMeta?.hasMore !== false;
+                                  const hasMore = project.sessionMeta?.hasMore !== false;
                                   return hasMore && sessionCount >= 5 ? `${sessionCount}+` : sessionCount;
                                 })()}
-                                {project.fullPath !== project.displayName && (
-                                  <span className="ml-1 opacity-60" title={project.fullPath}>
-                                    • {project.fullPath.length > 25 ? '...' + project.fullPath.slice(-22) : project.fullPath}
+                                {project.path !== project.displayName && (
+                                  <span className="ml-1 opacity-60" title={project.path}>
+                                    • {project.path.length > 25 ? '...' + project.path.slice(-22) : project.path}
                                   </span>
                                 )}
                               </div>
@@ -919,13 +930,13 @@ function Sidebar({
                       </div>
                       
                       <div className="flex items-center gap-1 flex-shrink-0">
-                        {editingProject === project.name ? (
+                        {editingProject === project.path ? (
                           <>
                             <div
                               className="w-6 h-6 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20 flex items-center justify-center rounded cursor-pointer transition-colors"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                saveProjectName(project.name);
+                                saveProjectName(project.path);
                               }}
                             >
                               <Check className="w-3 h-3" />
@@ -952,7 +963,7 @@ function Sidebar({
                               )}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                toggleStarProject(project.name);
+                                toggleStarProject(project.path);
                               }}
                               title={isStarred ? "取消收藏" : "添加到收藏"}
                             >
@@ -978,7 +989,7 @@ function Sidebar({
                                 className="w-6 h-6 opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center justify-center rounded cursor-pointer touch:opacity-100"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  deleteProject(project.name);
+                                  deleteProject(project.path);
                                 }}
                                 title="删除空项目 (Delete)"
                               >
@@ -999,37 +1010,39 @@ function Sidebar({
                   {/* Sessions List */}
                   {isExpanded && (
                     <div className="ml-3 space-y-1 border-l border-border pl-3">
-                      {!initialSessionsLoaded.has(project.name) ? (
-                        // Loading skeleton for sessions
-                        Array.from({ length: 3 }).map((_, i) => (
-                          <div key={i} className="p-2 rounded-md">
-                            <div className="flex items-start gap-2">
-                              <div className="w-3 h-3 bg-muted rounded-full animate-pulse mt-0.5" />
-                              <div className="flex-1 space-y-1">
-                                <div className="h-3 bg-muted rounded animate-pulse" style={{ width: `${60 + i * 15}%` }} />
-                                <div className="h-2 bg-muted rounded animate-pulse w-1/2" />
+                      {/* Sessions content wrapper */}
+                      <div key="sessions-content">
+                        {!initialSessionsLoaded.has(project.path) ? (
+                          // Loading skeleton for sessions
+                          Array.from({ length: 3 }).map((_, i) => (
+                            <div key={`skeleton-${i}`} className="p-2 rounded-md">
+                              <div className="flex items-start gap-2">
+                                <div className="w-3 h-3 bg-muted rounded-full animate-pulse mt-0.5" />
+                                <div className="flex-1 space-y-1">
+                                  <div className="h-3 bg-muted rounded animate-pulse" style={{ width: `${60 + i * 15}%` }} />
+                                  <div className="h-2 bg-muted rounded animate-pulse w-1/2" />
+                                </div>
                               </div>
                             </div>
+                          ))
+                        ) : getAllSessions(project).length === 0 && !loadingSessions[project.path] ? (
+                          <div className="py-2 px-3 text-left">
+                            <p className="text-xs text-muted-foreground">尚无会话</p>
                           </div>
-                        ))
-                      ) : getAllSessions(project).length === 0 && !loadingSessions[project.name] ? (
-                        <div className="py-2 px-3 text-left">
-                          <p className="text-xs text-muted-foreground">尚无会话</p>
-                        </div>
-                      ) : (
-                        getAllSessions(project).map((session) => {
-                          // Handle both Claude and Cursor session formats
-                          const isCursorSession = session.__provider === 'cursor';
-                          const isCodeBuddySession = session.__provider === 'codebuddy';
+                        ) : (
+                          getAllSessions(project).map((session) => {
+                          // Handle session type by provider field
+                          const isCursorSession = session.provider === 'cursor';
+                          const isCodeBuddySession = session.provider === 'codebuddy';
                           
                           // Calculate if session is active (within last 10 minutes)
-                          const sessionDate = new Date(isCursorSession || isCodeBuddySession ? session.createdAt : session.lastActivity);
+                          const sessionDate = new Date(session.updatedAt || session.lastActivity || session.createdAt);
                           const diffInMinutes = Math.floor((currentTime - sessionDate) / (1000 * 60));
                           const isActive = diffInMinutes < 10;
                           
-                          // Get session display values
-                          const sessionName = isCursorSession || isCodeBuddySession ? (session.name || '无标题会话') : (session.summary || '新会话');
-                          const sessionTime = isCursorSession || isCodeBuddySession ? session.createdAt : session.lastActivity;
+                          // Get session display values - use name/summary for title
+                          const sessionName = session.name || session.summary || '新会话';
+                          const sessionTime = session.updatedAt || session.lastActivity || session.createdAt;
                           const messageCount = session.messageCount || 0;
                           
                           return (
@@ -1050,11 +1063,11 @@ function Sidebar({
                                 )}
                                 onClick={() => {
                                   handleProjectSelect(project);
-                                  handleSessionClick(session, project.name);
+                                  handleSessionClick(session, project.path);
                                 }}
                                 onTouchEnd={handleTouchClick(() => {
                                   handleProjectSelect(project);
-                                  handleSessionClick(session, project.name);
+                                  handleSessionClick(session, project.path);
                                 })}
                               >
                                 <div className="flex items-center gap-2">
@@ -1091,9 +1104,9 @@ function Sidebar({
                                     className="w-5 h-5 rounded-md bg-red-50 dark:bg-red-900/20 flex items-center justify-center active:scale-95 transition-transform opacity-70 ml-1"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      deleteSession(project.name, session.id);
+                                      deleteSession(project.path, session.id);
                                     }}
-                                    onTouchEnd={handleTouchClick(() => deleteSession(project.name, session.id))}
+                                    onTouchEnd={handleTouchClick(() => deleteSession(project.path, session.id))}
                                   >
                                     <Trash2 className="w-2.5 h-2.5 text-red-600 dark:text-red-400" />
                                   </button>
@@ -1109,8 +1122,8 @@ function Sidebar({
                                   "w-full justify-start p-2 h-auto font-normal text-left hover:bg-accent/50 transition-colors duration-200",
                                   selectedSession?.id === session.id && "bg-accent text-accent-foreground"
                                 )}
-                                onClick={() => handleSessionClick(session, project.name)}
-                                onTouchEnd={handleTouchClick(() => handleSessionClick(session, project.name))}
+                                onClick={() => handleSessionClick(session, project.path)}
+                                onTouchEnd={handleTouchClick(() => handleSessionClick(session, project.path))}
                               >
                                 <div className="flex items-start gap-2 min-w-0 w-full">
                                   {isCodeBuddySession ? (
@@ -1149,7 +1162,7 @@ function Sidebar({
                                       onKeyDown={(e) => {
                                         e.stopPropagation();
                                         if (e.key === 'Enter') {
-                                          updateSessionSummary(project.name, session.id, editingSessionName);
+                                          updateSessionSummary(project.path, session.id, editingSessionName);
                                         } else if (e.key === 'Escape') {
                                           setEditingSession(null);
                                           setEditingSessionName('');
@@ -1163,7 +1176,7 @@ function Sidebar({
                                       className="w-6 h-6 bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/40 rounded flex items-center justify-center"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        updateSessionSummary(project.name, session.id, editingSessionName);
+                                        updateSessionSummary(project.path, session.id, editingSessionName);
                                       }}
                                       title="保存"
                                     >
@@ -1188,12 +1201,12 @@ function Sidebar({
                                       className="w-6 h-6 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/40 rounded flex items-center justify-center"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        generateSessionSummary(project.name, session.id);
+                                        generateSessionSummary(project.path, session.id);
                                       }}
                                       title="Generate AI summary for this session"
-                                      disabled={generatingSummary[`${project.name}-${session.id}`]}
+                                      disabled={generatingSummary[`${project.path}-${session.id}`]}
                                     >
-                                      {generatingSummary[`${project.name}-${session.id}`] ? (
+                                      {generatingSummary[`${project.path}-${session.id}`] ? (
                                         <div className="w-3 h-3 animate-spin rounded-full border border-blue-600 dark:border-blue-400 border-t-transparent" />
                                       ) : (
                                         <Sparkles className="w-3 h-3 text-blue-600 dark:text-blue-400" />
@@ -1216,7 +1229,7 @@ function Sidebar({
                                       className="w-6 h-6 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 rounded flex items-center justify-center"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        deleteSession(project.name, session.id);
+                                        deleteSession(project.path, session.id);
                                       }}
                                       title="永久删除此会话"
                                     >
@@ -1229,18 +1242,20 @@ function Sidebar({
                           </div>
                           );
                         })
-                      )}
+                        )}
+                      </div>
 
                       {/* Show More Sessions Button */}
-                      {getAllSessions(project).length > 0 && (project.sessionMeta?.hasMore !== false || project.codebuddySessionMeta?.hasMore !== false) && (
+                      {getAllSessions(project).length > 0 && project.sessionMeta?.hasMore !== false && (
                         <Button
+                          key="load-more"
                           variant="ghost"
                           size="sm"
                           className="w-full justify-center gap-2 mt-2 text-muted-foreground"
                           onClick={() => loadMoreSessions(project)}
-                          disabled={loadingSessions[project.name]}
+                          disabled={loadingSessions[project.path]}
                         >
-                          {loadingSessions[project.name] ? (
+                          {loadingSessions[project.path] ? (
                             <>
                               <div className="w-3 h-3 animate-spin rounded-full border border-muted-foreground border-t-transparent" />
                               加载中...
@@ -1255,7 +1270,7 @@ function Sidebar({
                       )}
                       
                       {/* New Session Button */}
-                      <div className="md:hidden px-3 pb-2">
+                      <div key="new-session-mobile" className="md:hidden px-3 pb-2">
                         <button
                           className="w-full h-8 bg-primary hover:bg-primary/90 text-primary-foreground rounded-md flex items-center justify-center gap-2 font-medium text-xs active:scale-[0.98] transition-all duration-150"
                           onClick={() => {
@@ -1269,6 +1284,7 @@ function Sidebar({
                       </div>
                       
                       <Button
+                        key="new-session-desktop"
                         variant="default"
                         size="sm"
                         className="hidden md:flex w-full justify-start gap-2 mt-1 h-8 text-xs font-medium bg-primary hover:bg-primary/90 text-primary-foreground transition-colors"

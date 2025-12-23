@@ -98,8 +98,8 @@ const MessageList = memo(function MessageList({
     );
   }
 
-  // Get current provider for logo display
-  const currentProvider = localStorage.getItem('selected-provider') || 'claude';
+  // Get current provider for logo display - use prop first, fallback to localStorage
+  const currentProvider = provider || localStorage.getItem('selected-provider') || 'claude';
 
   return (
     <>

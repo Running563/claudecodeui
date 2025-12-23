@@ -124,7 +124,7 @@ router.get('/projects/:id/sessions', authenticateToken, (req, res) => {
 router.post('/projects/:id/sessions', authenticateToken, (req, res) => {
   try {
     const projectId = parseInt(req.params.id);
-    const { sessionId, model, title, sourceFile } = req.body;
+    const { sessionId, provider, title, sourceFile } = req.body;
     
     if (!sessionId) {
       return res.status(400).json({ error: 'sessionId is required' });
@@ -135,7 +135,7 @@ router.post('/projects/:id/sessions', authenticateToken, (req, res) => {
       return res.status(404).json({ error: 'Project not found' });
     }
     
-    const session = createSession(projectId, sessionId, model, title, sourceFile);
+    const session = createSession(projectId, sessionId, provider, title, sourceFile);
     res.json(session);
   } catch (error) {
     console.error('[DB] Create session error:', error);
@@ -146,8 +146,8 @@ router.post('/projects/:id/sessions', authenticateToken, (req, res) => {
 // 更新会话
 router.patch('/sessions/:id', authenticateToken, (req, res) => {
   try {
-    const { model, title, sourceFile } = req.body;
-    const result = updateSession(parseInt(req.params.id), { model, title, sourceFile });
+    const { provider, title, sourceFile } = req.body;
+    const result = updateSession(parseInt(req.params.id), { provider, title, sourceFile });
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Session not found' });

@@ -489,19 +489,19 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
   };
   const handleClaudeLogin = () => {
     setLoginProvider('claude');
-    setSelectedProject(projects?.[0] || { name: 'default', fullPath: process.cwd() });
+    setSelectedProject(projects?.[0] || { name: 'default', path: process.cwd() });
     setShowLoginModal(true);
   };
 
   const handleCursorLogin = () => {
     setLoginProvider('cursor');
-    setSelectedProject(projects?.[0] || { name: 'default', fullPath: process.cwd() });
+    setSelectedProject(projects?.[0] || { name: 'default', path: process.cwd() });
     setShowLoginModal(true);
   };
 
   const handleCodeBuddyLogin = () => {
     setLoginProvider('codebuddy');
-    setSelectedProject(projects?.[0] || { name: 'default', fullPath: process.cwd() });
+    setSelectedProject(projects?.[0] || { name: 'default', path: process.cwd() });
     setShowLoginModal(true);
   };
 
@@ -1640,7 +1640,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                             >
                               <option value="">选择项目...</option>
                               {projects.map(project => (
-                                <option key={project.name} value={project.path || project.fullPath}>
+                                <option key={project.name} value={project.path || project.path}>
                                   {project.displayName || project.name}
                                 </option>
                               ))}

@@ -21,7 +21,7 @@ function DirectoryPickerModal({ isOpen, onClose, onSelect, currentProject }) {
       
       // Set default to current project if available
       if (currentProject) {
-        setInputPath(currentProject.fullPath || currentProject.path || '');
+        setInputPath(currentProject.path || currentProject.path || '');
       }
       
       setError('');
@@ -124,7 +124,7 @@ function DirectoryPickerModal({ isOpen, onClose, onSelect, currentProject }) {
                 </p>
                 <button
                   type="button"
-                  onClick={() => validateAndSelect(currentProject.fullPath || currentProject.path)}
+                  onClick={() => validateAndSelect(currentProject.path || currentProject.path)}
                   className="w-full flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 
                            hover:bg-gray-100 dark:hover:bg-gray-600 rounded-lg transition-colors"
                 >
@@ -135,7 +135,7 @@ function DirectoryPickerModal({ isOpen, onClose, onSelect, currentProject }) {
                         当前项目
                       </div>
                       <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                        {currentProject.fullPath || currentProject.path}
+                        {currentProject.path || currentProject.path}
                       </div>
                     </div>
                   </div>

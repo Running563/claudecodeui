@@ -40,9 +40,10 @@ export function useProviderState({ selectedSession }) {
 
   // When selecting a session from Sidebar, auto-switch provider to match session's origin
   useEffect(() => {
-    if (selectedSession && selectedSession.__provider && selectedSession.__provider !== provider) {
-      setProvider(selectedSession.__provider);
-      localStorage.setItem('selected-provider', selectedSession.__provider);
+    const sessionProvider = selectedSession?.provider || selectedSession?.__provider;
+    if (selectedSession && sessionProvider && sessionProvider !== provider) {
+      setProvider(sessionProvider);
+      localStorage.setItem('selected-provider', sessionProvider);
     }
   }, [selectedSession, provider]);
 

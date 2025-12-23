@@ -138,8 +138,8 @@ export function useMessageSubmit({
         command: input,
         sessionId: effectiveSessionId,
         options: {
-          cwd: selectedProject.fullPath || selectedProject.path,
-          projectPath: selectedProject.fullPath || selectedProject.path,
+          cwd: selectedProject.path || selectedProject.path,
+          projectPath: selectedProject.path || selectedProject.path,
           sessionId: effectiveSessionId,
           resume: !!effectiveSessionId,
           model: cursorModel,
@@ -153,8 +153,8 @@ export function useMessageSubmit({
         command: input,
         sessionId: effectiveSessionId,
         options: {
-          cwd: selectedProject.fullPath || selectedProject.path,
-          projectPath: selectedProject.fullPath || selectedProject.path,
+          cwd: selectedProject.path || selectedProject.path,
+          projectPath: selectedProject.path || selectedProject.path,
           sessionId: effectiveSessionId,
           resume: !!effectiveSessionId,
           model: codebuddyModel,
@@ -169,7 +169,7 @@ export function useMessageSubmit({
         command: input,
         options: {
           projectPath: selectedProject.path,
-          cwd: selectedProject.fullPath,
+          cwd: selectedProject.path,
           sessionId: currentSessionId,
           resume: !!currentSessionId,
           toolsSettings: toolsSettings,

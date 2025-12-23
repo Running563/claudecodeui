@@ -64,6 +64,14 @@ export function useChatSession({
         // Only reset state if the session ID actually changed (not initial load)
         const sessionChanged = currentSessionId !== null && currentSessionId !== selectedSession.id;
 
+        // CRITICAL: If we're currently loading (processing a message), don't reload messages
+        // This prevents the issue where session-created triggers a reload and loses user messages
+        if (isLoading && !sessionChanged) {
+          console.log('[useChatSession] Skipping message reload - currently loading');
+          isLoadingSessionRef.current = false;
+          return;
+        }
+
         if (sessionChanged) {
           // Reset pagination state when switching sessions
           resetPagination();
@@ -101,7 +109,7 @@ export function useChatSession({
           
           // Only load messages from SQLite if this is NOT a system-initiated session change
           if (!isSystemSessionChange) {
-            const projectPath = selectedProject.fullPath || selectedProject.path;
+            const projectPath = selectedProject.path || selectedProject.path;
             const converted = await loadCursorSessionMessagesWithState(projectPath, selectedSession.id);
             setSessionMessages([]);
             setChatMessages(converted);
@@ -147,7 +155,7 @@ export function useChatSession({
           const currentProvider = localStorage.getItem('selected-provider') || 'claude';
 
           if (currentProvider === 'cursor') {
-            const projectPath = selectedProject.fullPath || selectedProject.path;
+            const projectPath = selectedProject.path || selectedProject.path;
             const converted = await loadCursorSessionMessagesWithState(projectPath, selectedSession.id);
             setSessionMessages([]);
             setChatMessages(converted);

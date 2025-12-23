@@ -360,7 +360,8 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                       try {
                         const project = getProjectByPath(projectPath);
                         if (project) {
-                          createSession(project.id, capturedSessionId, response.model || 'codebuddy', null, null);
+                          // provider 字段存储 provider 类型，不是 AI 模型名称
+                          createSession(project.id, capturedSessionId, 'codebuddy', null, null);
                           console.log('✅ [CodeBuddy] Session saved to database:', capturedSessionId);
                         }
                       } catch (dbError) {

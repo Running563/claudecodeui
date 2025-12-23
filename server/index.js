@@ -59,7 +59,7 @@ import mime from 'mime-types';
 import multer from 'multer';
 
 import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
-import { getProjectById } from './db.js';
+import { getProjectById, getProjectsWithSessions } from './db.js';
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions } from './claude-sdk.js';
 import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
 // Use SDK-style CodeBuddy integration (similar to Cursor CLI)
@@ -423,9 +423,11 @@ app.use(express.static(path.join(__dirname, '../dist'), {
 
 app.get('/api/projects', authenticateToken, async (req, res) => {
     try {
-        const projects = await getProjects();
+        // 直接从数据库查询项目和会话
+        const projects = getProjectsWithSessions(10);
         res.json(projects);
     } catch (error) {
+        console.error('[API] Error fetching projects:', error);
         res.status(500).json({ error: error.message });
     }
 });

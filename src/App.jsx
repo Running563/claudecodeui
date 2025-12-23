@@ -209,7 +209,8 @@ function AppContent() {
         if (newTitle && targetSessionId) {
           // Update selectedSession if it matches - only if title actually changed
           if (selectedSession && selectedSession.id === targetSessionId) {
-            const currentTitle = selectedSession.__provider === 'codebuddy' || selectedSession.__provider === 'cursor' 
+            const sessionProvider = selectedSession.provider || selectedSession.__provider;
+            const currentTitle = sessionProvider === 'codebuddy' || sessionProvider === 'cursor' 
               ? selectedSession.name 
               : selectedSession.summary;
             
@@ -217,8 +218,9 @@ function AppContent() {
             if (currentTitle !== newTitle) {
               setSelectedSession(prev => {
                 if (!prev) return prev;
+                const prevProvider = prev.provider || prev.__provider;
                 // Update name for codebuddy/cursor, summary for claude
-                if (prev.__provider === 'codebuddy' || prev.__provider === 'cursor') {
+                if (prevProvider === 'codebuddy' || prevProvider === 'cursor') {
                   return { ...prev, name: newTitle };
                 } else {
                   return { ...prev, summary: newTitle };
@@ -429,28 +431,7 @@ function AppContent() {
       const response = await api.projects();
       const data = await response.json();
       
-      // Always fetch Cursor sessions for each project so we can combine views
-      for (let project of data) {
-        try {
-          const url = `/api/cursor/sessions?projectPath=${encodeURIComponent(project.fullPath || project.path)}`;
-          const cursorResponse = await authenticatedFetch(url);
-          if (cursorResponse.ok) {
-            const cursorData = await cursorResponse.json();
-            if (cursorData.success && cursorData.sessions) {
-              project.cursorSessions = cursorData.sessions;
-            } else {
-              project.cursorSessions = [];
-            }
-          } else {
-            project.cursorSessions = [];
-          }
-        } catch (error) {
-          console.error(`Error fetching Cursor sessions for project ${project.name}:`, error);
-          project.cursorSessions = [];
-        }
-      }
-      
-      // Optimize to preserve object references when data hasn't changed
+      // 简化：直接使用数据库返回的数据，不再额外请求 Cursor sessions
       setProjects(prevProjects => {
         // If no previous projects, just set the new data
         if (prevProjects.length === 0) {
@@ -460,23 +441,18 @@ function AppContent() {
         
         // Check if the projects data has actually changed
         const hasChanges = data.some((newProject, index) => {
-          const prevProject = prevProjects[index];
+          const prevProject = prevProjects.find(p => p.id === newProject.id);
           if (!prevProject) return true;
           
-          // Compare key properties that would affect UI
-          const sessionsChanged = JSON.stringify(newProject.sessions) !== JSON.stringify(prevProject.sessions);
-          if (sessionsChanged) {
-            console.log('[App] Sessions changed for project:', newProject.name, 
-              'prev:', prevProject.sessions?.length, 'new:', newProject.sessions?.length);
-          }
+          // Compare sessions count and meta
+          const sessionsChanged = 
+            newProject.sessions?.length !== prevProject.sessions?.length ||
+            JSON.stringify(newProject.sessionMeta) !== JSON.stringify(prevProject.sessionMeta);
           
           return (
-            newProject.name !== prevProject.name ||
             newProject.displayName !== prevProject.displayName ||
-            newProject.fullPath !== prevProject.fullPath ||
-            JSON.stringify(newProject.sessionMeta) !== JSON.stringify(prevProject.sessionMeta) ||
-            sessionsChanged ||
-            JSON.stringify(newProject.cursorSessions) !== JSON.stringify(prevProject.cursorSessions)
+            newProject.path !== prevProject.path ||
+            sessionsChanged
           );
         }) || data.length !== prevProjects.length;
         
@@ -513,7 +489,9 @@ function AppContent() {
         let session = project.sessions?.find(s => s.id === sessionId);
         if (session) {
           setSelectedProject(project);
-          setSelectedSession({ ...session, __provider: 'claude' });
+          // Use session.provider if available, otherwise default to 'claude'
+          const provider = session.provider || 'claude';
+          setSelectedSession({ ...session, provider, __provider: provider });
           // Only switch to chat tab if we're loading a different session
           if (shouldSwitchTab) {
             setActiveTab('chat');
@@ -524,7 +502,8 @@ function AppContent() {
         const cbSession = project.codebuddySessions?.find(s => s.id === sessionId);
         if (cbSession) {
           setSelectedProject(project);
-          setSelectedSession({ ...cbSession, __provider: 'codebuddy' });
+          const provider = cbSession.provider || 'codebuddy';
+          setSelectedSession({ ...cbSession, provider, __provider: provider });
           if (shouldSwitchTab) {
             setActiveTab('chat');
           }
@@ -534,7 +513,8 @@ function AppContent() {
         const cSession = project.cursorSessions?.find(s => s.id === sessionId);
         if (cSession) {
           setSelectedProject(project);
-          setSelectedSession({ ...cSession, __provider: 'cursor' });
+          const provider = cSession.provider || 'cursor';
+          setSelectedSession({ ...cSession, provider, __provider: provider });
           if (shouldSwitchTab) {
             setActiveTab('chat');
           }
@@ -644,7 +624,7 @@ function AppContent() {
           return (
             newProject.name !== prevProject.name ||
             newProject.displayName !== prevProject.displayName ||
-            newProject.fullPath !== prevProject.fullPath ||
+            newProject.path !== prevProject.path ||
             JSON.stringify(newProject.sessionMeta) !== JSON.stringify(prevProject.sessionMeta) ||
             JSON.stringify(newProject.sessions) !== JSON.stringify(prevProject.sessions)
           );
@@ -758,7 +738,7 @@ function AppContent() {
   // Removes temporary "new-session-*" identifiers and adds the real session ID
   // This maintains protection continuity during the transition from temporary to real session
   const replaceTemporarySession = useCallback((realSessionId) => {
-    if (realSessionId) {
+    if (realSessionId && selectedProject) {
       console.log('[App] replaceTemporarySession called with:', realSessionId);
       setActiveSessions(prev => {
         const newSet = new Set();
@@ -772,11 +752,48 @@ function AppContent() {
         return newSet;
       });
       
-      // Refresh project list - session is now saved in database
-      console.log('[App] Refreshing projects after session-created');
-      fetchProjects();
+      // NOTE: Do NOT update selectedSession here - it will trigger useChatSession to reload messages
+      // and lose the current conversation. The ChatInterface manages currentSessionId internally.
+      
+      // Update only the sidebar's project sessions list
+      const projectId = selectedProject.id;
+      const projectPath = selectedProject.path;
+      const sessionModel = selectedSession?.provider || selectedSession?.__provider || 'codebuddy';
+      
+      setProjects(prevProjects => 
+        prevProjects.map(p => {
+          if (p.id === projectId || p.path === projectPath) {
+            // Check if session already exists using current project data
+            const sessionExists = p.sessions?.some(s => s.id === realSessionId);
+            if (sessionExists) {
+              return p;
+            }
+            
+            // Add new session to the beginning of the list
+            const newSession = {
+              id: realSessionId,
+              provider: sessionModel,
+              name: '新会话',
+              summary: '新会话',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              lastActivity: new Date().toISOString()
+            };
+            
+            return {
+              ...p,
+              sessions: [newSession, ...(p.sessions || [])],
+              sessionMeta: {
+                ...p.sessionMeta,
+                total: (p.sessionMeta?.total || 0) + 1
+              }
+            };
+          }
+          return p;
+        })
+      );
     }
-  }, [fetchProjects]);
+  }, [selectedProject, selectedSession]);
 
   // Quick Terminals Functions
   const handleCreateTerminal = useCallback(() => {
@@ -1078,7 +1095,7 @@ function App() {
         <WebSocketProvider>
           <TasksSettingsProvider>
             <ProtectedRoute>
-              <Router>
+              <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
                 <Routes>
                   <Route path="/" element={<AppContent />} />
                   <Route path="/session/:sessionId" element={<AppContent />} />

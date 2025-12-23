@@ -16,6 +16,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
+import { getProjectByPath, createSession } from './db.js';
 
 // Session tracking: Map of session IDs to active query instances
 const activeSessions = new Map();
@@ -395,7 +396,7 @@ async function loadMcpConfig(cwd) {
  * @returns {Promise<void>}
  */
 async function queryClaudeSDK(command, options = {}, ws) {
-  const { sessionId } = options;
+  const { sessionId, projectPath } = options;
   let capturedSessionId = sessionId;
   let sessionCreatedSent = false;
   let tempImagePaths = [];
@@ -445,6 +446,19 @@ async function queryClaudeSDK(command, options = {}, ws) {
         // Send session-created event only once for new sessions
         if (!sessionId && !sessionCreatedSent) {
           sessionCreatedSent = true;
+          
+          // Save session to database immediately so frontend can refresh
+          try {
+            const project = getProjectByPath(projectPath);
+            if (project) {
+              // provider 字段存储 provider 类型，不是 AI 模型名称
+              createSession(project.id, capturedSessionId, 'claude', null, null);
+              console.log('✅ [Claude SDK] Session saved to database:', capturedSessionId);
+            }
+          } catch (dbError) {
+            console.error('❌ [Claude SDK] Failed to save session to database:', dbError);
+          }
+          
           ws.send(JSON.stringify({
             type: 'session-created',
             sessionId: capturedSessionId

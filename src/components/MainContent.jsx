@@ -237,9 +237,9 @@ function MainContent({
             <div className="min-w-0 flex items-center gap-2 flex-1 overflow-x-auto scrollbar-hide">
               {activeTab === 'chat' && selectedSession && (
                 <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center">
-                  {selectedSession.__provider === 'codebuddy' ? (
+                  {selectedSession.provider === 'codebuddy' ? (
                     <CodeBuddyLogo className="w-4 h-4" />
-                  ) : selectedSession.__provider === 'cursor' ? (
+                  ) : selectedSession.provider === 'cursor' ? (
                     <CursorLogo className="w-4 h-4" />
                   ) : (
                     <ClaudeLogo className="w-4 h-4" />
@@ -250,7 +250,7 @@ function MainContent({
                 {activeTab === 'chat' && selectedSession ? (
                   <div className="min-w-0">
                     <h2 className="text-sm sm:text-base font-semibold text-gray-900 dark:text-white whitespace-nowrap overflow-x-auto scrollbar-hide">
-                      {selectedSession.__provider === 'codebuddy' || selectedSession.__provider === 'cursor' ? (selectedSession.name || '无标题会话') : (selectedSession.summary || '新会话')}
+                      {selectedSession.provider === 'codebuddy' || selectedSession.provider === 'cursor' ? (selectedSession.name || '无标题会话') : (selectedSession.summary || '新会话')}
                     </h2>
                     <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                       {selectedProject.displayName}
@@ -478,14 +478,14 @@ function MainContent({
             onStartServer={(script) => {
               sendMessage({
                 type: 'server:start',
-                projectPath: selectedProject?.fullPath,
+                projectPath: selectedProject?.path,
                 script: script
               });
             }}
             onStopServer={() => {
               sendMessage({
                 type: 'server:stop',
-                projectPath: selectedProject?.fullPath
+                projectPath: selectedProject?.path
               });
             }}
             onScriptSelect={setCurrentScript}

@@ -4,12 +4,31 @@ import os from 'os';
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import readline from 'readline';
+import { fileURLToPath } from 'url';
 
-const dbPath = path.join(os.homedir(), '.claude', 'claudecodeui.db');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const dbPath = path.join(__dirname, 'database', 'projects.db');
 let db = null;
+
+// 获取北京时间字符串 (UTC+8)
+function getBeijingTime() {
+  const now = new Date();
+  // 北京时间 = UTC + 8小时
+  const beijingOffset = 8 * 60 * 60 * 1000;
+  const beijingTime = new Date(now.getTime() + beijingOffset);
+  return beijingTime.toISOString().replace('T', ' ').replace('Z', '').slice(0, 19);
+}
 
 // 初始化数据库
 export function initDatabase() {
+  // 确保目录存在
+  const dbDir = path.dirname(dbPath);
+  if (!fsSync.existsSync(dbDir)) {
+    fsSync.mkdirSync(dbDir, { recursive: true });
+  }
+  
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   
@@ -27,7 +46,7 @@ export function initDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id INTEGER NOT NULL,
       session_id TEXT NOT NULL,
-      model TEXT DEFAULT 'claude',
+      provider TEXT DEFAULT 'claude',
       title TEXT,
       source_file TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -65,6 +84,59 @@ export function getProjects() {
   `).all();
 }
 
+// 获取所有项目及其会话列表 (用于前端侧边栏)
+export function getProjectsWithSessions(sessionLimit = 10) {
+  const db = getDb();
+  
+  // 获取所有未删除的项目
+  const projects = db.prepare(`
+    SELECT id, original_path, display_name, created_at
+    FROM projects 
+    WHERE deleted = 0 
+    ORDER BY created_at DESC
+  `).all();
+  
+  // 获取每个项目的会话
+  const getSessionsStmt = db.prepare(`
+    SELECT session_id, provider, title, source_file, created_at, updated_at
+    FROM sessions 
+    WHERE project_id = ?
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `);
+  
+  const getSessionCountStmt = db.prepare(`
+    SELECT COUNT(*) as total FROM sessions WHERE project_id = ?
+  `);
+  
+  return projects.map(project => {
+    const sessions = getSessionsStmt.all(project.id, sessionLimit);
+    const { total } = getSessionCountStmt.get(project.id);
+    const projectPath = project.original_path;
+    
+    return {
+      id: project.id,
+      path: projectPath,
+      displayName: project.display_name || projectPath.split('/').pop(),
+      createdAt: project.created_at,
+      sessions: sessions.map(s => ({
+        id: s.session_id,
+        provider: s.provider,
+        name: s.title,        // 用于 CodeBuddy/Cursor 会话显示
+        summary: s.title,     // 用于 Claude 会话显示
+        sourceFile: s.source_file,
+        createdAt: s.created_at,
+        updatedAt: s.updated_at,
+        lastActivity: s.updated_at  // 兼容旧字段
+      })),
+      sessionMeta: {
+        total,
+        hasMore: total > sessionLimit
+      }
+    };
+  });
+}
+
 // 通过 ID 获取项目
 export function getProjectById(id) {
   const db = getDb();
@@ -80,6 +152,7 @@ export function getProjectByPath(originalPath) {
 // 添加或恢复项目
 export function addProject(originalPath, displayName = null) {
   const db = getDb();
+  const now = getBeijingTime();
   
   // 检查是否已存在
   const existing = getProjectByPath(originalPath);
@@ -101,8 +174,8 @@ export function addProject(originalPath, displayName = null) {
   
   // 新增项目
   const result = db.prepare(`
-    INSERT INTO projects (original_path, display_name) VALUES (?, ?)
-  `).run(originalPath, displayName || path.basename(originalPath));
+    INSERT INTO projects (original_path, display_name, created_at) VALUES (?, ?, ?)
+  `).run(originalPath, displayName || path.basename(originalPath), now);
   
   return getProjectById(result.lastInsertRowid);
 }
@@ -144,8 +217,9 @@ export function getSessionBySessionId(projectId, sessionId) {
 }
 
 // 创建会话
-export function createSession(projectId, sessionId, model = 'claude', title = null, sourceFile = null) {
+export function createSession(projectId, sessionId, provider = 'claude', title = null, sourceFile = null) {
   const db = getDb();
+  const now = getBeijingTime();
   
   // 检查是否已存在
   const existing = getSessionBySessionId(projectId, sessionId);
@@ -153,19 +227,19 @@ export function createSession(projectId, sessionId, model = 'claude', title = nu
     // 更新
     db.prepare(`
       UPDATE sessions 
-      SET model = COALESCE(?, model), 
+      SET provider = COALESCE(?, provider), 
           title = COALESCE(?, title), 
           source_file = COALESCE(?, source_file),
-          updated_at = CURRENT_TIMESTAMP
+          updated_at = ?
       WHERE id = ?
-    `).run(model, title, sourceFile, existing.id);
+    `).run(provider, title, sourceFile, now, existing.id);
     return getSessionById(existing.id);
   }
   
   const result = db.prepare(`
-    INSERT INTO sessions (project_id, session_id, model, title, source_file)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(projectId, sessionId, model, title, sourceFile);
+    INSERT INTO sessions (project_id, session_id, provider, title, source_file, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(projectId, sessionId, provider, title, sourceFile, now, now);
   
   return getSessionById(result.lastInsertRowid);
 }
@@ -173,16 +247,17 @@ export function createSession(projectId, sessionId, model = 'claude', title = nu
 // 更新会话
 export function updateSession(id, updates) {
   const db = getDb();
-  const { model, title, sourceFile } = updates;
+  const now = getBeijingTime();
+  const { provider, title, sourceFile } = updates;
   
   return db.prepare(`
     UPDATE sessions 
-    SET model = COALESCE(?, model),
+    SET provider = COALESCE(?, provider),
         title = COALESCE(?, title),
         source_file = COALESCE(?, source_file),
-        updated_at = CURRENT_TIMESTAMP
+        updated_at = ?
     WHERE id = ?
-  `).run(model, title, sourceFile, id);
+  `).run(provider, title, sourceFile, now, id);
 }
 
 // 删除会话
@@ -195,6 +270,9 @@ export function deleteSession(id) {
 
 // 从 JSONL 文件提取会话信息
 async function extractSessionInfo(jsonlPath) {
+  // 根据路径判断 provider 类型
+  const provider = jsonlPath.includes('/.codebuddy/') ? 'codebuddy' : 'claude';
+  
   return new Promise((resolve, reject) => {
     const fileStream = fsSync.createReadStream(jsonlPath);
     const rl = readline.createInterface({
@@ -203,7 +281,6 @@ async function extractSessionInfo(jsonlPath) {
     });
     
     let title = null;
-    let model = 'claude';
     let cwd = null;
     let firstUserMessage = null;
     
@@ -215,11 +292,6 @@ async function extractSessionInfo(jsonlPath) {
         // 提取 cwd
         if (entry.cwd && !cwd) {
           cwd = entry.cwd;
-        }
-        
-        // 提取模型
-        if (entry.model && !model) {
-          model = entry.model;
         }
         
         // 提取第一条用户消息作为标题
@@ -237,7 +309,7 @@ async function extractSessionInfo(jsonlPath) {
     rl.on('close', () => {
       resolve({
         title: title || firstUserMessage || path.basename(jsonlPath, '.jsonl'),
-        model,
+        provider: provider,
         cwd
       });
     });
@@ -393,7 +465,7 @@ export async function syncProjects() {
         
         try {
           const info = await extractSessionInfo(sourceFile);
-          createSession(projectId, sessionId, info.model, info.title, sourceFile);
+          createSession(projectId, sessionId, info.provider, info.title, sourceFile);
           stats.sessions++;
         } catch (e) {
           // 忽略单个文件错误

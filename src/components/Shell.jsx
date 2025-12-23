@@ -467,7 +467,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   const isMobileDevice = useRef(window.innerWidth < 768);
   
   // Check if this is a quick terminal (not AI session)
-  const isQuickTerminal = selectedSession?.__provider === 'quick-terminal';
+  const isQuickTerminal = selectedSession?.provider === 'quick-terminal' || selectedSession?.__provider === 'quick-terminal';
   
   // Viewport ref for vertical scrollbar - use state to trigger re-render
   const [viewportElement, setViewportElement] = useState(null);
@@ -548,13 +548,13 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
               const provider = isPlainShellRef.current 
                 ? 'plain-shell' 
-                : (selectedSessionRef.current?.__provider || localStorage.getItem('selected-provider') || 'claude');
+                : (selectedSessionRef.current?.provider || selectedSessionRef.current?.__provider || localStorage.getItem('selected-provider') || 'claude');
 
               console.log('[Shell] Sending init:', cols, 'x', rows, 'provider:', provider);
 
               ws.current.send(JSON.stringify({
                 type: 'init',
-                projectPath: selectedProjectRef.current.fullPath || selectedProjectRef.current.path,
+                projectPath: selectedProjectRef.current.path || selectedProjectRef.current.path,
                 sessionId: isPlainShellRef.current ? null : selectedSessionRef.current?.id,
                 hasSession: isPlainShellRef.current ? false : !!selectedSessionRef.current,
                 provider: provider,
@@ -679,7 +679,8 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
   const sessionDisplayName = useMemo(() => {
     if (!selectedSession) return null;
-    return selectedSession.__provider === 'cursor'
+    const sessionProvider = selectedSession.provider || selectedSession.__provider;
+    return sessionProvider === 'cursor' || sessionProvider === 'codebuddy'
       ? (selectedSession.name || '无标题会话')
       : (selectedSession.summary || '新会话');
   }, [selectedSession]);
@@ -948,7 +949,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
         terminal.current = null;
       }
     };
-  }, [selectedProject?.path || selectedProject?.fullPath, isRestarting]);
+  }, [selectedProject?.path || selectedProject?.path, isRestarting]);
 
   useEffect(() => {
     if (!autoConnect || !isInitialized || isConnecting || isConnected || userDisconnected) return;

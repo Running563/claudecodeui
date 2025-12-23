@@ -110,11 +110,14 @@ export function useWebSocketMessages({
     if (latestMessage.sessionId && !currentSessionId) {
       sessionStorage.setItem('pendingSessionId', latestMessage.sessionId);
       
+      // Mark as system session change to prevent message reload when selectedSession updates
+      setIsSystemSessionChange(true);
+      
       if (onReplaceTemporarySession) {
         onReplaceTemporarySession(latestMessage.sessionId);
       }
     }
-  }, [currentSessionId, onReplaceTemporarySession]);
+  }, [currentSessionId, onReplaceTemporarySession, setIsSystemSessionChange]);
 
   // Handle session resume failed
   const handleSessionResumeFailed = useCallback((latestMessage) => {
@@ -459,11 +462,27 @@ export function useWebSocketMessages({
         break;
 
       case 'claude-error':
+        // Stop loading state on error
+        setIsLoading(false);
+        setCanAbortSession(false);
+        setClaudeStatus(null);
+        
         setChatMessages(prev => [...prev, {
           type: 'error',
           content: `Error: ${latestMessage.error}`,
           timestamp: new Date()
         }]);
+        
+        // Mark session as inactive on error
+        const claudeErrorSessionId = latestMessage.sessionId || currentSessionId;
+        if (claudeErrorSessionId) {
+          if (onSessionInactive) {
+            onSessionInactive(claudeErrorSessionId);
+          }
+          if (onSessionNotProcessing) {
+            onSessionNotProcessing(claudeErrorSessionId);
+          }
+        }
         break;
         
       case 'cursor-system': {
@@ -584,6 +603,11 @@ export function useWebSocketMessages({
         const errorDetails = latestMessage.details?.raw || latestMessage.error;
         const errorType = latestMessage.errorType || 'unknown';
         
+        // Stop loading state on error
+        setIsLoading(false);
+        setCanAbortSession(false);
+        setClaudeStatus(null);
+        
         setChatMessages(prev => [...prev, {
           type: 'error',
           content: `CodeBuddy error: ${errorMessage}`,
@@ -591,6 +615,17 @@ export function useWebSocketMessages({
           errorDetails: errorDetails !== errorMessage ? errorDetails : null,
           timestamp: new Date()
         }]);
+        
+        // Mark session as inactive on error
+        const errorSessionId = latestMessage.sessionId || currentSessionId;
+        if (errorSessionId) {
+          if (onSessionInactive) {
+            onSessionInactive(errorSessionId);
+          }
+          if (onSessionNotProcessing) {
+            onSessionNotProcessing(errorSessionId);
+          }
+        }
         
         if (errorDetails) {
           console.error('CodeBuddy error details:', { type: errorType, details: errorDetails });
