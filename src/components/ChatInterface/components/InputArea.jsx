@@ -1,17 +1,27 @@
 /**
  * InputArea - Chat input area component
- * Handles text input, file dropdown, command menu, image attachments
+ * 
+ * Handles:
+ * - Text input with auto-resize
+ * - File dropdown (@mentions)
+ * - Command menu (slash commands)
+ * - Image attachments
+ * - Permission mode selector
+ * - Claude status display
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import ImageAttachment from './ImageAttachment';
 import CommandMenu from '../../CommandMenu';
 import TokenUsagePie from '../../TokenUsagePie';
+import ClaudeStatus from '../../ClaudeStatus';
+import { MicButton } from '../../MicButton.jsx';
 
 /**
  * InputArea component for chat input
  */
 function InputArea({
+  // Input state
   input,
   setInput,
   isLoading,
@@ -19,26 +29,28 @@ function InputArea({
   setIsInputFocused,
   handleSubmit,
   provider,
-  permissionMode,
-  setPermissionMode,
-  selectedSession,
+  selectedProject,
   sendByCtrlEnter,
+  // Permission mode
+  permissionMode,
+  cyclePermissionMode,
   // Image upload props
   attachedImages,
-  setAttachedImages,
+  removeImage,
   uploadingImages,
   imageErrors,
   getRootProps,
   getInputProps,
   isDragActive,
   openFilePicker,
-  handlePaste,
+  handleImagePaste,
   // File dropdown props
   showFileDropdown,
   filteredFiles,
   selectedFileIndex,
   setSelectedFileIndex,
   selectFile,
+  closeFileDropdown,
   // Command menu props
   showCommandMenu,
   setShowCommandMenu,
@@ -49,62 +61,61 @@ function InputArea({
   slashCommands,
   frequentCommands,
   commandQuery,
+  setCommandQuery,
+  slashPosition,
+  setSlashPosition,
   toggleCommandMenu,
   closeCommandMenu,
-  executeCommand,
+  detectSlashCommand,
   // Token budget
   tokenBudget,
-  // Other props
+  // Refs
   textareaRef,
   inputContainerRef,
+  // Scroll
   scrollToBottom,
   isUserScrolledUp,
   chatMessages,
+  // Quick settings
   onToggleQuickSettings,
   // Edit mode
   editingMessageIndex,
-  handleCancelEdit
+  handleCancelEdit,
+  // Claude status
+  claudeStatus,
+  handleAbortSession,
+  showThinking,
+  // Transcript
+  handleTranscript,
+  // Textarea state
+  isTextareaExpanded,
+  setIsTextareaExpanded,
+  cursorPosition,
+  setCursorPosition
 }) {
-  const [isTextareaExpanded, setIsTextareaExpanded] = useState(false);
-  const [cursorPosition, setCursorPosition] = useState(0);
-
-  // Initial textarea setup
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
-
-      const lineHeight = parseInt(window.getComputedStyle(textareaRef.current).lineHeight);
-      const isExpanded = textareaRef.current.scrollHeight > lineHeight * 2;
-      setIsTextareaExpanded(isExpanded);
-    }
-  }, [textareaRef]);
-
-  // Reset textarea height when input is cleared
-  useEffect(() => {
-    if (textareaRef.current && !input.trim()) {
-      textareaRef.current.style.height = 'auto';
-      setIsTextareaExpanded(false);
-    }
-  }, [input, textareaRef]);
-
-  const handleModeSwitch = useCallback(() => {
-    const modes = ['default', 'acceptEdits', 'bypassPermissions', 'plan'];
-    const currentIndex = modes.indexOf(permissionMode);
-    const nextIndex = (currentIndex + 1) % modes.length;
-    const newMode = modes[nextIndex];
-    setPermissionMode(newMode);
-
-    if (selectedSession?.id) {
-      localStorage.setItem(`permissionMode-${selectedSession.id}`, newMode);
-    }
-  }, [permissionMode, setPermissionMode, selectedSession]);
-
+  // Select command handler
   const selectCommand = useCallback((command) => {
     if (!command) return;
-    executeCommand(command, input);
-  }, [executeCommand, input]);
 
+    // Prepare the input with command name and any arguments that were already typed
+    const textBeforeSlash = input.slice(0, slashPosition);
+    const textAfterSlash = input.slice(slashPosition);
+    const spaceIndex = textAfterSlash.indexOf(' ');
+    const textAfterQuery = spaceIndex !== -1 ? textAfterSlash.slice(spaceIndex) : '';
+
+    const newInput = textBeforeSlash + command.name + ' ' + textAfterQuery;
+
+    // Update input temporarily so executeCommand can parse arguments
+    setInput(newInput);
+
+    // Hide command menu and clear debounce timer
+    closeCommandMenu();
+
+    // Execute the command via handleCommandSelect
+    handleCommandSelect(command, -1, false);
+  }, [input, slashPosition, setInput, closeCommandMenu, handleCommandSelect]);
+
+  // Keyboard handler
   const handleKeyDown = useCallback((e) => {
     // Handle command menu navigation
     if (showCommandMenu && filteredCommands.length > 0) {
@@ -165,39 +176,46 @@ function InputArea({
       }
       if (e.key === 'Escape') {
         e.preventDefault();
+        closeFileDropdown();
         return;
       }
     }
     
-    // Handle Tab key for mode switching
+    // Handle Tab key for mode switching (only when dropdowns are not showing)
     if (e.key === 'Tab' && !showFileDropdown && !showCommandMenu) {
       e.preventDefault();
-      handleModeSwitch();
+      cyclePermissionMode();
       return;
     }
     
-    // Handle Enter key
+    // Handle Enter key: Ctrl+Enter (Cmd+Enter on Mac) sends, Shift+Enter creates new line
     if (e.key === 'Enter') {
+      // If we're in composition, don't send message
       if (e.nativeEvent.isComposing) {
-        return;
+        return; // Let IME handle the Enter key
       }
       
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
+        // Ctrl+Enter or Cmd+Enter: Send message
         e.preventDefault();
         handleSubmit(e);
       } else if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
+        // Plain Enter: Send message only if not in IME composition
         if (!sendByCtrlEnter) {
           e.preventDefault();
           handleSubmit(e);
         }
       }
+      // Shift+Enter: Allow default behavior (new line)
     }
   }, [
     showCommandMenu, filteredCommands, selectedCommandIndex, setSelectedCommandIndex,
     showFileDropdown, filteredFiles, selectedFileIndex, setSelectedFileIndex,
-    selectFile, selectCommand, closeCommandMenu, handleModeSwitch, handleSubmit, sendByCtrlEnter
+    selectFile, selectCommand, closeCommandMenu, closeFileDropdown,
+    cyclePermissionMode, handleSubmit, sendByCtrlEnter
   ]);
 
+  // Input change handler
   const handleInputChange = useCallback((e) => {
     const newValue = e.target.value;
     const cursorPos = e.target.selectionStart;
@@ -205,17 +223,36 @@ function InputArea({
     setInput(newValue);
     setCursorPosition(cursorPos);
 
+    // Handle height reset when input becomes empty
     if (!newValue.trim()) {
       e.target.style.height = 'auto';
       setIsTextareaExpanded(false);
       closeCommandMenu();
+      return;
     }
-  }, [setInput, closeCommandMenu]);
 
+    // Detect slash command at cursor position
+    detectSlashCommand(newValue, cursorPos);
+  }, [setInput, setCursorPosition, setIsTextareaExpanded, closeCommandMenu, detectSlashCommand]);
+
+  // Textarea click handler
   const handleTextareaClick = useCallback((e) => {
     setCursorPosition(e.target.selectionStart);
-  }, []);
+  }, [setCursorPosition]);
 
+  // Textarea input handler for auto-resize
+  const handleTextareaInput = useCallback((e) => {
+    e.target.style.height = 'auto';
+    e.target.style.height = e.target.scrollHeight + 'px';
+    setCursorPosition(e.target.selectionStart);
+
+    // Check if textarea is expanded (more than 2 lines worth of height)
+    const lineHeight = parseInt(window.getComputedStyle(e.target).lineHeight);
+    const isExpanded = e.target.scrollHeight > lineHeight * 2;
+    setIsTextareaExpanded(isExpanded);
+  }, [setCursorPosition, setIsTextareaExpanded]);
+
+  // Clear input handler
   const handleClearInput = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -225,18 +262,35 @@ function InputArea({
       textareaRef.current.focus();
     }
     setIsTextareaExpanded(false);
-  }, [setInput, textareaRef]);
+  }, [setInput, textareaRef, setIsTextareaExpanded]);
+
+  // Placeholder text
+  const placeholderText = useMemo(() => {
+    const providerName = provider === 'cursor' ? 'Cursor' : provider === 'codebuddy' ? 'CodeBuddy' : 'Claude';
+    return `输入 / 执行命令、@ 选择文件,或向 ${providerName} 提问...`;
+  }, [provider]);
 
   return (
     <div className={`p-2 sm:p-4 md:p-4 flex-shrink-0 ${
       isInputFocused ? 'pb-2 sm:pb-4 md:pb-6' : 'pb-2 sm:pb-4 md:pb-6'
     }`}>
-      {/* Permission Mode Selector with scroll to bottom button */}
+      {/* Claude Status */}
+      <div className="flex-1">
+        <ClaudeStatus
+          status={claudeStatus}
+          isLoading={isLoading}
+          onAbort={handleAbortSession}
+          provider={provider}
+          showThinking={showThinking}
+        />
+      </div>
+
+      {/* Permission Mode Selector with scroll to bottom button - Above input, clickable for mobile */}
       <div ref={inputContainerRef} className="max-w-4xl mx-auto mb-3">
         <div className="flex items-center justify-center gap-3">
           <button
             type="button"
-            onClick={handleModeSwitch}
+            onClick={cyclePermissionMode}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-all duration-200 ${
               permissionMode === 'default' 
                 ? 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -267,7 +321,7 @@ function InputArea({
             </div>
           </button>
 
-          {/* Token usage pie chart */}
+          {/* Token usage pie chart - positioned next to mode indicator */}
           <TokenUsagePie
             used={tokenBudget?.used || 0}
             total={tokenBudget?.total || parseInt(import.meta.env.VITE_CONTEXT_WINDOW) || 160000}
@@ -298,6 +352,7 @@ function InputArea({
                 d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
               />
             </svg>
+            {/* Command count badge */}
             {slashCommands.length > 0 && (
               <span
                 className="absolute -top-1 -right-1 bg-blue-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center"
@@ -308,7 +363,7 @@ function InputArea({
             )}
           </button>
 
-          {/* Clear input button */}
+          {/* Clear input button - positioned to the right of token pie, only shows when there's input */}
           {input.trim() && (
             <button
               type="button"
@@ -347,7 +402,7 @@ function InputArea({
             </button>
           )}
 
-          {/* Scroll to bottom button */}
+          {/* Scroll to bottom button - positioned last */}
           {isUserScrolledUp && chatMessages.length > 0 && (
             <button
               onClick={scrollToBottom}
@@ -383,9 +438,7 @@ function InputArea({
                 <ImageAttachment
                   key={index}
                   file={file}
-                  onRemove={() => {
-                    setAttachedImages(prev => prev.filter((_, i) => i !== index));
-                  }}
+                  onRemove={() => removeImage(index)}
                   uploadProgress={uploadingImages.get(file.name)}
                   error={imageErrors.get(file.name)}
                 />
@@ -394,7 +447,7 @@ function InputArea({
           </div>
         )}
         
-        {/* File dropdown */}
+        {/* File dropdown - positioned outside dropzone to avoid conflicts */}
         {showFileDropdown && filteredFiles.length > 0 && (
           <div className="absolute bottom-full left-0 right-0 mb-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg max-h-48 overflow-y-auto z-50 backdrop-blur-sm">
             {filteredFiles.map((file, index) => (
@@ -406,6 +459,7 @@ function InputArea({
                     : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
                 }`}
                 onMouseDown={(e) => {
+                  // Prevent textarea from losing focus on mobile
                   e.preventDefault();
                   e.stopPropagation();
                 }}
@@ -429,7 +483,12 @@ function InputArea({
           commands={filteredCommands}
           selectedIndex={selectedCommandIndex}
           onSelect={handleCommandSelect}
-          onClose={closeCommandMenu}
+          onClose={() => {
+            setShowCommandMenu(false);
+            setSlashPosition(-1);
+            setCommandQuery('');
+            setSelectedCommandIndex(-1);
+          }}
           position={{
             top: textareaRef.current
               ? Math.max(16, textareaRef.current.getBoundingClientRect().top - 316)
@@ -465,7 +524,7 @@ function InputArea({
 
         <div className={`relative bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-600 focus-within:ring-2 focus-within:ring-blue-500 dark:focus-within:ring-blue-500 focus-within:border-blue-500 transition-all duration-200 overflow-hidden ${isTextareaExpanded ? 'chat-input-expanded' : ''}`}>
           <input {...getInputProps()} />
-          {/* Dropzone area */}
+          {/* Dropzone area - wrapped in a separate div to avoid interfering with buttons */}
           <div {...getRootProps()} className="absolute inset-0 pointer-events-none">
             <div className="pointer-events-auto absolute inset-0" style={{ left: '48px', right: '64px' }}></div>
           </div>
@@ -476,24 +535,15 @@ function InputArea({
             onChange={handleInputChange}
             onClick={handleTextareaClick}
             onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
+            onPaste={handleImagePaste}
             onFocus={() => setIsInputFocused(true)}
             onBlur={() => setIsInputFocused(false)}
-            onInput={(e) => {
-              e.target.style.height = 'auto';
-              e.target.style.height = e.target.scrollHeight + 'px';
-              setCursorPosition(e.target.selectionStart);
-
-              const lineHeight = parseInt(window.getComputedStyle(e.target).lineHeight);
-              const isExpanded = e.target.scrollHeight > lineHeight * 2;
-              setIsTextareaExpanded(isExpanded);
-            }}
-            placeholder={`输入 / 执行命令、@ 选择文件,或向 ${provider === 'cursor' ? 'Cursor' : provider === 'codebuddy' ? 'CodeBuddy' : 'Claude'} 提问...`}
+            onInput={handleTextareaInput}
+            placeholder={placeholderText}
             disabled={isLoading}
             className="chat-input-placeholder block w-full pl-12 pr-20 sm:pr-40 py-1.5 sm:py-4 bg-transparent rounded-2xl focus:outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 disabled:opacity-50 resize-none min-h-[50px] sm:min-h-[80px] max-h-[40vh] sm:max-h-[300px] overflow-y-auto text-sm sm:text-base leading-[21px] sm:leading-6 transition-all duration-200 relative z-10"
             style={{ height: '50px' }}
           />
-          
           {/* Image upload button */}
           <button
             type="button"
@@ -508,36 +558,23 @@ function InputArea({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
           </button>
+          
+          {/* Mic button - HIDDEN */}
+          <div className="absolute right-16 sm:right-16 top-1/2 transform -translate-y-1/2 z-20" style={{ display: 'none' }}>
+            <MicButton
+              onTranscript={handleTranscript}
+              className="w-10 h-10 sm:w-10 sm:h-10"
+            />
+          </div>
 
-          {/* Send button */}
+          {/* Send button with explicit click handler to prevent dropzone interference */}
           <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              
-              if (!input.trim() || isLoading) {
-                return;
-              }
-              
-              const fakeEvent = { preventDefault: () => {} };
-              handleSubmit(fakeEvent);
-            }}
-            onTouchStart={(e) => {
-              e.stopPropagation();
-            }}
-            onTouchEnd={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              
-              if (!input.trim() || isLoading) {
-                return;
-              }
-              
-              const fakeEvent = { preventDefault: () => {} };
-              handleSubmit(fakeEvent);
-            }}
+            type="submit"
             disabled={!input.trim() || isLoading}
+            onMouseDown={(e) => {
+              // Prevent textarea from losing focus before submit
+              e.preventDefault();
+            }}
             className="absolute right-2 top-1/2 transform -translate-y-1/2 w-12 h-12 sm:w-12 sm:h-12 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed rounded-full flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:ring-offset-gray-800 z-20"
             style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
           >
@@ -556,7 +593,7 @@ function InputArea({
             </svg>
           </button>
 
-          {/* Hint text */}
+          {/* Hint text inside input box at bottom - Desktop only */}
           <div className={`absolute bottom-1 left-12 right-14 sm:right-40 text-xs text-gray-400 dark:text-gray-500 pointer-events-none hidden sm:block transition-opacity duration-200 ${
             input.trim() ? 'opacity-0' : 'opacity-100'
           }`}>

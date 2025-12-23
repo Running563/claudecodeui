@@ -141,9 +141,11 @@ export function useWebSocketMessages({
 
   // Handle content block start (tool use)
   const handleContentBlockStart = useCallback((contentBlock) => {
+    console.log('🔧 content_block_start:', contentBlock.type, contentBlock);
     if (contentBlock.type === 'tool_use') {
       const toolId = contentBlock.id;
       const pendingResult = pendingToolResultsRef.current.get(toolId);
+      console.log('🔧 Creating tool_use message:', toolId, 'pending result:', !!pendingResult);
       
       const toolInput = contentBlock.input ? JSON.stringify(contentBlock.input, null, 2) : '';
       setChatMessages(prev => [...prev, {
@@ -696,9 +698,27 @@ export function useWebSocketMessages({
           setClaudeStatus(null);
           fetchUpdatedTokenUsage();
           
-          // Clean up pending tool results
+          // Apply pending tool results before cleanup
           if (pendingToolResultsRef.current.size > 0) {
-            console.log('🧹 Cleaning up pending tool results:', pendingToolResultsRef.current.size);
+            console.log('🔄 Applying pending tool results before cleanup:', pendingToolResultsRef.current.size);
+            const pendingResults = new Map(pendingToolResultsRef.current);
+            setChatMessages(prev => {
+              const updated = [...prev];
+              let appliedCount = 0;
+              pendingResults.forEach((toolResultData, toolUseId) => {
+                const toolUseIndex = updated.findIndex(msg => msg.isToolUse && msg.toolId === toolUseId);
+                if (toolUseIndex !== -1 && !updated[toolUseIndex].toolResult) {
+                  console.log('✅ Applied pending result on complete:', toolUseId);
+                  updated[toolUseIndex] = {
+                    ...updated[toolUseIndex],
+                    toolResult: toolResultData
+                  };
+                  appliedCount++;
+                }
+              });
+              console.log(`📊 Applied ${appliedCount}/${pendingResults.size} pending results`);
+              return updated;
+            });
             pendingToolResultsRef.current.clear();
           }
           

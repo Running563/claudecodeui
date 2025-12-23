@@ -13,3 +13,5 @@ export { useWebSocketMessages } from './useWebSocketMessages';
 export { useCommandExecution } from './useCommandExecution';
 export { useMessageEditing } from './useMessageEditing';
 export { useMessageSubmit } from './useMessageSubmit';
+export { useChatSession } from './useChatSession';
+export { useInputManagement } from './useInputManagement';

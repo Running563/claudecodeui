@@ -21,6 +21,15 @@ import {
 } from '../utils';
 import { api, authenticatedFetch } from '../../../utils/api';
 
+/**
+ * Helper function to get toolResult content from either data structure:
+ * - Legacy/history format: message.toolResult.content
+ * - Streaming format: message.toolResult.toolUseResult.content
+ */
+const getToolResultContent = (message) => {
+  if (!message?.toolResult) return null;
+  return message.toolResult.toolUseResult?.content ?? message.toolResult.content ?? null;
+};
 const MessageComponent = memo(({ 
   message, 
   index, 
@@ -593,10 +602,11 @@ const MessageComponent = memo(({
                               onClick={() => {
                                 // Check if it's an image file
                                 const isImage = /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(input.file_path);
+                                const toolResultContent = getToolResultContent(message);
                                 
-                                if (isImage && message.toolResult?.content) {
+                                if (isImage && toolResultContent) {
                                   // Use cached base64 data for images
-                                  const base64Data = extractBase64FromContent(message.toolResult.content);
+                                  const base64Data = extractBase64FromContent(toolResultContent);
                                   if (base64Data) {
                                     setImagePreview({ url: base64Data, filename });
                                     return;
@@ -1250,10 +1260,11 @@ const MessageComponent = memo(({
                           <span className="font-medium">Read</span>
                           <button
                             onClick={() => {
+                              const toolResultContent = getToolResultContent(message);
                               if (isImage) {
                                 // For images, use cached base64 data
-                                const base64Data = message.toolResult?.content 
-                                  ? extractBase64FromContent(message.toolResult.content)
+                                const base64Data = toolResultContent
+                                  ? extractBase64FromContent(toolResultContent)
                                   : null;
                                 
                                 if (base64Data) {
