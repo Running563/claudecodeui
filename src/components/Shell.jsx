@@ -379,8 +379,8 @@ const VirtualKeyboard = ({ onKeyPress, onKeyPressWithEnter, isConnected, isQuick
   if (!isConnected) return null;
 
   // Different key layouts for AI session vs quick terminal
-  const keys = isQuickTerminal ? [
-    // Quick Terminal: Basic navigation + clear screen + terminate keys
+  // Split into two rows for better mobile display
+  const keysRow1 = isQuickTerminal ? [
     { label: 'ESC', key: '\x1b' },
     { label: 'Tab', key: '\t' },
     { label: '↑', key: '\x1b[A' },
@@ -388,15 +388,7 @@ const VirtualKeyboard = ({ onKeyPress, onKeyPressWithEnter, isConnected, isQuick
     { label: '←', key: '\x1b[D' },
     { label: '→', key: '\x1b[C' },
     { label: 'Home', key: '\x1b[H' },
-    { label: 'End', key: '\x1b[F' },
-    { label: 'Del', key: '\x1b[3~' },
-    { label: '⌫', key: '\x7f' }, // Backspace
-    { label: 'Enter', key: '\r' },
-    { label: 'Ctrl+C', key: '\x03' },
-    { label: 'Ctrl+D', key: '\x04' },
-    { label: 'Clear', key: 'clear', withEnter: true },
   ] : [
-    // AI Session: Full keyboard with AI commands
     { label: 'ESC', key: '\x1b' },
     { label: 'Tab', key: '\t' },
     { label: 'S+Tab', key: '\x1b[Z' },
@@ -404,6 +396,17 @@ const VirtualKeyboard = ({ onKeyPress, onKeyPressWithEnter, isConnected, isQuick
     { label: '↓', key: '\x1b[B' },
     { label: '←', key: '\x1b[D' },
     { label: '→', key: '\x1b[C' },
+  ];
+
+  const keysRow2 = isQuickTerminal ? [
+    { label: 'End', key: '\x1b[F' },
+    { label: 'Del', key: '\x1b[3~' },
+    { label: '⌫', key: '\x7f' },
+    { label: 'Enter', key: '\r' },
+    { label: 'Ctrl+C', key: '\x03' },
+    { label: 'Ctrl+D', key: '\x04' },
+    { label: 'Clear', key: 'clear', withEnter: true },
+  ] : [
     { label: 'Enter', key: '\r' },
     { label: '/clear', key: '/clear', withEnter: true },
     { label: '/model', key: '/model', withEnter: true },
@@ -411,35 +414,41 @@ const VirtualKeyboard = ({ onKeyPress, onKeyPressWithEnter, isConnected, isQuick
     { label: 'Ctrl+D', key: '\x04' },
   ];
 
+  const renderKey = (k) => (
+    <button
+      key={k.label}
+      type="button"
+      onTouchStart={() => setPressedKey(k.label)}
+      onTouchEnd={(e) => {
+        e.preventDefault();
+        setPressedKey(null);
+        if (k.withEnter) {
+          onKeyPressWithEnter(k.key);
+        } else {
+          onKeyPress(k.key);
+        }
+      }}
+      onTouchCancel={() => setPressedKey(null)}
+      className="vk-btn px-2.5 py-1.5 rounded text-xs font-medium select-none whitespace-nowrap focus:outline-none flex-1"
+      style={{ 
+        minWidth: '36px',
+        maxWidth: '60px',
+        WebkitTapHighlightColor: 'transparent',
+        backgroundColor: pressedKey === k.label ? '#4b5563' : '#374151',
+        color: '#fff',
+      }}
+    >
+      {k.label}
+    </button>
+  );
+
   return (
-    <div className="flex-shrink-0 bg-gray-800 border-t border-gray-700 px-2 py-2 overflow-x-auto">
-      <div className="flex gap-1.5 min-w-max">
-        {keys.map((k) => (
-          <button
-            key={k.label}
-            type="button"
-            onTouchStart={() => setPressedKey(k.label)}
-            onTouchEnd={(e) => {
-              e.preventDefault();
-              setPressedKey(null);
-              if (k.withEnter) {
-                onKeyPressWithEnter(k.key);
-              } else {
-                onKeyPress(k.key);
-              }
-            }}
-            onTouchCancel={() => setPressedKey(null)}
-            className="vk-btn px-3 py-2 rounded text-xs font-medium select-none whitespace-nowrap focus:outline-none"
-            style={{ 
-              minWidth: '40px',
-              WebkitTapHighlightColor: 'transparent',
-              backgroundColor: pressedKey === k.label ? '#4b5563' : '#374151',
-              color: '#fff',
-            }}
-          >
-            {k.label}
-          </button>
-        ))}
+    <div className="flex-shrink-0 bg-gray-800 border-t border-gray-700 px-2 py-1.5">
+      <div className="flex gap-1 mb-1 justify-center">
+        {keysRow1.map(renderKey)}
+      </div>
+      <div className="flex gap-1 justify-center">
+        {keysRow2.map(renderKey)}
       </div>
     </div>
   );
