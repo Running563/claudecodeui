@@ -7,12 +7,124 @@ import { css } from '@codemirror/lang-css';
 import { json } from '@codemirror/lang-json';
 import { markdown } from '@codemirror/lang-markdown';
 import { oneDark } from '@codemirror/theme-one-dark';
-import { EditorView, showPanel, ViewPlugin, lineNumbers } from '@codemirror/view';
+import { EditorView, ViewPlugin, lineNumbers } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { unifiedMergeView, getChunks, MergeView } from '@codemirror/merge';
-import { showMinimap } from '@replit/codemirror-minimap';
+
 import { X, Save, Download, Maximize2, Minimize2, Edit2 } from 'lucide-react';
 import { api } from '../utils/api';
+
+// Unified view bottom toolbar component
+const UnifiedViewToolbar = ({ editorRef, isSidebar, isExpanded, onToggleExpand }) => {
+  const [currentChunkIndex, setCurrentChunkIndex] = useState(0);
+  const [chunkCount, setChunkCount] = useState(0);
+
+  // Update chunk count when editor changes
+  useEffect(() => {
+    const updateChunks = () => {
+      if (editorRef.current?.view) {
+        const chunksData = getChunks(editorRef.current.view.state);
+        const chunks = chunksData?.chunks || [];
+        setChunkCount(chunks.length);
+        if (currentChunkIndex >= chunks.length && chunks.length > 0) {
+          setCurrentChunkIndex(chunks.length - 1);
+        }
+      }
+    };
+    
+    // Initial update
+    const timer = setTimeout(updateChunks, 100);
+    return () => clearTimeout(timer);
+  }, [editorRef, currentChunkIndex]);
+
+  const navigateToChunk = (index) => {
+    if (!editorRef.current?.view || chunkCount === 0) return;
+    
+    const chunksData = getChunks(editorRef.current.view.state);
+    const chunks = chunksData?.chunks || [];
+    if (index < 0 || index >= chunks.length) return;
+    
+    const chunk = chunks[index];
+    setCurrentChunkIndex(index);
+    
+    editorRef.current.view.dispatch({
+      effects: EditorView.scrollIntoView(chunk.fromB, { y: 'center' })
+    });
+  };
+
+  const navigatePrevChunk = () => {
+    const newIndex = currentChunkIndex > 0 ? currentChunkIndex - 1 : chunkCount - 1;
+    navigateToChunk(newIndex);
+  };
+
+  const navigateNextChunk = () => {
+    const newIndex = currentChunkIndex < chunkCount - 1 ? currentChunkIndex + 1 : 0;
+    navigateToChunk(newIndex);
+  };
+
+  return (
+    <div className="flex items-center justify-between px-2 py-2 border-t border-border bg-muted">
+      {/* Left: navigation */}
+      <div className="flex items-center gap-1">
+        <button
+          onClick={navigatePrevChunk}
+          disabled={chunkCount === 0}
+          className="p-2 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 disabled:opacity-40 active:bg-gray-300 dark:active:bg-gray-600"
+          title="Previous change"
+        >
+          <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+          </svg>
+        </button>
+        <span className="text-xs font-medium text-gray-600 dark:text-gray-400 min-w-[40px] text-center">
+          {chunkCount > 0 ? `${currentChunkIndex + 1}/${chunkCount}` : '0'} changes
+        </span>
+        <button
+          onClick={navigateNextChunk}
+          disabled={chunkCount === 0}
+          className="p-2 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 disabled:opacity-40 active:bg-gray-300 dark:active:bg-gray-600"
+          title="Next change"
+        >
+          <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      </div>
+      
+      {/* Right: action buttons */}
+      <div className="flex items-center gap-1">
+        {/* Settings button */}
+        <button
+          onClick={() => window.openSettings?.('appearance')}
+          className="p-2 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 active:bg-gray-300 dark:active:bg-gray-600"
+          title="Editor Settings"
+        >
+          <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </button>
+        
+        {/* Expand button (only in sidebar mode) */}
+        {isSidebar && onToggleExpand && (
+          <button
+            onClick={onToggleExpand}
+            className="p-2 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 active:bg-gray-300 dark:active:bg-gray-600"
+            title={isExpanded ? 'Collapse editor' : 'Expand editor to full width'}
+          >
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {isExpanded ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+              )}
+            </svg>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
 
 // Get language extension based on file extension (moved outside component for stability)
 const getLanguageExtension = (filename) => {
@@ -63,9 +175,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
   const [wordWrap, setWordWrap] = useState(() => {
     return localStorage.getItem('codeEditorWordWrap') === 'true';
   });
-  const [minimapEnabled, setMinimapEnabled] = useState(() => {
-    return localStorage.getItem('codeEditorShowMinimap') === 'true'; // Default false
-  });
+
   const [showLineNumbers, setShowLineNumbers] = useState(() => {
     return localStorage.getItem('codeEditorLineNumbers') !== 'false';
   });
@@ -90,41 +200,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Create minimap extension with chunk-based gutters
-  const minimapExtension = useMemo(() => {
-    if (!file.diffInfo || !showDiff || !minimapEnabled) return [];
 
-    const gutters = {};
-
-    return [
-      showMinimap.compute(['doc'], (state) => {
-        // Get actual chunks from merge view
-        const chunksData = getChunks(state);
-        const chunks = chunksData?.chunks || [];
-
-        // Clear previous gutters
-        Object.keys(gutters).forEach(key => delete gutters[key]);
-
-        // Mark lines that are part of chunks
-        chunks.forEach(chunk => {
-          // Mark the lines in the B side (current document)
-          const fromLine = state.doc.lineAt(chunk.fromB).number;
-          const toLine = state.doc.lineAt(Math.min(chunk.toB, state.doc.length)).number;
-
-          for (let lineNum = fromLine; lineNum <= toLine; lineNum++) {
-            gutters[lineNum] = isDarkMode ? 'rgba(34, 197, 94, 0.8)' : 'rgba(34, 197, 94, 1)';
-          }
-        });
-
-        return {
-          create: () => ({ dom: document.createElement('div') }),
-          displayText: 'blocks',
-          showOverlay: 'always',
-          gutters: [gutters]
-        };
-      })
-    ];
-  }, [file.diffInfo, showDiff, minimapEnabled, isDarkMode]);
 
   // Create extension to scroll to first chunk on mount
   const scrollToFirstChunkExtension = useMemo(() => {
@@ -154,177 +230,6 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
       })
     ];
   }, [file.diffInfo, showDiff]);
-
-  // Create editor toolbar panel - always visible
-  const editorToolbarPanel = useMemo(() => {
-    const createPanel = (view) => {
-      const dom = document.createElement('div');
-      dom.className = 'cm-editor-toolbar-panel';
-
-      let currentIndex = 0;
-
-      const updatePanel = () => {
-        // Check if we have diff info and it's enabled
-        const hasDiff = file.diffInfo && showDiff;
-        const chunksData = hasDiff ? getChunks(view.state) : null;
-        const chunks = chunksData?.chunks || [];
-        const chunkCount = chunks.length;
-
-        // Build the toolbar HTML
-        let toolbarHTML = '<div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">';
-
-        // Left side - diff navigation (if applicable)
-        toolbarHTML += '<div style="display: flex; align-items: center; gap: 8px;">';
-        if (hasDiff) {
-          toolbarHTML += `
-            <span style="font-weight: 500;">${chunkCount > 0 ? `${currentIndex + 1}/${chunkCount}` : '0'} changes</span>
-            <button class="cm-diff-nav-btn cm-diff-nav-prev" title="Previous change" ${chunkCount === 0 ? 'disabled' : ''}>
-              <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
-              </svg>
-            </button>
-            <button class="cm-diff-nav-btn cm-diff-nav-next" title="Next change" ${chunkCount === 0 ? 'disabled' : ''}>
-              <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-          `;
-        }
-        toolbarHTML += '</div>';
-
-        // Right side - action buttons
-        toolbarHTML += '<div style="display: flex; align-items: center; gap: 4px;">';
-
-        // Show/hide diff button (only if there's diff info)
-        if (file.diffInfo) {
-          toolbarHTML += `
-            <button class="cm-toolbar-btn cm-toggle-diff-btn" title="${showDiff ? 'Hide diff highlighting' : 'Show diff highlighting'}">
-              <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                ${showDiff ?
-                  '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />' :
-                  '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />'
-                }
-              </svg>
-            </button>
-          `;
-
-          // View mode toggle button (unified/split) - only when diff is visible
-          if (showDiff) {
-            toolbarHTML += `
-              <button class="cm-toolbar-btn cm-view-mode-btn" title="${diffViewMode === 'unified' ? 'Switch to side-by-side view' : 'Switch to unified view'}">
-                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  ${diffViewMode === 'unified' ?
-                    '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />' :
-                    '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />'
-                  }
-                </svg>
-              </button>
-            `;
-          }
-        }
-
-        // Settings button
-        toolbarHTML += `
-          <button class="cm-toolbar-btn cm-settings-btn" title="Editor Settings">
-            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </button>
-        `;
-
-        // Expand button (only in sidebar mode)
-        if (isSidebar && onToggleExpand) {
-          toolbarHTML += `
-            <button class="cm-toolbar-btn cm-expand-btn" title="${isExpanded ? 'Collapse editor' : 'Expand editor to full width'}">
-              <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                ${isExpanded ?
-                  '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />' :
-                  '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />'
-                }
-              </svg>
-            </button>
-          `;
-        }
-
-        toolbarHTML += '</div>';
-        toolbarHTML += '</div>';
-
-        dom.innerHTML = toolbarHTML;
-
-        // Attach event listeners for diff navigation
-        if (hasDiff) {
-          const prevBtn = dom.querySelector('.cm-diff-nav-prev');
-          const nextBtn = dom.querySelector('.cm-diff-nav-next');
-
-          prevBtn?.addEventListener('click', () => {
-            if (chunks.length === 0) return;
-            currentIndex = currentIndex > 0 ? currentIndex - 1 : chunks.length - 1;
-
-            const chunk = chunks[currentIndex];
-            if (chunk) {
-              view.dispatch({
-                effects: EditorView.scrollIntoView(chunk.fromB, { y: 'center' })
-              });
-            }
-            updatePanel();
-          });
-
-          nextBtn?.addEventListener('click', () => {
-            if (chunks.length === 0) return;
-            currentIndex = currentIndex < chunks.length - 1 ? currentIndex + 1 : 0;
-
-            const chunk = chunks[currentIndex];
-            if (chunk) {
-              view.dispatch({
-                effects: EditorView.scrollIntoView(chunk.fromB, { y: 'center' })
-              });
-            }
-            updatePanel();
-          });
-        }
-
-        // Attach event listener for toggle diff button
-        if (file.diffInfo) {
-          const toggleDiffBtn = dom.querySelector('.cm-toggle-diff-btn');
-          toggleDiffBtn?.addEventListener('click', () => {
-            setShowDiff(!showDiff);
-          });
-
-          // Attach event listener for view mode toggle button
-          const viewModeBtn = dom.querySelector('.cm-view-mode-btn');
-          viewModeBtn?.addEventListener('click', () => {
-            setDiffViewMode(diffViewMode === 'unified' ? 'split' : 'unified');
-          });
-        }
-
-        // Attach event listener for settings button
-        const settingsBtn = dom.querySelector('.cm-settings-btn');
-        settingsBtn?.addEventListener('click', () => {
-          if (window.openSettings) {
-            window.openSettings('appearance');
-          }
-        });
-
-        // Attach event listener for expand button
-        if (isSidebar && onToggleExpand) {
-          const expandBtn = dom.querySelector('.cm-expand-btn');
-          expandBtn?.addEventListener('click', () => {
-            onToggleExpand();
-          });
-        }
-      };
-
-      updatePanel();
-
-      return {
-        top: true,
-        dom,
-        update: updatePanel
-      };
-    };
-
-    return [showPanel.of(createPanel)];
-  }, [file.diffInfo, showDiff, diffViewMode, isSidebar, isExpanded, onToggleExpand]);
 
   // Load file content
   useEffect(() => {
@@ -467,11 +372,6 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
       const newWordWrap = localStorage.getItem('codeEditorWordWrap');
       if (newWordWrap !== null) {
         setWordWrap(newWordWrap === 'true');
-      }
-
-      const newShowMinimap = localStorage.getItem('codeEditorShowMinimap');
-      if (newShowMinimap !== null) {
-        setMinimapEnabled(newShowMinimap === 'true');
       }
 
       const newShowLineNumbers = localStorage.getItem('codeEditorLineNumbers');
@@ -784,44 +684,6 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
             padding-bottom: 2px !important;
             margin-top: -2px !important;
             margin-bottom: -2px !important;
-          }
-
-          /* Minimap gutter styling */
-          .cm-gutter.cm-gutter-minimap {
-            background-color: ${isDarkMode ? '#1e1e1e' : '#f5f5f5'};
-          }
-
-          /* Editor toolbar panel styling */
-          .cm-editor-toolbar-panel {
-            padding: 8px 12px;
-            background-color: ${isDarkMode ? '#1f2937' : '#ffffff'};
-            border-bottom: 1px solid ${isDarkMode ? '#374151' : '#e5e7eb'};
-            color: ${isDarkMode ? '#d1d5db' : '#374151'};
-            font-size: 14px;
-          }
-
-          .cm-diff-nav-btn,
-          .cm-toolbar-btn {
-            padding: 4px;
-            background: transparent;
-            border: none;
-            cursor: pointer;
-            border-radius: 4px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            color: inherit;
-            transition: background-color 0.2s;
-          }
-
-          .cm-diff-nav-btn:hover,
-          .cm-toolbar-btn:hover {
-            background-color: ${isDarkMode ? '#374151' : '#f3f4f6'};
-          }
-
-          .cm-diff-nav-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
           }
 
           /* Touch scrolling support for CodeMirror */
@@ -1189,56 +1051,66 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
             </div>
           ) : (
             /* Unified view mode - inline diff */
-            <CodeMirror
-              key={`editor-${isEditMode ? 'edit' : 'view'}`}
-              ref={editorRef}
-              value={content}
-              onChange={isEditMode ? setContent : undefined}
-              extensions={[
-                ...getLanguageExtension(file.name),
-                // Always show the toolbar
-                ...editorToolbarPanel,
-                // Only show diff-related extensions when diff is enabled and in unified mode
-                ...(file.diffInfo && showDiff && diffViewMode === 'unified' && file.diffInfo.old_string !== undefined
-                  ? [
-                      unifiedMergeView({
-                        original: file.diffInfo.old_string,
-                        mergeControls: false,
-                        highlightChanges: true,
-                        syntaxHighlightDeletions: false,
-                        gutter: true
-                        // NOTE: NO collapseUnchanged - this shows the full file!
-                      }),
-                      ...minimapExtension,
-                      ...scrollToFirstChunkExtension
-                    ]
-                  : []),
-                ...(wordWrap ? [EditorView.lineWrapping] : []),
-                // Force read-only: block all document changes when not in edit mode
-                ...(!isEditMode ? [
-                  EditorState.transactionFilter.of(tr => tr.docChanged ? [] : tr),
-                  EditorView.editable.of(false)
-                ] : []),
-              ]}
-              theme={isDarkMode ? oneDark : undefined}
-              height="100%"
-              style={{
-                fontSize: `${fontSize}px`,
-                height: '100%',
-              }}
-              basicSetup={{
-                lineNumbers: showLineNumbers,
-                foldGutter: true,
-                dropCursor: false,
-                allowMultipleSelections: false,
-                indentOnInput: true,
-                bracketMatching: true,
-                closeBrackets: true,
-                autocompletion: true,
-                highlightSelectionMatches: true,
-                searchKeymap: true,
-              }}
-            />
+            <div className="h-full flex flex-col">
+              <div className="flex-1 min-h-0">
+                <CodeMirror
+                  key={`editor-${isEditMode ? 'edit' : 'view'}`}
+                  ref={editorRef}
+                  value={content}
+                  onChange={isEditMode ? setContent : undefined}
+                  extensions={[
+                    ...getLanguageExtension(file.name),
+                    // Only show diff-related extensions when diff is enabled and in unified mode
+                    ...(file.diffInfo && showDiff && diffViewMode === 'unified' && file.diffInfo.old_string !== undefined
+                      ? [
+                          unifiedMergeView({
+                            original: file.diffInfo.old_string,
+                            mergeControls: false,
+                            highlightChanges: true,
+                            syntaxHighlightDeletions: false,
+                            gutter: true
+                            // NOTE: NO collapseUnchanged - this shows the full file!
+                          }),
+                          ...scrollToFirstChunkExtension
+                        ]
+                      : []),
+                    ...(wordWrap ? [EditorView.lineWrapping] : []),
+                    // Force read-only: block all document changes when not in edit mode
+                    ...(!isEditMode ? [
+                      EditorState.transactionFilter.of(tr => tr.docChanged ? [] : tr),
+                      EditorView.editable.of(false)
+                    ] : []),
+                  ]}
+                  theme={isDarkMode ? oneDark : undefined}
+                  height="100%"
+                  style={{
+                    fontSize: `${fontSize}px`,
+                    height: '100%',
+                  }}
+                  basicSetup={{
+                    lineNumbers: showLineNumbers,
+                    foldGutter: true,
+                    dropCursor: false,
+                    allowMultipleSelections: false,
+                    indentOnInput: true,
+                    bracketMatching: true,
+                    closeBrackets: true,
+                    autocompletion: true,
+                    highlightSelectionMatches: true,
+                    searchKeymap: true,
+                  }}
+                />
+              </div>
+              {/* Unified view bottom toolbar - similar to split view */}
+              {file.diffInfo && showDiff && (
+                <UnifiedViewToolbar
+                  editorRef={editorRef}
+                  isSidebar={isSidebar}
+                  isExpanded={isExpanded}
+                  onToggleExpand={onToggleExpand}
+                />
+              )}
+            </div>
           )}
         </div>
 

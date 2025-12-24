@@ -57,9 +57,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
   const [codeEditorWordWrap, setCodeEditorWordWrap] = useState(() =>
     localStorage.getItem('codeEditorWordWrap') === 'true'
   );
-  const [codeEditorShowMinimap, setCodeEditorShowMinimap] = useState(() =>
-    localStorage.getItem('codeEditorShowMinimap') === 'true' // Default false
-  );
   const [codeEditorLineNumbers, setCodeEditorLineNumbers] = useState(() =>
     localStorage.getItem('codeEditorLineNumbers') !== 'false' // Default true
   );
@@ -330,11 +327,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
     localStorage.setItem('codeEditorWordWrap', codeEditorWordWrap.toString());
     window.dispatchEvent(new Event('codeEditorSettingsChanged'));
   }, [codeEditorWordWrap]);
-
-  useEffect(() => {
-    localStorage.setItem('codeEditorShowMinimap', codeEditorShowMinimap.toString());
-    window.dispatchEvent(new Event('codeEditorSettingsChanged'));
-  }, [codeEditorShowMinimap]);
 
   useEffect(() => {
     localStorage.setItem('codeEditorLineNumbers', codeEditorLineNumbers.toString());
@@ -934,34 +926,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
             <span
               className={`${
                 codeEditorWordWrap ? 'translate-x-7' : 'translate-x-1'
-              } inline-block h-6 w-6 transform rounded-full bg-white shadow-lg transition-transform duration-200`}
-            />
-          </button>
-        </div>
-      </div>
-
-      {/* Show Minimap */}
-      <div className="bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="font-medium text-foreground">
-              显示缩略图
-            </div>
-            <div className="text-sm text-muted-foreground">
-              Display a minimap for easier navigation in diff view
-            </div>
-          </div>
-          <button
-            onClick={() => setCodeEditorShowMinimap(!codeEditorShowMinimap)}
-            className="relative inline-flex h-8 w-14 items-center rounded-full bg-gray-200 dark:bg-gray-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
-            role="switch"
-            aria-checked={codeEditorShowMinimap}
-            aria-label="Toggle minimap"
-          >
-            <span className="sr-only">Toggle minimap</span>
-            <span
-              className={`${
-                codeEditorShowMinimap ? 'translate-x-7' : 'translate-x-1'
               } inline-block h-6 w-6 transform rounded-full bg-white shadow-lg transition-transform duration-200`}
             />
           </button>
