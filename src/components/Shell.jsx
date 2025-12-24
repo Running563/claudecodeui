@@ -380,7 +380,7 @@ const VirtualKeyboard = ({ onKeyPress, onKeyPressWithEnter, isConnected, isQuick
 
   // Different key layouts for AI session vs quick terminal
   const keys = isQuickTerminal ? [
-    // Quick Terminal: Basic navigation + clear screen
+    // Quick Terminal: Basic navigation + clear screen + terminate keys
     { label: 'ESC', key: '\x1b' },
     { label: 'Tab', key: '\t' },
     { label: '↑', key: '\x1b[A' },
@@ -392,6 +392,8 @@ const VirtualKeyboard = ({ onKeyPress, onKeyPressWithEnter, isConnected, isQuick
     { label: 'Del', key: '\x1b[3~' },
     { label: '⌫', key: '\x7f' }, // Backspace
     { label: 'Enter', key: '\r' },
+    { label: 'Ctrl+C', key: '\x03' },
+    { label: 'Ctrl+D', key: '\x04' },
     { label: 'Clear', key: 'clear', withEnter: true },
   ] : [
     // AI Session: Full keyboard with AI commands
