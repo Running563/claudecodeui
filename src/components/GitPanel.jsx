@@ -534,10 +534,10 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
       const response = await authenticatedFetch(`/api/git/commit-diff?project=${encodeURIComponent(getProjectId(selectedProject))}&commit=${commitHash}`);
       const data = await response.json();
       
-      if (!data.error && data.diff) {
+      if (!data.error && data.files) {
         setCommitDiffs(prev => ({
           ...prev,
-          [commitHash]: data.diff
+          [commitHash]: data.files
         }));
       }
     } catch (error) {
@@ -680,9 +680,35 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
     }
   };
 
+  // Open commit file diff in full screen (reuse onFileOpen with diffInfo)
+  const openCommitFileDiff = async (commitHash, filename) => {
+    if (!onFileOpen) return;
+    
+    try {
+      const response = await authenticatedFetch(
+        `/api/git/commit-file-diff?project=${encodeURIComponent(getProjectId(selectedProject))}&commit=${commitHash}&file=${encodeURIComponent(filename)}&withContent=true`
+      );
+      const data = await response.json();
+      
+      if (!data.error) {
+        // Create diffInfo object for CodeEditor
+        const diffInfo = {
+          old_string: data.oldContent || '',
+          new_string: data.newContent || ''
+        };
+        // Open file with diff information
+        onFileOpen(filename, diffInfo);
+      } else {
+        console.error('Error fetching commit file diff:', data.error);
+      }
+    } catch (error) {
+      console.error('Error opening commit file:', error);
+    }
+  };
+
   const renderCommitItem = (commit) => {
     const isExpanded = expandedCommits.has(commit.hash);
-    const diff = commitDiffs[commit.hash];
+    const files = commitDiffs[commit.hash]; // Now it's an array of files
     
     return (
       <div key={commit.hash} className="border-b border-gray-200 dark:border-gray-700 last:border-0">
@@ -709,13 +735,53 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
             </div>
           </div>
         </div>
-        {isExpanded && diff && (
+        {isExpanded && (
           <div className="bg-gray-50 dark:bg-gray-900">
-            <div className="max-h-96 overflow-y-auto p-2">
-              <div className="text-xs font-mono text-gray-600 dark:text-gray-400 mb-2">
-                {commit.stats}
-              </div>
-              <DiffViewer diff={diff} fileName="commit" isMobile={isMobile} wrapText={wrapText} />
+            {/* File list */}
+            <div className="max-h-64 overflow-y-auto">
+              {files && files.length > 0 ? (
+                files.map((file, index) => (
+                  <div 
+                    key={index} 
+                    className="flex items-center justify-between px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer border-b border-gray-100 dark:border-gray-800 last:border-0"
+                    onClick={() => openCommitFileDiff(commit.hash, file.filename)}
+                    title="Click to view diff"
+                  >
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      {/* Status badge */}
+                      <span 
+                        className={`inline-flex items-center justify-center w-5 h-5 rounded text-xs font-bold flex-shrink-0 ${
+                          file.status === 'M' ? 'bg-yellow-500/20 text-yellow-600 dark:text-yellow-400' :
+                          file.status === 'A' ? 'bg-green-500/20 text-green-600 dark:text-green-400' :
+                          file.status === 'D' ? 'bg-red-500/20 text-red-600 dark:text-red-400' :
+                          file.status === 'R' ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400' :
+                          'bg-gray-500/20 text-gray-600 dark:text-gray-400'
+                        }`}
+                      >
+                        {file.status}
+                      </span>
+                      {/* Filename */}
+                      <span className="truncate text-sm text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">
+                        {file.filename}
+                      </span>
+                    </div>
+                    {/* Line changes */}
+                    <div className="flex items-center gap-2 flex-shrink-0 ml-2 text-xs font-mono">
+                      {file.additions > 0 && (
+                        <span className="text-green-600 dark:text-green-400">+{file.additions}</span>
+                      )}
+                      {file.deletions > 0 && (
+                        <span className="text-red-600 dark:text-red-400">-{file.deletions}</span>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                  <RefreshCw className="w-4 h-4 animate-spin inline-block mr-2" />
+                  Loading files...
+                </div>
+              )}
             </div>
           </div>
         )}

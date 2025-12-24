@@ -496,15 +496,137 @@ router.get('/commit-diff', async (req, res) => {
   try {
     const projectPath = await getActualProjectPath(project);
     
-    // Get diff for the commit
-    const { stdout } = await execAsync(
-      `git show ${commit}`,
+    // Get file list with stats for the commit using --numstat
+    const { stdout: numstatOutput } = await execAsync(
+      `git show --numstat --format='' ${commit}`,
       { cwd: projectPath }
     );
     
-    res.json({ diff: stdout });
+    // Parse numstat output: additions deletions filename
+    const files = numstatOutput
+      .trim()
+      .split('\n')
+      .filter(line => line.trim())
+      .map(line => {
+        const parts = line.split('\t');
+        if (parts.length >= 3) {
+          const additions = parts[0] === '-' ? 0 : parseInt(parts[0], 10) || 0;
+          const deletions = parts[1] === '-' ? 0 : parseInt(parts[1], 10) || 0;
+          const filename = parts.slice(2).join('\t'); // Handle filenames with tabs
+          
+          // Determine status based on additions/deletions
+          let status = 'M'; // Modified by default
+          if (additions > 0 && deletions === 0) {
+            // Check if it's a new file
+            status = 'A';
+          } else if (additions === 0 && deletions > 0) {
+            // Could be deleted, but numstat doesn't distinguish well
+            status = 'M';
+          }
+          
+          return {
+            filename,
+            additions,
+            deletions,
+            status
+          };
+        }
+        return null;
+      })
+      .filter(Boolean);
+    
+    // Get more accurate status using --name-status
+    try {
+      const { stdout: nameStatusOutput } = await execAsync(
+        `git show --name-status --format='' ${commit}`,
+        { cwd: projectPath }
+      );
+      
+      const statusMap = {};
+      nameStatusOutput
+        .trim()
+        .split('\n')
+        .filter(line => line.trim())
+        .forEach(line => {
+          const match = line.match(/^([AMDRC])\d*\t(.+)$/);
+          if (match) {
+            statusMap[match[2]] = match[1];
+          }
+        });
+      
+      // Update file statuses
+      files.forEach(file => {
+        if (statusMap[file.filename]) {
+          file.status = statusMap[file.filename];
+        }
+      });
+    } catch (error) {
+      // Ignore status fetch error, keep default statuses
+    }
+    
+    res.json({ files });
   } catch (error) {
     console.error('Git commit diff error:', error);
+    res.json({ error: error.message });
+  }
+});
+
+// Get diff for a specific file in a specific commit
+router.get('/commit-file-diff', async (req, res) => {
+  const { project, commit, file, withContent } = req.query;
+  
+  if (!project || !commit || !file) {
+    return res.status(400).json({ error: 'Project, commit hash, and file path are required' });
+  }
+
+  try {
+    const projectPath = await getActualProjectPath(project);
+    
+    if (withContent === 'true') {
+      // Return old and new content for full-screen diff view
+      let oldContent = '';
+      let newContent = '';
+      
+      // Get the file content BEFORE this commit (parent commit)
+      try {
+        const { stdout } = await execAsync(
+          `git show ${commit}^:"${file}"`,
+          { cwd: projectPath }
+        );
+        oldContent = stdout;
+      } catch (error) {
+        // File didn't exist before this commit (new file)
+        oldContent = '';
+      }
+      
+      // Get the file content AT this commit
+      try {
+        const { stdout } = await execAsync(
+          `git show ${commit}:"${file}"`,
+          { cwd: projectPath }
+        );
+        newContent = stdout;
+      } catch (error) {
+        // File was deleted in this commit
+        newContent = '';
+      }
+      
+      res.json({ oldContent, newContent });
+    } else {
+      // Return diff string for inline diff view
+      const { stdout } = await execAsync(
+        `git show ${commit} -- "${file}"`,
+        { cwd: projectPath }
+      );
+      
+      // Strip the commit header info, keep only the diff part
+      const diffStart = stdout.indexOf('diff --git');
+      const diff = diffStart >= 0 ? stripDiffHeaders(stdout.substring(diffStart)) : stdout;
+      
+      res.json({ diff });
+    }
+  } catch (error) {
+    console.error('Git commit file diff error:', error);
     res.json({ error: error.message });
   }
 });
