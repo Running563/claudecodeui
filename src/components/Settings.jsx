@@ -58,7 +58,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
     localStorage.getItem('codeEditorWordWrap') === 'true'
   );
   const [codeEditorShowMinimap, setCodeEditorShowMinimap] = useState(() =>
-    localStorage.getItem('codeEditorShowMinimap') !== 'false' // Default true
+    localStorage.getItem('codeEditorShowMinimap') === 'true' // Default false
   );
   const [codeEditorLineNumbers, setCodeEditorLineNumbers] = useState(() =>
     localStorage.getItem('codeEditorLineNumbers') !== 'false' // Default true

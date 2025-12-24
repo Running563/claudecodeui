@@ -62,7 +62,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
     return localStorage.getItem('codeEditorWordWrap') === 'true';
   });
   const [minimapEnabled, setMinimapEnabled] = useState(() => {
-    return localStorage.getItem('codeEditorShowMinimap') !== 'false';
+    return localStorage.getItem('codeEditorShowMinimap') === 'true'; // Default false
   });
   const [showLineNumbers, setShowLineNumbers] = useState(() => {
     return localStorage.getItem('codeEditorLineNumbers') !== 'false';
@@ -447,7 +447,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
 
       const newShowMinimap = localStorage.getItem('codeEditorShowMinimap');
       if (newShowMinimap !== null) {
-        setMinimapEnabled(newShowMinimap !== 'false');
+        setMinimapEnabled(newShowMinimap === 'true');
       }
 
       const newShowLineNumbers = localStorage.getItem('codeEditorLineNumbers');
