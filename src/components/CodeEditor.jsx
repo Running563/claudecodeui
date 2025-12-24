@@ -998,7 +998,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
                 {/* Cancel button */}
                 <button
                   onClick={handleCancelEdit}
-                  className="p-2 rounded-md text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-1 min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0"
+                  className="p-2 rounded-md text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center gap-1 min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0"
                   title="取消编辑"
                 >
                   <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1010,7 +1010,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
                 <button
                   onClick={handleSaveAndExit}
                   disabled={saving}
-                  className={`p-2 rounded-md disabled:opacity-50 flex items-center gap-1 transition-colors min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0 ${
+                  className={`p-2 rounded-md disabled:opacity-50 flex items-center justify-center gap-1 transition-colors min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0 ${
                     saveSuccess
                       ? 'text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30'
                       : 'text-white bg-blue-600 hover:bg-blue-700'
@@ -1033,7 +1033,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
                 {file.diffInfo && showDiff && (
                   <button
                     onClick={() => setDiffViewMode(diffViewMode === 'unified' ? 'split' : 'unified')}
-                    className="p-2 rounded-md text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-1 min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0"
+                    className="p-2 rounded-md text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center gap-1 min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0"
                     title={diffViewMode === 'unified' ? '切换到左右对比' : '切换到统一视图'}
                   >
                     {diffViewMode === 'unified' ? (
@@ -1061,7 +1061,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
                 {/* Edit button */}
                 <button
                   onClick={handleEnterEditMode}
-                  className="p-2 rounded-md text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-1 min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0"
+                  className="p-2 rounded-md text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center gap-1 min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0"
                   title="编辑文件"
                 >
                   <Edit2 className="w-5 h-5 md:w-4 md:h-4" />
