@@ -1,14 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronLeft, MoreVertical, Trash2, Copy, Eraser } from 'lucide-react';
+import { ChevronLeft, MoreVertical, Trash2, Copy, Eraser, Clock, Infinity } from 'lucide-react';
 import Shell from './Shell';
 
 function TerminalDetailView({ 
   terminal, 
   onBack, 
   onDelete,
-  onClone 
+  onClone,
+  onUpdateTerminal
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [keepAlive, setKeepAlive] = useState(terminal?.keepAlive || false);
   const shellRef = useRef(null);
   const terminalIdRef = useRef(terminal?.id);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -24,7 +26,34 @@ function TerminalDetailView({
 
   useEffect(() => {
     terminalIdRef.current = terminal?.id;
-  }, [terminal?.id]);
+    setKeepAlive(terminal?.keepAlive || false);
+  }, [terminal?.id, terminal?.keepAlive]);
+
+  const handleToggleKeepAlive = async () => {
+    const newKeepAlive = !keepAlive;
+    setKeepAlive(newKeepAlive);
+    setMenuOpen(false);
+    
+    try {
+      const token = localStorage.getItem('auth-token');
+      const response = await fetch(`/api/terminals/${terminal.id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ keepAlive: newKeepAlive })
+      });
+      
+      if (response.ok && onUpdateTerminal) {
+        onUpdateTerminal({ ...terminal, keepAlive: newKeepAlive });
+      }
+    } catch (error) {
+      console.error('Toggle keepAlive error:', error);
+      // Revert on error
+      setKeepAlive(!newKeepAlive);
+    }
+  };
 
   const handleClear = () => {
     // Clear terminal display - Shell component handles this via ref
@@ -105,7 +134,21 @@ function TerminalDetailView({
                 />
                 <div className="absolute right-0 top-full mt-1 bg-gray-700 
                               rounded-lg shadow-lg border border-gray-600 
-                              py-1 z-50 min-w-[140px]">
+                              py-1 z-50 min-w-[160px]">
+                  <button
+                    onClick={handleToggleKeepAlive}
+                    className="w-full flex items-center justify-between px-4 py-2 text-sm
+                             text-gray-300 hover:bg-gray-600 touch-manipulation"
+                  >
+                    <div className="flex items-center space-x-2">
+                      {keepAlive ? <Infinity className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
+                      <span>{keepAlive ? '永不清理' : '自动清理'}</span>
+                    </div>
+                    <div className={`w-8 h-4 rounded-full transition-colors ${keepAlive ? 'bg-green-500' : 'bg-gray-500'}`}>
+                      <div className={`w-3 h-3 rounded-full bg-white mt-0.5 transition-transform ${keepAlive ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                    </div>
+                  </button>
+                  <div className="border-t border-gray-600 my-1" />
                   <button
                     onClick={handleClear}
                     className="w-full flex items-center space-x-2 px-4 py-2 text-sm

@@ -51,7 +51,8 @@ router.get('/', (req, res) => {
       lastCommand: t.lastCommand,
       isRunning: t.isRunning,
       createdAt: t.createdAt,
-      lastActivity: t.lastActivity
+      lastActivity: t.lastActivity,
+      keepAlive: t.keepAlive || false
     }));
     
     res.json(terminals);
@@ -87,7 +88,8 @@ router.post('/', (req, res) => {
       lastCommand: '',
       isRunning: false,
       createdAt: Date.now(),
-      lastActivity: Date.now()
+      lastActivity: Date.now(),
+      keepAlive: false
     };
     
     quickTerminals.set(terminalId, terminal);
@@ -147,6 +149,9 @@ router.put('/:id', (req, res) => {
     if (req.body.isRunning !== undefined) {
       terminal.isRunning = req.body.isRunning;
     }
+    if (req.body.keepAlive !== undefined) {
+      terminal.keepAlive = req.body.keepAlive;
+    }
     
     terminal.lastActivity = Date.now();
     
@@ -198,7 +203,8 @@ router.post('/:id/clone', (req, res) => {
       lastCommand: '',
       isRunning: false,
       createdAt: Date.now(),
-      lastActivity: Date.now()
+      lastActivity: Date.now(),
+      keepAlive: terminal.keepAlive || false
     };
     
     quickTerminals.set(newTerminalId, newTerminal);

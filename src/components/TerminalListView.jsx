@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, ChevronRight, MoreVertical, Trash2, Copy } from 'lucide-react';
+import { Plus, ChevronRight, MoreVertical, Trash2, Copy, Infinity, Clock } from 'lucide-react';
 
 function TerminalListView({ onSelectTerminal, onCreateNew }) {
   const [terminals, setTerminals] = useState([]);
@@ -80,6 +80,32 @@ function TerminalListView({ onSelectTerminal, onCreateNew }) {
     }
   };
 
+  const handleToggleKeepAlive = async (terminal, e) => {
+    e.stopPropagation();
+    
+    try {
+      const token = localStorage.getItem('auth-token');
+      const response = await fetch(`/api/terminals/${terminal.id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ keepAlive: !terminal.keepAlive })
+      });
+      
+      if (response.ok) {
+        setTerminals(terminals.map(t => 
+          t.id === terminal.id ? { ...t, keepAlive: !t.keepAlive } : t
+        ));
+        setMenuOpenId(null);
+      }
+    } catch (error) {
+      console.error('Toggle keep alive error:', error);
+      alert('操作失败');
+    }
+  };
+
   const formatTime = (timestamp) => {
     const now = Date.now();
     const diff = now - timestamp;
@@ -150,17 +176,22 @@ function TerminalListView({ onSelectTerminal, onCreateNew }) {
                 key={terminal.id}
                 className="relative"
               >
-                <button
+                <div
                   onClick={() => onSelectTerminal(terminal)}
                   className="w-full flex items-center justify-between p-3 
                            bg-card hover:bg-accent
-                           border border-border rounded-lg transition-colors text-left"
+                           border border-border rounded-lg transition-colors text-left cursor-pointer"
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center space-x-2 mb-1">
                       <span className="text-sm font-medium text-foreground">
                         终端 #{index + 1}
                       </span>
+                      {terminal.keepAlive && (
+                        <span className="flex items-center text-xs text-green-500" title="永不清理">
+                          <Infinity className="w-3 h-3" />
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center space-x-1 text-xs text-muted-foreground mb-1">
                       <span>📁</span>
@@ -179,7 +210,7 @@ function TerminalListView({ onSelectTerminal, onCreateNew }) {
                     </button>
                     <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                   </div>
-                </button>
+                </div>
 
                 {/* Context Menu */}
                 {menuOpenId === terminal.id && (
@@ -191,6 +222,23 @@ function TerminalListView({ onSelectTerminal, onCreateNew }) {
                     <div className="absolute right-0 top-full mt-1 bg-card 
                                   rounded-lg shadow-lg border border-border 
                                   py-1 z-50 min-w-[120px]">
+                      <button
+                        onClick={(e) => handleToggleKeepAlive(terminal, e)}
+                        className="w-full flex items-center space-x-2 px-4 py-2 text-sm
+                                 text-foreground hover:bg-accent"
+                      >
+                        {terminal.keepAlive ? (
+                          <>
+                            <Clock className="w-4 h-4" />
+                            <span>允许清理</span>
+                          </>
+                        ) : (
+                          <>
+                            <Infinity className="w-4 h-4" />
+                            <span>永不清理</span>
+                          </>
+                        )}
+                      </button>
                       <button
                         onClick={(e) => handleClone(terminal.id, e)}
                         className="w-full flex items-center space-x-2 px-4 py-2 text-sm

@@ -1297,16 +1297,40 @@ function handleShellConnection(ws) {
         if (ptySessionKey) {
             const session = ptySessionsMap.get(ptySessionKey);
             if (session) {
-                console.log('⏳ PTY session kept alive, will timeout in 30 minutes:', ptySessionKey);
                 session.ws = null;
 
-                session.timeoutId = setTimeout(() => {
-                    console.log('⏰ PTY session timeout, killing process:', ptySessionKey);
-                    if (session.pty && session.pty.kill) {
-                        session.pty.kill();
+                // Check if this is a quick terminal with keepAlive enabled
+                // Quick terminal session keys are formatted as: terminal_{sessionId}_{projectPath}
+                const isQuickTerminalSession = ptySessionKey.startsWith('terminal_');
+                let shouldKeepAlive = false;
+                
+                if (isQuickTerminalSession) {
+                    // Extract sessionId from the key: terminal_{sessionId}_{projectPath}
+                    const match = ptySessionKey.match(/^terminal_([^_]+)_/);
+                    if (match) {
+                        const terminalId = `terminal_${match[1]}`;
+                        const terminal = quickTerminals.get(terminalId);
+                        if (terminal && terminal.keepAlive) {
+                            shouldKeepAlive = true;
+                            console.log('🔒 PTY session will be kept alive indefinitely (keepAlive enabled):', ptySessionKey);
+                        }
                     }
-                    ptySessionsMap.delete(ptySessionKey);
-                }, PTY_SESSION_TIMEOUT);
+                }
+
+                if (shouldKeepAlive) {
+                    // No timeout - keep alive indefinitely
+                    console.log('⏳ PTY session kept alive indefinitely:', ptySessionKey);
+                } else {
+                    // Set timeout to clean up after 30 minutes
+                    console.log('⏳ PTY session kept alive, will timeout in 30 minutes:', ptySessionKey);
+                    session.timeoutId = setTimeout(() => {
+                        console.log('⏰ PTY session timeout, killing process:', ptySessionKey);
+                        if (session.pty && session.pty.kill) {
+                            session.pty.kill();
+                        }
+                        ptySessionsMap.delete(ptySessionKey);
+                    }, PTY_SESSION_TIMEOUT);
+                }
             }
         }
     });

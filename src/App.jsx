@@ -834,6 +834,10 @@ function AppContent() {
     setActiveTab('terminals');
   }, []);
 
+  const handleUpdateTerminal = useCallback((updatedTerminal) => {
+    setSelectedTerminal(updatedTerminal);
+  }, []);
+
   const handleTerminalDelete = useCallback(async (terminalId) => {
     try {
       const token = localStorage.getItem('auth-token');
@@ -998,6 +1002,7 @@ function AppContent() {
             onBack={handleTerminalBack}
             onDelete={handleTerminalDelete}
             onClone={handleTerminalClone}
+            onUpdateTerminal={handleUpdateTerminal}
           />
         ) : activeTab === 'terminals' ? (
           <TerminalListView
