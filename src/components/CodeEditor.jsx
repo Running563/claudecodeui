@@ -8,6 +8,7 @@ import { json } from '@codemirror/lang-json';
 import { markdown } from '@codemirror/lang-markdown';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { EditorView, showPanel, ViewPlugin, lineNumbers } from '@codemirror/view';
+import { EditorState } from '@codemirror/state';
 import { unifiedMergeView, getChunks, MergeView } from '@codemirror/merge';
 import { showMinimap } from '@replit/codemirror-minimap';
 import { X, Save, Download, Maximize2, Minimize2, Edit2 } from 'lucide-react';
@@ -534,18 +535,24 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
           lineNumbers(),
           ...(wordWrap ? [EditorView.lineWrapping] : []),
           ...(isDarkMode ? [oneDark] : []),
-          // Listen for changes to sync with content state (for revert functionality)
-          EditorView.updateListener.of((update) => {
-            if (update.docChanged) {
-              setContent(update.state.doc.toString());
-            }
-          }),
+          // Read-only control for right side (modified)
+          ...(!isEditMode ? [
+            EditorState.transactionFilter.of(tr => tr.docChanged ? [] : tr),
+            EditorView.editable.of(false)
+          ] : [
+            // Listen for changes to sync with content state (only in edit mode)
+            EditorView.updateListener.of((update) => {
+              if (update.docChanged) {
+                setContent(update.state.doc.toString());
+              }
+            })
+          ]),
         ],
       },
       parent: container,
       highlightChanges: true,
       gutter: !isMobile, // Hide gutter on mobile, use bottom toolbar instead
-      revertControls: isMobile ? undefined : 'b-to-a', // Revert buttons in gutter (desktop only)
+      revertControls: isEditMode && !isMobile ? 'b-to-a' : undefined, // Revert buttons only in edit mode (desktop only)
     });
 
     mergeViewRef.current = mergeView;
@@ -602,7 +609,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file.diffInfo, showDiff, diffViewMode, isDarkMode, wordWrap, file.name, loading]);
+  }, [file.diffInfo, showDiff, diffViewMode, isDarkMode, wordWrap, file.name, loading, isEditMode]);
 
   // Restore scroll position when switching sides on mobile
   useEffect(() => {
@@ -974,11 +981,6 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 min-w-0">
                 <h3 className="font-medium text-gray-900 dark:text-white truncate">{file.name}</h3>
-                {file.diffInfo && (
-                  <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300 px-2 py-1 rounded whitespace-nowrap">
-                    Showing changes
-                  </span>
-                )}
                 {isEditMode && (
                   <span className="text-xs bg-yellow-100 dark:bg-yellow-900 text-yellow-600 dark:text-yellow-300 px-2 py-1 rounded whitespace-nowrap">
                     编辑中
@@ -990,15 +992,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
           </div>
 
           <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
-            <button
-              onClick={handleDownload}
-              className="hidden md:flex p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 items-center justify-center"
-              title="Download file"
-            >
-              <Download className="w-4 h-4" />
-            </button>
-
-            {/* Edit mode buttons */}
+            {/* Edit mode: only show cancel and save buttons */}
             {isEditMode ? (
               <>
                 {/* Cancel button */}
@@ -1034,8 +1028,37 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
                 </button>
               </>
             ) : (
-              /* Edit button - only show when not in diff view mode */
-              !file.diffInfo && (
+              <>
+                {/* Diff view mode toggle - only show when in diff mode */}
+                {file.diffInfo && showDiff && (
+                  <button
+                    onClick={() => setDiffViewMode(diffViewMode === 'unified' ? 'split' : 'unified')}
+                    className="p-2 rounded-md text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-1 min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0"
+                    title={diffViewMode === 'unified' ? '切换到左右对比' : '切换到统一视图'}
+                  >
+                    {diffViewMode === 'unified' ? (
+                      /* Split view icon */
+                      <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+                      </svg>
+                    ) : (
+                      /* Unified view icon */
+                      <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                      </svg>
+                    )}
+                  </button>
+                )}
+
+                <button
+                  onClick={handleDownload}
+                  className="hidden md:flex p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 items-center justify-center"
+                  title="Download file"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+
+                {/* Edit button */}
                 <button
                   onClick={handleEnterEditMode}
                   className="p-2 rounded-md text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-1 min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0"
@@ -1044,26 +1067,26 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
                   <Edit2 className="w-5 h-5 md:w-4 md:h-4" />
                   <span className="hidden md:inline text-sm">编辑</span>
                 </button>
-              )
-            )}
 
-            {!isSidebar && (
-              <button
-                onClick={toggleFullscreen}
-                className="hidden md:flex p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 items-center justify-center"
-                title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-              >
-                {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-              </button>
-            )}
+                {!isSidebar && (
+                  <button
+                    onClick={toggleFullscreen}
+                    className="hidden md:flex p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 items-center justify-center"
+                    title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                  >
+                    {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                  </button>
+                )}
 
-            <button
-              onClick={onClose}
-              className="p-2 md:p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0 flex items-center justify-center"
-              title="Close"
-            >
-              <X className="w-6 h-6 md:w-4 md:h-4" />
-            </button>
+                <button
+                  onClick={onClose}
+                  className="p-2 md:p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0 flex items-center justify-center"
+                  title="Close"
+                >
+                  <X className="w-6 h-6 md:w-4 md:h-4" />
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -1072,7 +1095,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
           {/* Split view mode - side by side diff */}
           {file.diffInfo && showDiff && diffViewMode === 'split' ? (
             <div className="h-full flex flex-col">
-              {/* Split view toolbar - desktop */}
+              {/* Split view toolbar - desktop only */}
               {!isMobile && (
                 <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted text-sm">
                   <div className="flex items-center gap-4">
@@ -1167,10 +1190,10 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
           ) : (
             /* Unified view mode - inline diff */
             <CodeMirror
+              key={`editor-${isEditMode ? 'edit' : 'view'}`}
               ref={editorRef}
               value={content}
               onChange={isEditMode ? setContent : undefined}
-              editable={isEditMode}
               extensions={[
                 ...getLanguageExtension(file.name),
                 // Always show the toolbar
@@ -1191,8 +1214,11 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
                     ]
                   : []),
                 ...(wordWrap ? [EditorView.lineWrapping] : []),
-                // Add read-only extension when not in edit mode
-                ...(!isEditMode ? [EditorView.editable.of(false)] : [])
+                // Force read-only: block all document changes when not in edit mode
+                ...(!isEditMode ? [
+                  EditorState.transactionFilter.of(tr => tr.docChanged ? [] : tr),
+                  EditorView.editable.of(false)
+                ] : []),
               ]}
               theme={isDarkMode ? oneDark : undefined}
               height="100%"
