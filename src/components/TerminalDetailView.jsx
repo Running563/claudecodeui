@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronLeft, MoreVertical, Trash2, Copy, Eraser, Clock, Infinity } from 'lucide-react';
+import { ChevronLeft, MoreVertical, Trash2, Copy, Eraser, Clock, Infinity, MousePointer2, Hand } from 'lucide-react';
 import Shell from './Shell';
 
 function TerminalDetailView({ 
@@ -11,6 +11,7 @@ function TerminalDetailView({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [keepAlive, setKeepAlive] = useState(terminal?.keepAlive || false);
+  const [selectMode, setSelectMode] = useState(false);
   const shellRef = useRef(null);
   const terminalIdRef = useRef(terminal?.id);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -117,7 +118,27 @@ function TerminalDetailView({
               </div>
             </div>
           </div>
-          <div className="relative">
+          <div className="flex items-center space-x-2">
+            {/* Select Mode Toggle - only show on mobile */}
+            {isMobile && (
+              <button
+                onClick={() => setSelectMode(!selectMode)}
+                className={`p-1.5 rounded touch-manipulation transition-colors ${
+                  selectMode 
+                    ? 'bg-blue-600 text-white' 
+                    : 'hover:bg-gray-700 text-gray-300'
+                }`}
+                aria-label={selectMode ? '滚动模式' : '选择模式'}
+                title={selectMode ? '点击切换到滚动模式' : '点击切换到选择模式'}
+              >
+                {selectMode ? (
+                  <MousePointer2 className="w-5 h-5" />
+                ) : (
+                  <Hand className="w-5 h-5" />
+                )}
+              </button>
+            )}
+            <div className="relative">
             <button
               onClick={() => setMenuOpen(!menuOpen)}
               className="p-1 hover:bg-gray-700 rounded touch-manipulation"
@@ -177,6 +198,7 @@ function TerminalDetailView({
                 </div>
               </>
             )}
+            </div>
           </div>
         </div>
       </div>
@@ -191,6 +213,7 @@ function TerminalDetailView({
           isPlainShell={false}
           minimal={true}
           autoConnect={true}
+          selectMode={selectMode}
         />
       </div>
     </div>

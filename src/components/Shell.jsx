@@ -452,7 +452,7 @@ if (typeof document !== 'undefined') {
   document.head.appendChild(styleSheet);
 }
 
-function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell = false, onProcessComplete, minimal = false, autoConnect = false, onShellStateChange }, ref) {
+function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell = false, onProcessComplete, minimal = false, autoConnect = false, onShellStateChange, selectMode = false }, ref) {
   const terminalRef = useRef(null);
   const scrollContainerRef = useRef(null);
   const terminal = useRef(null);
@@ -979,12 +979,17 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     // Calculate terminal width: 100 cols * 6.6px per char (approximate for 11px font)
     const terminalWidth = isMobile ? 100 * 6.6 : '100%';
     
+    // In select mode: allow text selection (touch-action: none disables scroll, allows selection)
+    // In scroll mode: allow scrolling (touch-action: pan-x pan-y)
+    const touchActionStyle = selectMode ? 'none' : 'pan-x pan-y';
+    const userSelectStyle = selectMode ? 'text' : 'none';
+    
     return (
       <div className="h-full w-full bg-gray-900 flex flex-col relative">
         <div 
           ref={scrollContainerRef}
           className={`flex-1 relative min-h-0 shell-scroll-container ${isMobile ? 'overflow-x-auto' : 'overflow-auto'}`}
-          style={isMobile ? { touchAction: 'pan-x', marginRight: '15px' } : undefined}
+          style={isMobile ? { touchAction: selectMode ? 'none' : 'pan-x', marginRight: '15px' } : undefined}
         >
           <div 
             ref={terminalRef} 
@@ -992,17 +997,24 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
             style={{ 
               outline: 'none',
               width: typeof terminalWidth === 'number' ? `${terminalWidth}px` : '100%',
-              touchAction: isMobile ? 'pan-y' : 'auto'
+              touchAction: isMobile ? touchActionStyle : 'auto',
+              userSelect: isMobile ? userSelectStyle : 'auto',
+              WebkitUserSelect: isMobile ? userSelectStyle : 'auto',
             }} 
           />
         </div>
-        {isMobile && (
+        {isMobile && !selectMode && (
           <>
             <HorizontalScrollBar scrollContainerRef={scrollContainerRef} terminalWidth={terminalWidth} />
             <VirtualKeyboard onKeyPress={handleVirtualKeyPress} onKeyPressWithEnter={handleVirtualKeyPressWithEnter} isConnected={isConnected} isQuickTerminal={isQuickTerminal} />
           </>
         )}
-        {isMobile && <VerticalScrollBar viewportElement={viewportElement} topOffset={0} bottomOffset={64} />}
+        {isMobile && !selectMode && <VerticalScrollBar viewportElement={viewportElement} topOffset={0} bottomOffset={64} />}
+        {isMobile && selectMode && (
+          <div className="flex-shrink-0 bg-gray-800 border-t border-gray-700 px-4 py-3 text-center">
+            <span className="text-sm text-gray-400">选择模式：长按选择文字，点击顶部按钮切换回滚动模式</span>
+          </div>
+        )}
       </div>
     );
   }
