@@ -3,6 +3,27 @@ import react from '@vitejs/plugin-react'
 import fs from 'fs'
 import path from 'path'
 
+// 自动更新 Service Worker 版本号的插件
+function updateSwVersion() {
+  return {
+    name: 'update-sw-version',
+    buildStart() {
+      const swPath = path.resolve(process.cwd(), 'public/sw.js')
+      if (fs.existsSync(swPath)) {
+        let content = fs.readFileSync(swPath, 'utf-8')
+        // 使用时间戳作为版本号
+        const newVersion = `v${Date.now()}`
+        content = content.replace(
+          /const CACHE_VERSION = ['"]v[^'"]+['"]/,
+          `const CACHE_VERSION = '${newVersion}'`
+        )
+        fs.writeFileSync(swPath, content)
+        console.log(`[SW] Updated CACHE_VERSION to ${newVersion}`)
+      }
+    }
+  }
+}
+
 export default defineConfig(({ command, mode }) => {
   // Load env file based on `mode` in the current working directory.
   const env = loadEnv(mode, process.cwd(), '')
@@ -15,7 +36,11 @@ export default defineConfig(({ command, mode }) => {
     : false
   
   return {
-    plugins: [react()],
+    plugins: [
+      react(),
+      // 仅在 build 时更新 SW 版本号
+      command === 'build' && updateSwVersion()
+    ].filter(Boolean),
     optimizeDeps: {
       // 强制预打包 react-syntax-highlighter 相关依赖，避免开发时加载大量小文件
       include: [

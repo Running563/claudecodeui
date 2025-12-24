@@ -1,11 +1,12 @@
 // Service Worker for Claude Code UI PWA
-const CACHE_NAME = 'claude-ui-v2';
+// 更新此版本号会触发缓存清理
+const CACHE_VERSION = 'v3';
+const CACHE_NAME = `claude-ui-${CACHE_VERSION}`;
 
-// 需要缓存的静态资源扩展名
+// 需要缓存的静态资源扩展名（带 hash 的文件可以长期缓存）
 const CACHEABLE_EXTENSIONS = [
   '.js', '.css', '.woff', '.woff2', '.ttf', '.eot',
-  '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp',
-  '.json', '.html'
+  '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp'
 ];
 
 // 不缓存的路径前缀（API 请求等）
@@ -15,6 +16,19 @@ const EXCLUDED_PATHS = [
   '/socket',
   '/pty'
 ];
+
+// 需要 Network First 的路径（HTML 入口等关键文件）
+const NETWORK_FIRST_PATHS = [
+  '/',
+  '/index.html',
+  '/manifest.json'
+];
+
+// 判断是否需要 Network First 策略
+function isNetworkFirst(url) {
+  const pathname = url.pathname;
+  return NETWORK_FIRST_PATHS.some(path => pathname === path);
+}
 
 // 判断是否为可缓存的静态资源
 function isCacheableRequest(request) {
@@ -37,31 +51,24 @@ function isCacheableRequest(request) {
     }
   }
   
-  // 排除带查询参数的动态请求（通常是 API）
-  // 但允许带 hash 的资源文件（如 Vite 打包的文件）
-  if (url.search && !url.pathname.match(/\.[a-z0-9]+$/i)) {
-    return false;
-  }
-  
-  // 检查是否为静态资源
-  const pathname = url.pathname.toLowerCase();
-  
-  // 允许根路径
-  if (pathname === '/' || pathname === '/index.html') {
-    return true;
-  }
-  
-  // 检查扩展名
-  return CACHEABLE_EXTENSIONS.some(ext => pathname.endsWith(ext));
+  return true;
+}
+
+// 判断是否为带 hash 的静态资源（Vite 打包的文件如 index-abc123.js）
+function isHashedAsset(url) {
+  const pathname = url.pathname;
+  // 匹配 Vite 打包的文件名模式: name-hash.ext 或 name.hash.ext
+  return /[-\.][a-f0-9]{8,}\.(js|css|woff2?|ttf|eot|png|jpg|jpeg|gif|svg|ico|webp)$/i.test(pathname);
 }
 
 // Install event
 self.addEventListener('install', event => {
+  console.log(`[SW] Installing ${CACHE_NAME}`);
   // 跳过等待，立即激活
   self.skipWaiting();
 });
 
-// Fetch event - 仅缓存静态资源
+// Fetch event
 self.addEventListener('fetch', event => {
   const request = event.request;
   
@@ -70,40 +77,92 @@ self.addEventListener('fetch', event => {
     return;
   }
   
-  // 静态资源使用 Cache First 策略
-  event.respondWith(
-    caches.match(request).then(cachedResponse => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      
-      // 从网络获取并缓存
-      return fetch(request).then(response => {
-        // 只缓存成功的响应
-        if (!response || response.status !== 200 || response.type !== 'basic') {
-          return response;
-        }
-        
-        // 克隆响应用于缓存
-        const responseToCache = response.clone();
-        
-        caches.open(CACHE_NAME).then(cache => {
-          cache.put(request, responseToCache);
-        });
-        
-        return response;
-      });
-    })
-  );
+  const url = new URL(request.url);
+  
+  // HTML 和关键文件使用 Network First 策略
+  if (isNetworkFirst(url)) {
+    event.respondWith(networkFirst(request));
+    return;
+  }
+  
+  // 带 hash 的静态资源使用 Cache First（因为 hash 变化意味着新文件）
+  if (isHashedAsset(url)) {
+    event.respondWith(cacheFirst(request));
+    return;
+  }
+  
+  // 其他静态资源使用 Stale-While-Revalidate
+  if (CACHEABLE_EXTENSIONS.some(ext => url.pathname.toLowerCase().endsWith(ext))) {
+    event.respondWith(staleWhileRevalidate(request));
+    return;
+  }
 });
+
+// Network First 策略：优先网络，失败时用缓存
+async function networkFirst(request) {
+  try {
+    const response = await fetch(request);
+    if (response && response.status === 200) {
+      const cache = await caches.open(CACHE_NAME);
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch (error) {
+    const cachedResponse = await caches.match(request);
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+    throw error;
+  }
+}
+
+// Cache First 策略：优先缓存，没有则网络获取
+async function cacheFirst(request) {
+  const cachedResponse = await caches.match(request);
+  if (cachedResponse) {
+    return cachedResponse;
+  }
+  
+  const response = await fetch(request);
+  if (response && response.status === 200 && response.type === 'basic') {
+    const cache = await caches.open(CACHE_NAME);
+    cache.put(request, response.clone());
+  }
+  return response;
+}
+
+// Stale-While-Revalidate 策略：返回缓存同时后台更新
+async function staleWhileRevalidate(request) {
+  const cache = await caches.open(CACHE_NAME);
+  const cachedResponse = await caches.match(request);
+  
+  // 后台更新缓存
+  const fetchPromise = fetch(request).then(response => {
+    if (response && response.status === 200 && response.type === 'basic') {
+      cache.put(request, response.clone());
+    }
+    return response;
+  }).catch(() => null);
+  
+  // 有缓存就先返回缓存
+  if (cachedResponse) {
+    return cachedResponse;
+  }
+  
+  // 没有缓存则等待网络
+  return fetchPromise;
+}
 
 // Activate event - 清理旧缓存
 self.addEventListener('activate', event => {
+  console.log(`[SW] Activating ${CACHE_NAME}`);
   event.waitUntil(
     caches.keys().then(cacheNames => {
       return Promise.all(
         cacheNames.map(cacheName => {
-          if (cacheName !== CACHE_NAME) {
+          // 删除所有不是当前版本的缓存
+          if (cacheName !== CACHE_NAME && cacheName.startsWith('claude-ui-')) {
+            console.log(`[SW] Deleting old cache: ${cacheName}`);
             return caches.delete(cacheName);
           }
         })
@@ -113,4 +172,16 @@ self.addEventListener('activate', event => {
       return self.clients.claim();
     })
   );
+});
+
+// 监听来自页面的消息
+self.addEventListener('message', event => {
+  if (event.data === 'skipWaiting') {
+    self.skipWaiting();
+  }
+  if (event.data === 'clearCache') {
+    caches.keys().then(names => {
+      names.forEach(name => caches.delete(name));
+    });
+  }
 });

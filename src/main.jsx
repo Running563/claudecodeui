@@ -4,14 +4,38 @@ import App from './App.jsx'
 import './index.css'
 import 'katex/dist/katex.min.css'
 
-// Clean up stale service workers on app load to prevent caching issues after builds
+// Service Worker 更新检测
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(registrations => {
-    registrations.forEach(registration => {
-      registration.unregister();
+  navigator.serviceWorker.ready.then(registration => {
+    // 检查更新
+    registration.update().catch(err => {
+      console.warn('SW update check failed:', err);
     });
-  }).catch(err => {
-    console.warn('Failed to unregister service workers:', err);
+    
+    // 监听新 SW 安装完成
+    registration.addEventListener('updatefound', () => {
+      const newWorker = registration.installing;
+      if (newWorker) {
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            // 新版本已安装，通知用户刷新（可选：自动刷新）
+            console.log('[SW] New version available, refresh to update');
+            // 自动激活新 SW
+            newWorker.postMessage('skipWaiting');
+          }
+        });
+      }
+    });
+  });
+  
+  // 当新 SW 接管后刷新页面
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!refreshing) {
+      refreshing = true;
+      console.log('[SW] Controller changed, reloading...');
+      window.location.reload();
+    }
   });
 }
 
