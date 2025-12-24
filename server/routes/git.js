@@ -6,6 +6,7 @@ import { promises as fs } from 'fs';
 import { getProjectById } from '../db.js';
 import { queryClaudeSDK } from '../claude-sdk.js';
 import { spawnCursor } from '../cursor-cli.js';
+import { spawnCodeBuddy } from '../codebuddy-sdk.js';
 
 const router = express.Router();
 const execAsync = promisify(exec);
@@ -517,8 +518,8 @@ router.post('/generate-commit-message', async (req, res) => {
   }
 
   // Validate provider
-  if (!['claude', 'cursor'].includes(provider)) {
-    return res.status(400).json({ error: 'provider must be "claude" or "cursor"' });
+  if (!['claude', 'cursor', 'codebuddy'].includes(provider)) {
+    return res.status(400).json({ error: 'provider must be "claude", "cursor" or "codebuddy"' });
   }
 
   try {
@@ -654,6 +655,13 @@ Generate the commit message:`;
     } else if (provider === 'cursor') {
       await spawnCursor(prompt, {
         cwd: projectPath,
+        skipPermissions: true
+      }, writer);
+    } else if (provider === 'codebuddy') {
+      await spawnCodeBuddy(prompt, {
+        cwd: projectPath,
+        projectPath: projectPath,
+        permissionMode: 'bypassPermissions',
         skipPermissions: true
       }, writer);
     }

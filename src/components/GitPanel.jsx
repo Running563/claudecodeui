@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { GitBranch, GitCommit, Plus, Minus, RefreshCw, Check, X, ChevronDown, ChevronRight, Info, History, FileText, Mic, MicOff, Sparkles, Download, RotateCcw, Trash2, AlertTriangle, Upload } from 'lucide-react';
+import { GitBranch, GitCommit, Plus, Minus, RefreshCw, Check, X, ChevronDown, ChevronRight, Info, History, FileText, Mic, MicOff, Sparkles, Download, RotateCcw, Trash2, AlertTriangle, Upload, CloudDownload, GitPullRequest } from 'lucide-react';
 import { MicButton } from './MicButton.jsx';
 import { authenticatedFetch, getProjectId } from '../utils/api';
 import DiffViewer from './DiffViewer.jsx';
@@ -30,8 +30,10 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
   const [isPulling, setIsPulling] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastFetchTime, setLastFetchTime] = useState(0); // Track last fetch time for throttling
   const [isCommitAreaCollapsed, setIsCommitAreaCollapsed] = useState(isMobile); // Collapsed by default on mobile
-  const [confirmAction, setConfirmAction] = useState(null); // { type: 'discard|commit|pull|push', file?: string, message?: string }
+  const [confirmAction, setConfirmAction] = useState(null); // { type: 'discard|commit|pull|push|sync', file?: string, message?: string }
   const [isCreatingInitialCommit, setIsCreatingInitialCommit] = useState(false);
   const textareaRef = useRef(null);
   const dropdownRef = useRef(null);
@@ -57,11 +59,24 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
       fetchGitStatus();
       fetchBranches();
       fetchRemoteStatus();
+      // Auto fetch on page load (with throttle check - only auto fetch has 30s limit)
+      autoFetchOnLoad();
       if (activeView === 'history') {
         fetchRecentCommits();
       }
     }
   }, [selectedProject, activeView]);
+
+  // Auto fetch on load - only if 30 seconds have passed since last fetch
+  const autoFetchOnLoad = async () => {
+    const now = Date.now();
+    const timeSinceLastFetch = now - lastFetchTime;
+    const FETCH_THROTTLE_MS = 30 * 1000; // 30 seconds
+    
+    if (timeSinceLastFetch >= FETCH_THROTTLE_MS) {
+      await handleFetch(true); // silent auto fetch
+    }
+  };
 
   // Handle click outside dropdown
   useEffect(() => {
@@ -209,7 +224,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
     }
   };
 
-  const handleFetch = async () => {
+  const handleFetch = async (silent = false) => {
     setIsFetching(true);
     try {
       const response = await authenticatedFetch('/api/git/fetch', {
@@ -222,14 +237,18 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
       
       const data = await response.json();
       if (data.success) {
-        // Refresh status after successful fetch
-        fetchGitStatus();
+        setLastFetchTime(Date.now()); // Update last fetch time on success
+        // Only refresh remote status (ahead/behind), not file list
         fetchRemoteStatus();
       } else {
-        console.error('Fetch failed:', data.error);
+        if (!silent) {
+          console.error('Fetch failed:', data.error);
+        }
       }
     } catch (error) {
-      console.error('Error fetching from remote:', error);
+      if (!silent) {
+        console.error('Error fetching from remote:', error);
+      }
     } finally {
       setIsFetching(false);
     }
@@ -317,6 +336,49 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
     }
   };
 
+  // Sync: Pull first, then Push
+  const handleSync = async () => {
+    setIsSyncing(true);
+    try {
+      // Step 1: Pull
+      const pullResponse = await authenticatedFetch('/api/git/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project: getProjectId(selectedProject)
+        })
+      });
+      
+      const pullData = await pullResponse.json();
+      if (!pullData.success) {
+        console.error('Sync failed at pull:', pullData.error);
+        return;
+      }
+      
+      // Step 2: Push
+      const pushResponse = await authenticatedFetch('/api/git/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project: getProjectId(selectedProject)
+        })
+      });
+      
+      const pushData = await pushResponse.json();
+      if (pushData.success) {
+        // Refresh status after successful sync
+        fetchGitStatus();
+        fetchRemoteStatus();
+      } else {
+        console.error('Sync failed at push:', pushData.error);
+      }
+    } catch (error) {
+      console.error('Error syncing:', error);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const discardChanges = async (filePath) => {
     try {
       const response = await authenticatedFetch('/api/git/discard', {
@@ -398,6 +460,9 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
           break;
         case 'publish':
           await handlePublish();
+          break;
+        case 'sync':
+          await handleSync();
           break;
       }
     } catch (error) {
@@ -805,29 +870,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
             className={`flex items-center hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md transition-colors ${isMobile ? 'space-x-1 px-2 py-1' : 'space-x-2 px-3 py-1.5'}`}
           >
             <GitBranch className={`text-gray-600 dark:text-gray-400 ${isMobile ? 'w-3 h-3' : 'w-4 h-4'}`} />
-            <div className="flex items-center gap-1">
-              <span className={`font-medium ${isMobile ? 'text-xs' : 'text-sm'}`}>{currentBranch}</span>
-              {/* Remote status indicators */}
-              {remoteStatus?.hasRemote && (
-                <div className="flex items-center gap-1 text-xs">
-                  {remoteStatus.ahead > 0 && (
-                    <span className="text-green-600 dark:text-green-400" title={`${remoteStatus.ahead} commit${remoteStatus.ahead !== 1 ? 's' : ''} ahead`}>
-                      ↑{remoteStatus.ahead}
-                    </span>
-                  )}
-                  {remoteStatus.behind > 0 && (
-                    <span className="text-blue-600 dark:text-blue-400" title={`${remoteStatus.behind} commit${remoteStatus.behind !== 1 ? 's' : ''} behind`}>
-                      ↓{remoteStatus.behind}
-                    </span>
-                  )}
-                  {remoteStatus.isUpToDate && (
-                    <span className="text-gray-500 dark:text-gray-400" title="Up to date with remote">
-                      ✓
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
+            <span className={`font-medium ${isMobile ? 'text-xs' : 'text-sm'}`}>{currentBranch}</span>
             <ChevronDown className={`w-3 h-3 text-gray-500 transition-transform ${showBranchDropdown ? 'rotate-180' : ''}`} />
           </button>
           
@@ -867,7 +910,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
         </div>
         
         <div className={`flex items-center ${isMobile ? 'gap-1' : 'gap-2'}`}>
-          {/* Remote action buttons - smart logic based on ahead/behind status */}
+          {/* Remote sync controls - VS Code style */}
           {remoteStatus?.hasRemote && (
             <>
               {/* Publish button - show when branch doesn't exist on remote */}
@@ -878,62 +921,79 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                     message: `Publish branch "${currentBranch}" to ${remoteStatus.remoteName}?` 
                   })}
                   disabled={isPublishing}
-                  className="px-2 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 flex items-center gap-1"
+                  className="px-2 py-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-800 rounded flex items-center gap-1 text-gray-600 dark:text-gray-400"
                   title={`Publish branch "${currentBranch}" to ${remoteStatus.remoteName}`}
                 >
-                  <Upload className={`w-3 h-3 ${isPublishing ? 'animate-pulse' : ''}`} />
-                  <span>{isPublishing ? 'Publishing...' : 'Publish'}</span>
+                  <Upload className={`w-3.5 h-3.5 ${isPublishing ? 'animate-pulse' : ''}`} />
+                  <span className="text-xs">Publish</span>
                 </button>
               )}
               
-              {/* Show normal push/pull buttons only if branch has upstream */}
-              {remoteStatus?.hasUpstream && !remoteStatus?.isUpToDate && (
-                <>
-                  {/* Pull button - show when behind (primary action) */}
-                  {remoteStatus.behind > 0 && (
-                    <button
-                      onClick={() => setConfirmAction({ 
-                        type: 'pull', 
-                        message: `Pull ${remoteStatus.behind} commit${remoteStatus.behind !== 1 ? 's' : ''} from ${remoteStatus.remoteName}?` 
-                      })}
-                      disabled={isPulling}
-                      className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 flex items-center gap-1"
-                      title={`Pull ${remoteStatus.behind} commit${remoteStatus.behind !== 1 ? 's' : ''} from ${remoteStatus.remoteName}`}
-                    >
-                      <Download className={`w-3 h-3 ${isPulling ? 'animate-pulse' : ''}`} />
-                      <span>{isPulling ? 'Pulling...' : `Pull ${remoteStatus.behind}`}</span>
-                    </button>
-                  )}
+              {/* Sync status indicator + action buttons */}
+              {remoteStatus?.hasUpstream && (
+                <div className="flex items-center gap-1">
+                  {/* Status indicator */}
+                  <span 
+                    className={`font-mono text-xs px-1.5 py-0.5 rounded ${
+                      remoteStatus.isUpToDate 
+                        ? 'text-gray-500 dark:text-gray-400' 
+                        : 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30'
+                    }`}
+                    title={
+                      remoteStatus.isUpToDate 
+                        ? 'Up to date with remote' 
+                        : `${remoteStatus.behind} behind, ${remoteStatus.ahead} ahead`
+                    }
+                  >
+                    ↓{remoteStatus.behind} ↑{remoteStatus.ahead}
+                  </span>
                   
-                  {/* Push button - show when ahead (primary action when ahead only) */}
-                  {remoteStatus.ahead > 0 && (
-                    <button
-                      onClick={() => setConfirmAction({ 
-                        type: 'push', 
-                        message: `Push ${remoteStatus.ahead} commit${remoteStatus.ahead !== 1 ? 's' : ''} to ${remoteStatus.remoteName}?` 
-                      })}
-                      disabled={isPushing}
-                      className="px-2 py-1 text-xs bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50 flex items-center gap-1"
-                      title={`Push ${remoteStatus.ahead} commit${remoteStatus.ahead !== 1 ? 's' : ''} to ${remoteStatus.remoteName}`}
-                    >
-                      <Upload className={`w-3 h-3 ${isPushing ? 'animate-pulse' : ''}`} />
-                      <span>{isPushing ? 'Pushing...' : `Push ${remoteStatus.ahead}`}</span>
-                    </button>
-                  )}
+                  {/* Sync button - Pull then Push */}
+                  <button
+                    onClick={() => setConfirmAction({ 
+                      type: 'sync', 
+                      message: `Sync with ${remoteStatus.remoteName}? (Pull first, then Push)`
+                    })}
+                    disabled={isSyncing || isPulling || isPushing}
+                    className={`p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded ${
+                      !remoteStatus.isUpToDate 
+                        ? 'text-blue-600 dark:text-blue-400' 
+                        : 'text-gray-500 dark:text-gray-400'
+                    }`}
+                    title="Sync (Pull + Push)"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                  </button>
                   
-                  {/* Fetch button - show when ahead only or when diverged (secondary action) */}
-                  {(remoteStatus.ahead > 0 || (remoteStatus.behind > 0 && remoteStatus.ahead > 0)) && (
-                    <button
-                      onClick={handleFetch}
-                      disabled={isFetching}
-                      className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1"
-                      title={`Fetch from ${remoteStatus.remoteName}`}
-                    >
-                      <RefreshCw className={`w-3 h-3 ${isFetching ? 'animate-spin' : ''}`} />
-                      <span>{isFetching ? 'Fetching...' : 'Fetch'}</span>
-                    </button>
-                  )}
-                </>
+                  {/* Pull button */}
+                  <button
+                    onClick={() => setConfirmAction({ 
+                      type: 'pull', 
+                      message: remoteStatus.behind > 0 
+                        ? `Pull ${remoteStatus.behind} commit${remoteStatus.behind !== 1 ? 's' : ''} from ${remoteStatus.remoteName}?`
+                        : `Pull from ${remoteStatus.remoteName}? (Already up to date)`
+                    })}
+                    disabled={isPulling || isSyncing}
+                    className={`p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded ${
+                      remoteStatus.behind > 0 
+                        ? 'text-green-600 dark:text-green-400' 
+                        : 'text-gray-400 dark:text-gray-500'
+                    }`}
+                    title={`Pull from ${remoteStatus.remoteName}`}
+                  >
+                    <Download className={`w-3.5 h-3.5 ${isPulling ? 'animate-bounce' : ''}`} />
+                  </button>
+                  
+                  {/* Fetch button */}
+                  <button
+                    onClick={() => handleFetch(false)}
+                    disabled={isFetching || isSyncing}
+                    className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded text-gray-600 dark:text-gray-400"
+                    title={`Fetch from ${remoteStatus.remoteName}`}
+                  >
+                    <CloudDownload className={`w-3.5 h-3.5 ${isFetching ? 'animate-pulse' : ''}`} />
+                  </button>
+                </div>
               )}
             </>
           )}
@@ -946,6 +1006,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
             }}
             disabled={isLoading}
             className={`hover:bg-gray-100 dark:hover:bg-gray-800 rounded ${isMobile ? 'p-1' : 'p-1.5'}`}
+            title="Refresh"
           >
             <RefreshCw className={`${isLoading ? 'animate-spin' : ''} ${isMobile ? 'w-3 h-3' : 'w-4 h-4'}`} />
           </button>
@@ -1329,7 +1390,8 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                    confirmAction.type === 'delete' ? 'Delete File' :
                    confirmAction.type === 'commit' ? 'Confirm Commit' : 
                    confirmAction.type === 'pull' ? 'Confirm Pull' : 
-                   confirmAction.type === 'publish' ? 'Publish Branch' : 'Confirm Push'}
+                   confirmAction.type === 'publish' ? 'Publish Branch' :
+                   confirmAction.type === 'sync' ? 'Sync with Remote' : 'Confirm Push'}
                 </h3>
               </div>
               
@@ -1355,6 +1417,8 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                       ? 'bg-green-600 hover:bg-green-700'
                       : confirmAction.type === 'publish'
                       ? 'bg-purple-600 hover:bg-purple-700'
+                      : confirmAction.type === 'sync'
+                      ? 'bg-blue-600 hover:bg-blue-700'
                       : 'bg-orange-600 hover:bg-orange-700'
                   } flex items-center space-x-2`}
                 >
@@ -1382,6 +1446,11 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                     <>
                       <Upload className="w-4 h-4" />
                       <span>Publish</span>
+                    </>
+                  ) : confirmAction.type === 'sync' ? (
+                    <>
+                      <RefreshCw className="w-4 h-4" />
+                      <span>Sync</span>
                     </>
                   ) : (
                     <>
