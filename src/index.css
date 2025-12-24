@@ -514,6 +514,17 @@
       -webkit-overflow-scrolling: touch;
     }
     
+    /* CodeMirror touch scrolling fix - allow both vertical and horizontal scroll */
+    .cm-editor,
+    .cm-scroller,
+    .cm-content,
+    .cm-mergeView,
+    .cm-mergeViewEditors,
+    .cm-mergeViewEditor {
+      touch-action: pan-x pan-y !important;
+      -webkit-overflow-scrolling: touch !important;
+    }
+    
     /* Preserve checkbox visibility */
     input[type="checkbox"] {
       -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);

@@ -10,7 +10,7 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import { EditorView, showPanel, ViewPlugin, lineNumbers } from '@codemirror/view';
 import { unifiedMergeView, getChunks, MergeView } from '@codemirror/merge';
 import { showMinimap } from '@replit/codemirror-minimap';
-import { X, Save, Download, Maximize2, Minimize2 } from 'lucide-react';
+import { X, Save, Download, Maximize2, Minimize2, Edit2 } from 'lucide-react';
 import { api } from '../utils/api';
 
 // Get language extension based on file extension (moved outside component for stability)
@@ -43,6 +43,7 @@ const getLanguageExtension = (filename) => {
 
 function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded = false, onToggleExpand = null }) {
   const [content, setContent] = useState('');
+  const [originalContent, setOriginalContent] = useState(''); // Store original content for cancel functionality
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -70,6 +71,8 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
   const [fontSize, setFontSize] = useState(() => {
     return localStorage.getItem('codeEditorFontSize') || '14';
   });
+  // Edit mode state - default to read-only (view mode)
+  const [isEditMode, setIsEditMode] = useState(false);
   const editorRef = useRef(null);
   const mergeViewRef = useRef(null);
   const splitViewContainerRef = useRef(null);
@@ -334,6 +337,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
           // Use the new_string as the content to display
           // The unifiedMergeView will compare it against old_string
           setContent(file.diffInfo.new_string);
+          setOriginalContent(file.diffInfo.new_string);
           setLoading(false);
           return;
         }
@@ -347,6 +351,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
 
         const data = await response.json();
         setContent(data.content);
+        setOriginalContent(data.content);
       } catch (error) {
         console.error('Error loading file:', error);
         setContent(`// Error loading file: ${error.message}\n// File: ${file.name}\n// Path: ${file.path}`);
@@ -415,6 +420,24 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
 
   const toggleFullscreen = () => {
     setIsFullscreen(!isFullscreen);
+  };
+
+  // Enter edit mode
+  const handleEnterEditMode = () => {
+    setIsEditMode(true);
+  };
+
+  // Cancel edit mode and restore original content
+  const handleCancelEdit = () => {
+    setContent(originalContent);
+    setIsEditMode(false);
+  };
+
+  // Save and exit edit mode
+  const handleSaveAndExit = async () => {
+    await handleSave();
+    setOriginalContent(content);
+    setIsEditMode(false);
   };
 
   // Save theme preference to localStorage
@@ -794,11 +817,19 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
             cursor: not-allowed;
           }
 
+          /* Touch scrolling support for CodeMirror */
+          .cm-editor,
+          .cm-scroller {
+            touch-action: pan-x pan-y !important;
+            -webkit-overflow-scrolling: touch !important;
+          }
+
           /* Split view (MergeView) styling */
           .cm-mergeView {
             height: 100%;
             display: flex;
             flex-direction: row;
+            touch-action: pan-x pan-y !important;
           }
 
           .cm-mergeView > .cm-mergeViewEditors {
@@ -825,6 +856,8 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
           .cm-mergeView .cm-scroller {
             flex: 1;
             overflow: auto !important;
+            touch-action: pan-x pan-y !important;
+            -webkit-overflow-scrolling: touch !important;
           }
 
           /* Ensure both editors share the same scroll container behavior */
@@ -946,6 +979,11 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
                     Showing changes
                   </span>
                 )}
+                {isEditMode && (
+                  <span className="text-xs bg-yellow-100 dark:bg-yellow-900 text-yellow-600 dark:text-yellow-300 px-2 py-1 rounded whitespace-nowrap">
+                    编辑中
+                  </span>
+                )}
               </div>
               <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{file.path}</p>
             </div>
@@ -960,24 +998,54 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
               <Download className="w-4 h-4" />
             </button>
 
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className={`p-2 rounded-md disabled:opacity-50 flex items-center gap-2 transition-colors min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0 ${
-                saveSuccess
-                  ? 'text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800'
-              }`}
-              title="Save file"
-            >
-              {saveSuccess ? (
-                <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              ) : (
-                <Save className="w-5 h-5 md:w-4 md:h-4" />
-              )}
-            </button>
+            {/* Edit mode buttons */}
+            {isEditMode ? (
+              <>
+                {/* Cancel button */}
+                <button
+                  onClick={handleCancelEdit}
+                  className="p-2 rounded-md text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-1 min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0"
+                  title="取消编辑"
+                >
+                  <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  <span className="hidden md:inline text-sm">取消</span>
+                </button>
+                {/* Save button */}
+                <button
+                  onClick={handleSaveAndExit}
+                  disabled={saving}
+                  className={`p-2 rounded-md disabled:opacity-50 flex items-center gap-1 transition-colors min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0 ${
+                    saveSuccess
+                      ? 'text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30'
+                      : 'text-white bg-blue-600 hover:bg-blue-700'
+                  }`}
+                  title="保存文件"
+                >
+                  {saveSuccess ? (
+                    <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    <Save className="w-5 h-5 md:w-4 md:h-4" />
+                  )}
+                  <span className="hidden md:inline text-sm">保存</span>
+                </button>
+              </>
+            ) : (
+              /* Edit button - only show when not in diff view mode */
+              !file.diffInfo && (
+                <button
+                  onClick={handleEnterEditMode}
+                  className="p-2 rounded-md text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-1 min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0"
+                  title="编辑文件"
+                >
+                  <Edit2 className="w-5 h-5 md:w-4 md:h-4" />
+                  <span className="hidden md:inline text-sm">编辑</span>
+                </button>
+              )
+            )}
 
             {!isSidebar && (
               <button
@@ -1101,7 +1169,8 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
             <CodeMirror
               ref={editorRef}
               value={content}
-              onChange={setContent}
+              onChange={isEditMode ? setContent : undefined}
+              editable={isEditMode}
               extensions={[
                 ...getLanguageExtension(file.name),
                 // Always show the toolbar
@@ -1121,7 +1190,9 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
                       ...scrollToFirstChunkExtension
                     ]
                   : []),
-                ...(wordWrap ? [EditorView.lineWrapping] : [])
+                ...(wordWrap ? [EditorView.lineWrapping] : []),
+                // Add read-only extension when not in edit mode
+                ...(!isEditMode ? [EditorView.editable.of(false)] : [])
               ]}
               theme={isDarkMode ? oneDark : undefined}
               height="100%"
