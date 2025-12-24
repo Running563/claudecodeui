@@ -1,6 +1,6 @@
 // Service Worker for Claude Code UI PWA
-// 更新此版本号会触发缓存清理
-const CACHE_VERSION = 'v3';
+// __SW_VERSION__ 会在构建时被替换，开发时使用 'dev'
+const CACHE_VERSION = '__SW_VERSION__';
 const CACHE_NAME = `claude-ui-${CACHE_VERSION}`;
 
 // 需要缓存的静态资源扩展名（带 hash 的文件可以长期缓存）

@@ -4,21 +4,19 @@ import fs from 'fs'
 import path from 'path'
 
 // 自动更新 Service Worker 版本号的插件
+// 在构建完成后处理 dist/sw.js，不修改源文件
 function updateSwVersion() {
   return {
     name: 'update-sw-version',
-    buildStart() {
-      const swPath = path.resolve(process.cwd(), 'public/sw.js')
+    closeBundle() {
+      const swPath = path.resolve(process.cwd(), 'dist/sw.js')
       if (fs.existsSync(swPath)) {
         let content = fs.readFileSync(swPath, 'utf-8')
         // 使用时间戳作为版本号
         const newVersion = `v${Date.now()}`
-        content = content.replace(
-          /const CACHE_VERSION = ['"]v[^'"]+['"]/,
-          `const CACHE_VERSION = '${newVersion}'`
-        )
+        content = content.replace('__SW_VERSION__', newVersion)
         fs.writeFileSync(swPath, content)
-        console.log(`[SW] Updated CACHE_VERSION to ${newVersion}`)
+        console.log(`\n[SW] Updated CACHE_VERSION to ${newVersion}`)
       }
     }
   }
