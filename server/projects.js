@@ -913,8 +913,7 @@ async function getSessionsFromDir(projectName, limit = 5, offset = 0, projectsBa
         
         sessions.push({
           id: sessionId,
-          name: summary, // Use 'name' field for consistency with Cursor sessions
-          summary: summary, // Keep summary for backward compatibility
+          title: summary,
           messageCount: messageCount,
           lastActivity: mtime,
           createdAt: mtime.toISOString(),
@@ -1021,7 +1020,7 @@ async function getSessionsFromDir(projectName, limit = 5, offset = 0, projectsBa
       return session;
     });
     const visibleSessions = [...latestFromGroups, ...standaloneSessionsArray]
-      .filter(session => !session.summary.startsWith('{ "'))
+      .filter(session => !session.title.startsWith('{ "'))
       .sort((a, b) => new Date(b.lastActivity) - new Date(a.lastActivity));
 
     const total = visibleSessions.length;
@@ -1068,7 +1067,7 @@ async function parseJsonlSessions(filePath) {
             if (!sessions.has(entry.sessionId)) {
               sessions.set(entry.sessionId, {
                 id: entry.sessionId,
-                summary: '新会话',
+                title: '新会话',
                 messageCount: 0,
                 lastActivity: new Date(),
                 cwd: entry.cwd || '',
@@ -1080,13 +1079,13 @@ async function parseJsonlSessions(filePath) {
             const session = sessions.get(entry.sessionId);
 
             // Apply pending summary if this entry has a parentUuid that matches a pending summary
-            if (session.summary === '新会话' && entry.parentUuid && pendingSummaries.has(entry.parentUuid)) {
-              session.summary = pendingSummaries.get(entry.parentUuid);
+            if (session.title === '新会话' && entry.parentUuid && pendingSummaries.has(entry.parentUuid)) {
+              session.title = pendingSummaries.get(entry.parentUuid);
             }
 
-            // Update summary from summary entries with sessionId
+            // Update title from summary entries with sessionId
             if (entry.type === 'summary' && entry.summary) {
-              session.summary = entry.summary;
+              session.title = entry.summary;
             }
 
             // Track last user and assistant messages (skip system messages)
@@ -1159,13 +1158,13 @@ async function parseJsonlSessions(filePath) {
       }
     }
 
-    // After processing all entries, set final summary based on last message if no summary exists
+    // After processing all entries, set final title based on last message if no title exists
     for (const session of sessions.values()) {
-      if (session.summary === '新会话') {
+      if (session.title === '新会话') {
         // Prefer last user message, fall back to last assistant message
         const lastMessage = session.lastUserMessage || session.lastAssistantMessage;
         if (lastMessage) {
-          session.summary = lastMessage.length > 50 ? lastMessage.substring(0, 50) + '...' : lastMessage;
+          session.title = lastMessage.length > 50 ? lastMessage.substring(0, 50) + '...' : lastMessage;
         }
       }
     }
@@ -1173,7 +1172,7 @@ async function parseJsonlSessions(filePath) {
     // Filter out sessions that contain JSON responses (Task Master errors)
     const allSessions = Array.from(sessions.values());
     const filteredSessions = allSessions.filter(session => {
-      const shouldFilter = session.summary.startsWith('{ "');
+      const shouldFilter = session.title.startsWith('{ "');
       if (shouldFilter) {
       }
       // Log a sample of summaries to debug
@@ -1677,7 +1676,7 @@ async function getCursorSessions(projectPath) {
         
         sessions.push({
           id: sessionId,
-          name: sessionName,
+          title: sessionName,
           createdAt: createdAt,
           lastActivity: createdAt, // For compatibility with Claude sessions
           messageCount: messageCountResult.count || 0,

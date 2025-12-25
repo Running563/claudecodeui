@@ -122,8 +122,7 @@ export function getProjectsWithSessions(sessionLimit = 10) {
       sessions: sessions.map(s => ({
         id: s.session_id,
         provider: s.provider,
-        name: s.title,        // 用于 CodeBuddy/Cursor 会话显示
-        summary: s.title,     // 用于 Claude 会话显示
+        title: s.title,
         sourceFile: s.source_file,
         createdAt: s.created_at,
         updatedAt: s.updated_at,

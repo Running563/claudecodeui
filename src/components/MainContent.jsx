@@ -250,7 +250,7 @@ function MainContent({
                 {activeTab === 'chat' && selectedSession ? (
                   <div className="min-w-0">
                     <h2 className="text-sm sm:text-base font-semibold text-gray-900 dark:text-white whitespace-nowrap overflow-x-auto scrollbar-hide">
-                      {selectedSession.provider === 'codebuddy' || selectedSession.provider === 'cursor' ? (selectedSession.name || '无标题会话') : (selectedSession.summary || '新会话')}
+                      {selectedSession.title || '新会话'}
                     </h2>
                     <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                       {selectedProject.displayName}

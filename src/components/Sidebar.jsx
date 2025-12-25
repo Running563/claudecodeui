@@ -1040,8 +1040,8 @@ function Sidebar({
                           const diffInMinutes = Math.floor((currentTime - sessionDate) / (1000 * 60));
                           const isActive = diffInMinutes < 10;
                           
-                          // Get session display values - use name/summary for title
-                          const sessionName = session.name || session.summary || '新会话';
+                          // Get session display values
+                          const sessionName = session.title || '新会话';
                           const sessionTime = session.updatedAt || session.lastActivity || session.createdAt;
                           const messageCount = session.messageCount || 0;
                           
@@ -1218,7 +1218,7 @@ function Sidebar({
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         setEditingSession(session.id);
-                                        setEditingSessionName(session.summary || '新会话');
+                                        setEditingSessionName(session.title || '新会话');
                                       }}
                                       title="手动编辑会话名称"
                                     >

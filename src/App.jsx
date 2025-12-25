@@ -209,22 +209,13 @@ function AppContent() {
         if (newTitle && targetSessionId) {
           // Update selectedSession if it matches - only if title actually changed
           if (selectedSession && selectedSession.id === targetSessionId) {
-            const sessionProvider = selectedSession.provider || selectedSession.__provider;
-            const currentTitle = sessionProvider === 'codebuddy' || sessionProvider === 'cursor' 
-              ? selectedSession.name 
-              : selectedSession.summary;
+            const currentTitle = selectedSession.title;
             
             // Only update if title is different to avoid triggering message reload
             if (currentTitle !== newTitle) {
               setSelectedSession(prev => {
                 if (!prev) return prev;
-                const prevProvider = prev.provider || prev.__provider;
-                // Update name for codebuddy/cursor, summary for claude
-                if (prevProvider === 'codebuddy' || prevProvider === 'cursor') {
-                  return { ...prev, name: newTitle };
-                } else {
-                  return { ...prev, summary: newTitle };
-                }
+                return { ...prev, title: newTitle };
               });
             }
           }
@@ -238,27 +229,27 @@ function AppContent() {
               
               // Check and update sessions (Claude)
               const updatedSessions = project.sessions?.map(s => {
-                if (s.id === targetSessionId && s.summary !== newTitle) {
+                if (s.id === targetSessionId && s.title !== newTitle) {
                   projectChanged = true;
-                  return { ...s, summary: newTitle };
+                  return { ...s, title: newTitle };
                 }
                 return s;
               });
               
               // Check and update codebuddySessions
               const updatedCodebuddySessions = project.codebuddySessions?.map(s => {
-                if (s.id === targetSessionId && s.name !== newTitle) {
+                if (s.id === targetSessionId && s.title !== newTitle) {
                   projectChanged = true;
-                  return { ...s, name: newTitle };
+                  return { ...s, title: newTitle };
                 }
                 return s;
               });
               
               // Check and update cursorSessions
               const updatedCursorSessions = project.cursorSessions?.map(s => {
-                if (s.id === targetSessionId && s.name !== newTitle) {
+                if (s.id === targetSessionId && s.title !== newTitle) {
                   projectChanged = true;
-                  return { ...s, name: newTitle };
+                  return { ...s, title: newTitle };
                 }
                 return s;
               });

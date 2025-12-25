@@ -690,10 +690,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
   const sessionDisplayName = useMemo(() => {
     if (!selectedSession) return null;
-    const sessionProvider = selectedSession.provider || selectedSession.__provider;
-    return sessionProvider === 'cursor' || sessionProvider === 'codebuddy'
-      ? (selectedSession.name || '无标题会话')
-      : (selectedSession.summary || '新会话');
+    return selectedSession.title || '新会话';
   }, [selectedSession]);
 
   const sessionDisplayNameShort = useMemo(() => {
