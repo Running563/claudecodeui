@@ -224,16 +224,8 @@ export function createSession(projectId, sessionId, provider = 'claude', title =
   // 检查是否已存在
   const existing = getSessionBySessionId(projectId, sessionId);
   if (existing) {
-    // 更新
-    db.prepare(`
-      UPDATE sessions 
-      SET provider = COALESCE(?, provider), 
-          title = COALESCE(?, title), 
-          source_file = COALESCE(?, source_file),
-          updated_at = ?
-      WHERE id = ?
-    `).run(provider, title, sourceFile, now, existing.id);
-    return getSessionById(existing.id);
+    // 已存在则跳过，不更新（避免打乱时间排序）
+    return existing;
   }
   
   const result = db.prepare(`
@@ -264,6 +256,12 @@ export function updateSession(id, updates) {
 export function deleteSession(id) {
   const db = getDb();
   return db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+}
+
+// 通过 session_id 删除会话（用于删除磁盘文件后同步删除数据库记录）
+export function deleteSessionBySessionId(sessionId) {
+  const db = getDb();
+  return db.prepare('DELETE FROM sessions WHERE session_id = ?').run(sessionId);
 }
 
 // ============ 同步功能 ============
@@ -311,6 +309,87 @@ async function extractSessionInfo(jsonlPath) {
         title: title || firstUserMessage || path.basename(jsonlPath, '.jsonl'),
         provider: provider,
         cwd
+      });
+    });
+    
+    rl.on('error', reject);
+  });
+}
+
+// 从 Claude JSONL 文件中提取所有 sessionId
+async function extractSessionIdsFromJsonl(jsonlPath) {
+  const sessionIds = new Set();
+  
+  return new Promise((resolve, reject) => {
+    const fileStream = fsSync.createReadStream(jsonlPath);
+    const rl = readline.createInterface({
+      input: fileStream,
+      crlfDelay: Infinity
+    });
+    
+    rl.on('line', (line) => {
+      if (!line.trim()) return;
+      try {
+        const entry = JSON.parse(line);
+        if (entry.sessionId) {
+          sessionIds.add(entry.sessionId);
+        }
+      } catch (e) {
+        // 忽略解析错误
+      }
+    });
+    
+    rl.on('close', () => {
+      resolve(Array.from(sessionIds));
+    });
+    
+    rl.on('error', reject);
+  });
+}
+
+// 从 Claude JSONL 文件中提取特定 sessionId 的信息
+async function extractSessionInfoForSession(jsonlPath, targetSessionId) {
+  return new Promise((resolve, reject) => {
+    const fileStream = fsSync.createReadStream(jsonlPath);
+    const rl = readline.createInterface({
+      input: fileStream,
+      crlfDelay: Infinity
+    });
+    
+    let title = null;
+    let firstUserMessage = null;
+    
+    rl.on('line', (line) => {
+      if (!line.trim()) return;
+      try {
+        const entry = JSON.parse(line);
+        
+        // 只处理目标 sessionId 的条目
+        if (entry.sessionId !== targetSessionId) return;
+        
+        // 提取 summary 作为标题
+        if (entry.type === 'summary' && entry.summary && !title) {
+          title = entry.summary;
+        }
+        
+        // 提取第一条用户消息作为备选标题
+        if (entry.type === 'user' && entry.message?.content && !firstUserMessage) {
+          const content = typeof entry.message.content === 'string' 
+            ? entry.message.content 
+            : entry.message.content[0]?.text || '';
+          if (content && !content.startsWith('<command-') && !content.startsWith('<system-')) {
+            firstUserMessage = content.slice(0, 100);
+          }
+        }
+      } catch (e) {
+        // 忽略解析错误
+      }
+    });
+    
+    rl.on('close', () => {
+      resolve({
+        title: title || firstUserMessage || '新会话',
+        provider: 'claude'
       });
     });
     
@@ -457,18 +536,34 @@ export async function syncProjects() {
   async function syncProjectSessions(projectDir, projectId) {
     try {
       const files = await fs.readdir(projectDir);
-      const jsonlFiles = files.filter(f => f.endsWith('.jsonl'));
+      const jsonlFiles = files.filter(f => f.endsWith('.jsonl') && !f.startsWith('agent-'));
+      const isCodeBuddy = projectDir.includes('.codebuddy');
       
       for (const jsonlFile of jsonlFiles) {
-        const sessionId = path.basename(jsonlFile, '.jsonl');
         const sourceFile = path.join(projectDir, jsonlFile);
         
-        try {
-          const info = await extractSessionInfo(sourceFile);
-          createSession(projectId, sessionId, info.provider, info.title, sourceFile);
-          stats.sessions++;
-        } catch (e) {
-          // 忽略单个文件错误
+        if (isCodeBuddy) {
+          // CodeBuddy: 文件名就是 sessionId
+          const sessionId = path.basename(jsonlFile, '.jsonl');
+          try {
+            const info = await extractSessionInfo(sourceFile);
+            createSession(projectId, sessionId, info.provider, info.title, sourceFile);
+            stats.sessions++;
+          } catch (e) {
+            // 忽略单个文件错误
+          }
+        } else {
+          // Claude: 需要从文件内容中提取所有 sessionId
+          try {
+            const sessionIds = await extractSessionIdsFromJsonl(sourceFile);
+            for (const sessionId of sessionIds) {
+              const info = await extractSessionInfoForSession(sourceFile, sessionId);
+              createSession(projectId, sessionId, 'claude', info.title, sourceFile);
+              stats.sessions++;
+            }
+          } catch (e) {
+            // 忽略单个文件错误
+          }
         }
       }
     } catch (e) {

@@ -59,7 +59,7 @@ import mime from 'mime-types';
 import multer from 'multer';
 
 import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
-import { getProjectById, getProjectsWithSessions } from './db.js';
+import { getProjectById, getProjectsWithSessions, deleteSessionBySessionId } from './db.js';
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions } from './claude-sdk.js';
 import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
 // Use SDK-style CodeBuddy integration (similar to Cursor CLI)
@@ -487,7 +487,10 @@ app.delete('/api/projects/:projectId/sessions/:sessionId', authenticateToken, as
         const { projectId, sessionId } = req.params;
         const { dirName } = resolveProjectInfo(projectId);
         console.log(`[API] Deleting session: ${sessionId} from project: ${dirName}`);
+        // 1. 删除磁盘文件
         await deleteSession(dirName, sessionId);
+        // 2. 删除数据库记录
+        deleteSessionBySessionId(sessionId);
         console.log(`[API] Session ${sessionId} deleted successfully`);
         res.json({ success: true });
     } catch (error) {
