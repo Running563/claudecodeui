@@ -565,7 +565,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
               ws.current.send(JSON.stringify({
                 type: 'init',
-                projectPath: selectedProjectRef.current.path || selectedProjectRef.current.path,
+                projectPath: selectedProjectRef.current?.path || null,
                 sessionId: isPlainShellRef.current ? null : selectedSessionRef.current?.id,
                 hasSession: isPlainShellRef.current ? false : !!selectedSessionRef.current,
                 provider: provider,
@@ -963,22 +963,6 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     if (!autoConnect || !isInitialized || isConnecting || isConnected || userDisconnected) return;
     connectToShell();
   }, [autoConnect, isInitialized, isConnecting, isConnected, userDisconnected, connectToShell]);
-
-  if (!selectedProject) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <div className="text-center text-gray-500 dark:text-gray-400">
-          <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
-            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" />
-            </svg>
-          </div>
-          <h3 className="text-lg font-semibold mb-2">选择项目</h3>
-          <p>选择一个项目以在该目录中打开交互式终端</p>
-        </div>
-      </div>
-    );
-  }
 
   if (minimal) {
     const isMobile = isMobileDevice.current;

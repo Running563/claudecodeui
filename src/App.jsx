@@ -26,7 +26,6 @@ import MainContent from './components/MainContent';
 import MobileNav from './components/MobileNav';
 import Settings from './components/Settings';
 import QuickSettingsPanel from './components/QuickSettingsPanel';
-import TerminalListView from './components/TerminalListView';
 import DirectoryPickerModal from './components/DirectoryPickerModal';
 import TerminalDetailView from './components/TerminalDetailView';
 
@@ -995,11 +994,6 @@ function AppContent() {
             onClone={handleTerminalClone}
             onUpdateTerminal={handleUpdateTerminal}
           />
-        ) : activeTab === 'terminals' ? (
-          <TerminalListView
-            onSelectTerminal={handleSelectTerminal}
-            onCreateNew={handleCreateTerminal}
-          />
         ) : (
           <MainContent
             selectedProject={selectedProject}
@@ -1030,6 +1024,8 @@ function AppContent() {
             sendByCtrlEnter={sendByCtrlEnter}
             externalMessageUpdate={externalMessageUpdate}
             onToggleQuickSettings={() => setShowQuickSettings(prev => !prev)}
+            onSelectTerminal={handleSelectTerminal}
+            onCreateTerminal={handleCreateTerminal}
           />
         )}
       </div>

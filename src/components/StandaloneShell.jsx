@@ -45,21 +45,7 @@ const StandaloneShell = forwardRef(function StandaloneShell({
     }
   }, [onComplete]);
 
-  if (!project) {
-    return (
-      <div className={`h-full flex items-center justify-center ${className}`}>
-        <div className="text-center text-gray-500 dark:text-gray-400">
-          <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
-            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 002 2z" />
-            </svg>
-          </div>
-          <h3 className="text-lg font-semibold mb-2">No Project Selected</h3>
-          <p>A project is required to open a shell</p>
-        </div>
-      </div>
-    );
-  }
+  // Shell can work without a project - will use home directory as default
 
   return (
     <div className={`h-full w-full flex flex-col ${className}`}>
@@ -92,7 +78,7 @@ const StandaloneShell = forwardRef(function StandaloneShell({
       <div className="flex-1 w-full min-h-0">
         <Shell
           ref={ref}
-          selectedProject={project}
+          selectedProject={project || { path: null, displayName: 'Home' }}
           selectedSession={session}
           initialCommand={command}
           isPlainShell={shouldUsePlainShell}

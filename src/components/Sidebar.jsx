@@ -517,23 +517,6 @@ function Sidebar({
             </div>
           )}
           <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 w-8 px-0 hover:bg-accent transition-colors duration-200 group"
-              onClick={async () => {
-                setIsRefreshing(true);
-                try {
-                  await onRefresh();
-                } finally {
-                  setIsRefreshing(false);
-                }
-              }}
-              disabled={isRefreshing}
-              title="同步项目和会话 (Ctrl+R)"
-            >
-              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''} group-hover:rotate-180 transition-transform duration-300`} />
-            </Button>
             {onToggleSidebar && (
               <Button
                 variant="ghost"
