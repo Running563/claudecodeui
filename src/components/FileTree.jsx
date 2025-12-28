@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ScrollArea } from './ui/scroll-area';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Folder, FolderOpen, File, FileText, FileCode, List, TableProperties, Eye, Search, X } from 'lucide-react';
+import { Folder, FolderOpen, File, FileText, FileCode, List, TableProperties, Eye, Search, X, Loader2, ChevronRight } from 'lucide-react';
 import { cn } from '../lib/utils';
 import CodeEditor from './CodeEditor';
 import ImageViewer from './ImageViewer';
@@ -12,15 +12,26 @@ function FileTree({ selectedProject }) {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [expandedDirs, setExpandedDirs] = useState(new Set());
+  const [loadingDirs, setLoadingDirs] = useState(new Set()); // Directories currently loading
   const [selectedFile, setSelectedFile] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
   const [viewMode, setViewMode] = useState('detailed'); // 'simple', 'detailed', 'compact'
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredFiles, setFilteredFiles] = useState([]);
+  const [isSearchMode, setIsSearchMode] = useState(false); // Full tree loaded for search
+
+  // Get project root path for relative path calculation
+  const getProjectRoot = useCallback(() => {
+    return selectedProject?.path || selectedProject?.originalPath || '';
+  }, [selectedProject]);
 
   useEffect(() => {
     if (selectedProject) {
-      fetchFiles();
+      // Reset state when project changes
+      setExpandedDirs(new Set());
+      setIsSearchMode(false);
+      setSearchQuery('');
+      fetchRootFiles();
     }
   }, [selectedProject]);
 
@@ -36,22 +47,28 @@ function FileTree({ selectedProject }) {
   useEffect(() => {
     if (!searchQuery.trim()) {
       setFilteredFiles(files);
+      setIsSearchMode(false);
     } else {
-      const filtered = filterFiles(files, searchQuery.toLowerCase());
-      setFilteredFiles(filtered);
+      // When searching, load full tree if not already loaded
+      if (!isSearchMode) {
+        loadFullTreeForSearch();
+      } else {
+        const filtered = filterFiles(files, searchQuery.toLowerCase());
+        setFilteredFiles(filtered);
 
-      // Auto-expand directories that contain matches
-      const expandMatches = (items) => {
-        items.forEach(item => {
-          if (item.type === 'directory' && item.children && item.children.length > 0) {
-            setExpandedDirs(prev => new Set(prev.add(item.path)));
-            expandMatches(item.children);
-          }
-        });
-      };
-      expandMatches(filtered);
+        // Auto-expand directories that contain matches
+        const expandMatches = (items) => {
+          items.forEach(item => {
+            if (item.type === 'directory' && item.children && item.children.length > 0) {
+              setExpandedDirs(prev => new Set(prev.add(item.path)));
+              expandMatches(item.children);
+            }
+          });
+        };
+        expandMatches(filtered);
+      }
     }
-  }, [files, searchQuery]);
+  }, [files, searchQuery, isSearchMode]);
 
   // Recursively filter files and directories based on search query
   const filterFiles = (items, query) => {
@@ -77,10 +94,11 @@ function FileTree({ selectedProject }) {
     }, []);
   };
 
-  const fetchFiles = async () => {
+  // Fetch only root level files (lazy loading)
+  const fetchRootFiles = async () => {
     setLoading(true);
     try {
-      const response = await api.getFiles(getProjectId(selectedProject));
+      const response = await api.getFiles(getProjectId(selectedProject), { depth: 1 });
       
       if (!response.ok) {
         const errorText = await response.text();
@@ -90,7 +108,12 @@ function FileTree({ selectedProject }) {
       }
       
       const data = await response.json();
-      setFiles(data);
+      // Mark directories as not loaded (no children yet)
+      const markedData = data.map(item => ({
+        ...item,
+        _loaded: item.type !== 'directory' // Files are always "loaded"
+      }));
+      setFiles(markedData);
     } catch (error) {
       console.error('❌ Error fetching files:', error);
       setFiles([]);
@@ -99,14 +122,100 @@ function FileTree({ selectedProject }) {
     }
   };
 
-  const toggleDirectory = (path) => {
-    const newExpanded = new Set(expandedDirs);
-    if (newExpanded.has(path)) {
-      newExpanded.delete(path);
-    } else {
-      newExpanded.add(path);
+  // Load full tree for search functionality
+  const loadFullTreeForSearch = async () => {
+    setLoading(true);
+    try {
+      const response = await api.getFiles(getProjectId(selectedProject), { depth: 10 });
+      
+      if (!response.ok) {
+        console.error('❌ Full tree fetch failed');
+        return;
+      }
+      
+      const data = await response.json();
+      // Mark all directories as loaded
+      const markLoaded = (items) => items.map(item => ({
+        ...item,
+        _loaded: true,
+        children: item.children ? markLoaded(item.children) : undefined
+      }));
+      setFiles(markLoaded(data));
+      setIsSearchMode(true);
+    } catch (error) {
+      console.error('❌ Error loading full tree:', error);
+    } finally {
+      setLoading(false);
     }
-    setExpandedDirs(newExpanded);
+  };
+
+  // Load children of a specific directory
+  const loadDirectoryChildren = async (dirPath) => {
+    const projectRoot = getProjectRoot();
+    const relativePath = dirPath.startsWith(projectRoot) 
+      ? dirPath.slice(projectRoot.length).replace(/^\//, '')
+      : dirPath;
+
+    setLoadingDirs(prev => new Set(prev).add(dirPath));
+    
+    try {
+      const response = await api.getFiles(getProjectId(selectedProject), { 
+        depth: 1, 
+        path: relativePath 
+      });
+      
+      if (!response.ok) {
+        console.error('❌ Directory fetch failed:', dirPath);
+        return;
+      }
+      
+      const children = await response.json();
+      const markedChildren = children.map(item => ({
+        ...item,
+        _loaded: item.type !== 'directory'
+      }));
+      
+      // Update files tree with new children
+      setFiles(prevFiles => updateTreeWithChildren(prevFiles, dirPath, markedChildren));
+    } catch (error) {
+      console.error('❌ Error loading directory:', error);
+    } finally {
+      setLoadingDirs(prev => {
+        const next = new Set(prev);
+        next.delete(dirPath);
+        return next;
+      });
+    }
+  };
+
+  // Recursively update tree with loaded children
+  const updateTreeWithChildren = (items, targetPath, children) => {
+    return items.map(item => {
+      if (item.path === targetPath) {
+        return { ...item, children, _loaded: true };
+      }
+      if (item.children) {
+        return { ...item, children: updateTreeWithChildren(item.children, targetPath, children) };
+      }
+      return item;
+    });
+  };
+
+  const toggleDirectory = async (path, item) => {
+    const isExpanded = expandedDirs.has(path);
+    
+    if (isExpanded) {
+      // Collapse
+      const newExpanded = new Set(expandedDirs);
+      newExpanded.delete(path);
+      setExpandedDirs(newExpanded);
+    } else {
+      // Expand - load children if not loaded
+      if (!item._loaded && !loadingDirs.has(path)) {
+        await loadDirectoryChildren(path);
+      }
+      setExpandedDirs(prev => new Set(prev).add(path));
+    }
   };
 
   // Change view mode and save preference
@@ -149,7 +258,7 @@ function FileTree({ selectedProject }) {
           style={{ paddingLeft: `${level * 16 + 12}px` }}
           onClick={() => {
             if (item.type === 'directory') {
-              toggleDirectory(item.path);
+              toggleDirectory(item.path, item);
             } else if (isImageFile(item.name)) {
               // Open image in viewer
               setSelectedImage({
@@ -171,7 +280,9 @@ function FileTree({ selectedProject }) {
         >
           <div className="flex items-center gap-2 min-w-0 w-full">
             {item.type === 'directory' ? (
-              expandedDirs.has(item.path) ? (
+              loadingDirs.has(item.path) ? (
+                <Loader2 className="w-4 h-4 text-muted-foreground flex-shrink-0 animate-spin" />
+              ) : expandedDirs.has(item.path) ? (
                 <FolderOpen className="w-4 h-4 text-blue-500 flex-shrink-0" />
               ) : (
                 <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
@@ -232,7 +343,7 @@ function FileTree({ selectedProject }) {
           style={{ paddingLeft: `${level * 16 + 12}px` }}
           onClick={() => {
             if (item.type === 'directory') {
-              toggleDirectory(item.path);
+              toggleDirectory(item.path, item);
             } else if (isImageFile(item.name)) {
               setSelectedImage({
                 name: item.name,
@@ -252,7 +363,9 @@ function FileTree({ selectedProject }) {
         >
           <div className="col-span-5 flex items-center gap-2 min-w-0">
             {item.type === 'directory' ? (
-              expandedDirs.has(item.path) ? (
+              loadingDirs.has(item.path) ? (
+                <Loader2 className="w-4 h-4 text-muted-foreground flex-shrink-0 animate-spin" />
+              ) : expandedDirs.has(item.path) ? (
                 <FolderOpen className="w-4 h-4 text-blue-500 flex-shrink-0" />
               ) : (
                 <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
@@ -294,7 +407,7 @@ function FileTree({ selectedProject }) {
           style={{ paddingLeft: `${level * 16 + 12}px` }}
           onClick={() => {
             if (item.type === 'directory') {
-              toggleDirectory(item.path);
+              toggleDirectory(item.path, item);
             } else if (isImageFile(item.name)) {
               setSelectedImage({
                 name: item.name,
@@ -314,7 +427,9 @@ function FileTree({ selectedProject }) {
         >
           <div className="flex items-center gap-2 min-w-0">
             {item.type === 'directory' ? (
-              expandedDirs.has(item.path) ? (
+              loadingDirs.has(item.path) ? (
+                <Loader2 className="w-4 h-4 text-muted-foreground flex-shrink-0 animate-spin" />
+              ) : expandedDirs.has(item.path) ? (
                 <FolderOpen className="w-4 h-4 text-blue-500 flex-shrink-0" />
               ) : (
                 <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />

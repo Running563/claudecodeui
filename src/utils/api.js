@@ -119,8 +119,13 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ filePath, content }),
     }),
-  getFiles: (projectId) =>
-    authenticatedFetch(`/api/projects/${projectId}/files`),
+  getFiles: (projectId, options = {}) => {
+    const params = new URLSearchParams();
+    if (options.depth) params.append('depth', options.depth);
+    if (options.path) params.append('path', options.path);
+    const queryString = params.toString();
+    return authenticatedFetch(`/api/projects/${projectId}/files${queryString ? `?${queryString}` : ''}`);
+  },
   transcribe: (formData) =>
     authenticatedFetch('/api/transcribe', {
       method: 'POST',

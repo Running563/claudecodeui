@@ -813,8 +813,21 @@ app.get('/api/projects/:projectId/files', authenticateToken, async (req, res) =>
             return res.status(404).json({ error: `Project path not found: ${actualPath}` });
         }
 
-        const files = await getFileTree(actualPath, 10, 0, true);
-        const hiddenFiles = files.filter(f => f.name.startsWith('.'));
+        // Support lazy loading: depth=1 for single level, or full tree for search
+        const depth = parseInt(req.query.depth) || 1;
+        const subPath = req.query.path ? decodeURIComponent(req.query.path) : null;
+        
+        // Target directory: project root or specified subdirectory
+        let targetPath = actualPath;
+        if (subPath) {
+            targetPath = path.join(actualPath, subPath);
+            // Security: ensure path is within project
+            if (!targetPath.startsWith(actualPath)) {
+                return res.status(403).json({ error: 'Access denied: path outside project' });
+            }
+        }
+
+        const files = await getFileTree(targetPath, depth, 0, true);
         res.json(files);
     } catch (error) {
         console.error('[ERROR] File tree error:', error.message);
