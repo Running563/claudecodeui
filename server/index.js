@@ -77,7 +77,7 @@ import cliAuthRoutes from './routes/cli-auth.js';
 import userRoutes from './routes/user.js';
 import terminalsRoutes from './routes/terminals.js';
 import dbRoutes from './routes/db.js';
-import { quickTerminals } from './routes/terminals.js';
+import { quickTerminals, setPtySessionsMap } from './routes/terminals.js';
 import { initializeDatabase } from './database/db.js';
 import { initDatabase as initProjectsDb } from './db.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
@@ -208,6 +208,9 @@ const server = http.createServer(app);
 
 const ptySessionsMap = new Map();
 const PTY_SESSION_TIMEOUT = 30 * 60 * 1000;
+
+// Set ptySessionsMap reference for terminals.js to use
+setPtySessionsMap(ptySessionsMap);
 
 // Single WebSocket server that handles both paths
 const wss = new WebSocketServer({
@@ -979,6 +982,15 @@ function handleShellConnection(ws) {
                 const isQuickTerminal = provider === 'quick-terminal';
                 const isPlainShell = data.isPlainShell || (!!initialCommand && !hasSession) || provider === 'plain-shell' || isQuickTerminal;
                 
+                // Check if this quick terminal has keepAlive enabled
+                let isKeepAlive = false;
+                if (isQuickTerminal && sessionId) {
+                    const terminal = quickTerminals.get(sessionId);
+                    if (terminal && terminal.keepAlive) {
+                        isKeepAlive = true;
+                    }
+                }
+                
                 // Log received dimensions from client
                 console.log('📐 Received dimensions from client:', data.cols, 'x', data.rows);
 
@@ -1056,10 +1068,16 @@ function handleShellConnection(ws) {
                     let shellCommand;
                     if (isQuickTerminal) {
                         // Quick terminal mode - just start an interactive shell in the directory
+                        // For keepAlive terminals, disable shell timeout (TMOUT) and set options to keep alive
                         if (os.platform() === 'win32') {
                             shellCommand = `Set-Location -Path "${projectPath}"`;
                         } else {
-                            shellCommand = `cd "${projectPath}" && exec $SHELL`;
+                            if (isKeepAlive) {
+                                // Disable TMOUT, set IGNOREEOF to prevent accidental Ctrl+D exit
+                                shellCommand = `cd "${projectPath}" && export TMOUT=0 && export IGNOREEOF=10 && exec $SHELL`;
+                            } else {
+                                shellCommand = `cd "${projectPath}" && exec $SHELL`;
+                            }
                         }
                     } else if (isPlainShell) {
                         // Plain shell mode - just run the initial command in the project directory
@@ -1128,19 +1146,30 @@ function handleShellConnection(ws) {
                     const termRows = data.rows || 24;
                     console.log('📐 Using terminal dimensions:', termCols, 'x', termRows, data.cols ? '(from client)' : '(default fallback)');
 
+                    // Build environment variables
+                    const ptyEnv = {
+                        ...process.env,
+                        TERM: 'xterm-256color',
+                        COLORTERM: 'truecolor',
+                        FORCE_COLOR: '3',
+                        // Override browser opening commands to echo URL for detection
+                        BROWSER: os.platform() === 'win32' ? 'echo "OPEN_URL:"' : 'echo "OPEN_URL:"'
+                    };
+                    
+                    // For keepAlive terminals, add environment variables to prevent shell timeout
+                    if (isKeepAlive && os.platform() !== 'win32') {
+                        ptyEnv.TMOUT = '0';           // Disable bash/zsh idle timeout
+                        ptyEnv.IGNOREEOF = '10';      // Require 10 Ctrl+D to exit
+                        ptyEnv.HISTCONTROL = 'ignoredups:erasedups';  // Better history handling
+                        console.log('🔒 KeepAlive terminal: disabled TMOUT and set IGNOREEOF');
+                    }
+
                     shellProcess = pty.spawn(shell, shellArgs, {
                         name: 'xterm-256color',
                         cols: termCols,
                         rows: termRows,
                         cwd: process.env.HOME || (os.platform() === 'win32' ? process.env.USERPROFILE : '/'),
-                        env: {
-                            ...process.env,
-                            TERM: 'xterm-256color',
-                            COLORTERM: 'truecolor',
-                            FORCE_COLOR: '3',
-                            // Override browser opening commands to echo URL for detection
-                            BROWSER: os.platform() === 'win32' ? 'echo "OPEN_URL:"' : 'echo "OPEN_URL:"'
-                        }
+                        env: ptyEnv
                     });
 
                     console.log('🟢 Shell process started with PTY, PID:', shellProcess.pid);
@@ -1151,7 +1180,8 @@ function handleShellConnection(ws) {
                         buffer: [],
                         timeoutId: null,
                         projectPath,
-                        sessionId
+                        sessionId,
+                        isKeepAlive
                     });
 
                     // Handle data output
