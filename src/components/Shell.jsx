@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { SerializeAddon } from '@xterm/addon-serialize';
 import '@xterm/xterm/css/xterm.css';
 
 const xtermStyles = `
@@ -21,7 +22,6 @@ const xtermStyles = `
     overscroll-behavior: contain;
     scroll-behavior: auto !important;
   }
-  /* Improve mobile touch scrolling */
   @media (max-width: 767px) {
     .xterm .xterm-viewport {
       overflow-y: auto !important;
@@ -30,7 +30,6 @@ const xtermStyles = `
     .xterm .xterm-screen {
       touch-action: pan-y !important;
     }
-    /* Hide native scrollbar on mobile */
     .shell-scroll-container::-webkit-scrollbar {
       display: none;
     }
@@ -41,345 +40,22 @@ const xtermStyles = `
   }
 `;
 
-// Vertical scrollbar for mobile terminal (controls xterm viewport)
-const VerticalScrollBar = ({ viewportElement, topOffset = 0, bottomOffset = 108 }) => {
-  const [scrollTop, setScrollTop] = useState(0);
-  const [maxScroll, setMaxScroll] = useState(0);
-  const [clientHeight, setClientHeight] = useState(0);
-  const [scrollHeight, setScrollHeight] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const trackRef = useRef(null);
-  const dragStartRef = useRef({ y: 0, scrollTop: 0 });
-  
-  useEffect(() => {
-    if (!viewportElement) return;
-    
-    const updateDimensions = () => {
-      const max = viewportElement.scrollHeight - viewportElement.clientHeight;
-      setMaxScroll(max > 0 ? max : 0);
-      setClientHeight(viewportElement.clientHeight);
-      setScrollHeight(viewportElement.scrollHeight);
-    };
-    
-    updateDimensions();
-    
-    const handleScroll = () => {
-      setScrollTop(viewportElement.scrollTop);
-    };
-    
-    viewportElement.addEventListener('scroll', handleScroll);
-    
-    // Use MutationObserver to detect content changes
-    const mutationObserver = new MutationObserver(updateDimensions);
-    mutationObserver.observe(viewportElement, { childList: true, subtree: true, characterData: true });
-    
-    // Also update periodically for terminal output
-    const interval = setInterval(updateDimensions, 500);
-    
-    return () => {
-      viewportElement.removeEventListener('scroll', handleScroll);
-      mutationObserver.disconnect();
-      clearInterval(interval);
-    };
-  }, [viewportElement]);
-
-  // Calculate thumb height and position
-  const thumbHeight = scrollHeight > 0 ? Math.max((clientHeight / scrollHeight) * 100, 8) : 100;
-  const thumbPosition = maxScroll > 0 ? (scrollTop / maxScroll) * (100 - thumbHeight) : 0;
-
-  const handleTrackClick = (e) => {
-    if (!trackRef.current || !viewportElement) return;
-    
-    const track = trackRef.current;
-    const rect = track.getBoundingClientRect();
-    const clickPosition = (e.clientY - rect.top) / rect.height;
-    const newScrollTop = clickPosition * maxScroll;
-    
-    viewportElement.scrollTo({
-      top: newScrollTop,
-      behavior: 'smooth'
-    });
-  };
-
-  const handleThumbMouseDown = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-    dragStartRef.current = {
-      y: e.clientY,
-      scrollTop: viewportElement?.scrollTop || 0
-    };
-  };
-
-  const handleThumbTouchStart = (e) => {
-    e.stopPropagation();
-    setIsDragging(true);
-    const touch = e.touches[0];
-    dragStartRef.current = {
-      y: touch.clientY,
-      scrollTop: viewportElement?.scrollTop || 0
-    };
-  };
-
-  useEffect(() => {
-    if (!isDragging) return;
-
-    const handleMouseMove = (e) => {
-      if (!trackRef.current || !viewportElement) return;
-      
-      const trackHeight = trackRef.current.getBoundingClientRect().height;
-      const deltaY = e.clientY - dragStartRef.current.y;
-      const scrollDelta = (deltaY / trackHeight) * scrollHeight;
-      
-      viewportElement.scrollTop = dragStartRef.current.scrollTop + scrollDelta;
-    };
-
-    const handleTouchMove = (e) => {
-      if (!trackRef.current || !viewportElement) return;
-      
-      const touch = e.touches[0];
-      const trackHeight = trackRef.current.getBoundingClientRect().height;
-      const deltaY = touch.clientY - dragStartRef.current.y;
-      const scrollDelta = (deltaY / trackHeight) * scrollHeight;
-      
-      viewportElement.scrollTop = dragStartRef.current.scrollTop + scrollDelta;
-    };
-
-    const handleMouseUp = () => setIsDragging(false);
-    const handleTouchEnd = () => setIsDragging(false);
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.addEventListener('touchmove', handleTouchMove, { passive: true });
-    document.addEventListener('touchend', handleTouchEnd);
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.removeEventListener('touchmove', handleTouchMove);
-      document.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [isDragging, scrollHeight, viewportElement]);
-  
-  if (!viewportElement) return null;
-  
-  return (
-    <div 
-      className="absolute flex items-center justify-center"
-      style={{ 
-        zIndex: 30,
-        top: `${topOffset}px`,
-        bottom: `${bottomOffset}px`,
-        right: 0,
-        width: '15px',
-      }}
-    >
-      <div 
-        ref={trackRef}
-        onClick={handleTrackClick}
-        className="relative h-full cursor-pointer"
-        style={{ 
-          touchAction: 'none',
-          width: '15px',
-          backgroundColor: 'rgba(55, 65, 81, 0.8)',
-        }}
-      >
-        {/* Scrollbar thumb */}
-        <div
-          onMouseDown={handleThumbMouseDown}
-          onTouchStart={handleThumbTouchStart}
-          className="absolute transition-colors duration-150"
-          style={{
-            height: `${Math.max(thumbHeight, 10)}%`,
-            top: `${thumbPosition}%`,
-            cursor: 'grab',
-            touchAction: 'none',
-            minHeight: '48px',
-            left: '2px',
-            right: '2px',
-            backgroundColor: isDragging 
-              ? 'rgba(96, 165, 250, 1)' 
-              : 'rgba(156, 163, 175, 0.9)',
-            boxShadow: isDragging ? '0 0 8px rgba(96, 165, 250, 0.5)' : 'none',
-          }}
-        />
-      </div>
-    </div>
-  );
-};
-
-// Horizontal scrollbar for mobile terminal
-const HorizontalScrollBar = ({ scrollContainerRef, terminalWidth }) => {
-  const [scrollLeft, setScrollLeft] = useState(0);
-  const [maxScroll, setMaxScroll] = useState(0);
-  const [clientWidth, setClientWidth] = useState(0);
-  const [contentWidth, setContentWidth] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const trackRef = useRef(null);
-  const dragStartRef = useRef({ x: 0, scrollLeft: 0 });
-  
-  useEffect(() => {
-    const container = scrollContainerRef?.current;
-    if (!container) return;
-    
-    const updateDimensions = () => {
-      const max = container.scrollWidth - container.clientWidth;
-      setMaxScroll(max > 0 ? max : 0);
-      setClientWidth(container.clientWidth);
-      setContentWidth(container.scrollWidth);
-    };
-    
-    updateDimensions();
-    
-    const handleScroll = () => {
-      setScrollLeft(container.scrollLeft);
-    };
-    
-    container.addEventListener('scroll', handleScroll);
-    
-    const resizeObserver = new ResizeObserver(updateDimensions);
-    resizeObserver.observe(container);
-    
-    return () => {
-      container.removeEventListener('scroll', handleScroll);
-      resizeObserver.disconnect();
-    };
-  }, [scrollContainerRef, terminalWidth]);
-
-  // Calculate thumb width and position
-  const thumbWidth = contentWidth > 0 ? Math.max((clientWidth / contentWidth) * 100, 10) : 100;
-  const thumbPosition = maxScroll > 0 ? (scrollLeft / maxScroll) * (100 - thumbWidth) : 0;
-
-  const handleTrackClick = (e) => {
-    if (!trackRef.current || !scrollContainerRef?.current) return;
-    
-    const track = trackRef.current;
-    const rect = track.getBoundingClientRect();
-    const clickPosition = (e.clientX - rect.left) / rect.width;
-    const newScrollLeft = clickPosition * maxScroll;
-    
-    scrollContainerRef.current.scrollTo({
-      left: newScrollLeft,
-      behavior: 'smooth'
-    });
-  };
-
-  const handleThumbMouseDown = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-    dragStartRef.current = {
-      x: e.clientX,
-      scrollLeft: scrollContainerRef?.current?.scrollLeft || 0
-    };
-  };
-
-  const handleThumbTouchStart = (e) => {
-    e.stopPropagation();
-    setIsDragging(true);
-    const touch = e.touches[0];
-    dragStartRef.current = {
-      x: touch.clientX,
-      scrollLeft: scrollContainerRef?.current?.scrollLeft || 0
-    };
-  };
-
-  useEffect(() => {
-    if (!isDragging) return;
-
-    const handleMouseMove = (e) => {
-      if (!trackRef.current || !scrollContainerRef?.current) return;
-      
-      const trackWidth = trackRef.current.getBoundingClientRect().width;
-      const deltaX = e.clientX - dragStartRef.current.x;
-      const scrollDelta = (deltaX / trackWidth) * contentWidth;
-      
-      scrollContainerRef.current.scrollLeft = dragStartRef.current.scrollLeft + scrollDelta;
-    };
-
-    const handleTouchMove = (e) => {
-      if (!trackRef.current || !scrollContainerRef?.current) return;
-      
-      const touch = e.touches[0];
-      const trackWidth = trackRef.current.getBoundingClientRect().width;
-      const deltaX = touch.clientX - dragStartRef.current.x;
-      const scrollDelta = (deltaX / trackWidth) * contentWidth;
-      
-      scrollContainerRef.current.scrollLeft = dragStartRef.current.scrollLeft + scrollDelta;
-    };
-
-    const handleMouseUp = () => setIsDragging(false);
-    const handleTouchEnd = () => setIsDragging(false);
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.addEventListener('touchmove', handleTouchMove, { passive: true });
-    document.addEventListener('touchend', handleTouchEnd);
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.removeEventListener('touchmove', handleTouchMove);
-      document.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [isDragging, contentWidth, scrollContainerRef]);
-  
-  if (maxScroll <= 0) return null;
-  
-  return (
-    <div 
-      className="flex-shrink-0 flex items-center"
-      style={{
-        height: '20px',
-        paddingLeft: '0',
-        paddingRight: '15px',
-        paddingTop: '4px',
-        paddingBottom: '4px',
-        backgroundColor: 'transparent',
-      }}
-    >
-      <div 
-        ref={trackRef}
-        onClick={handleTrackClick}
-        className="relative w-full cursor-pointer"
-        style={{ 
-          touchAction: 'none',
-          height: '12px',
-          backgroundColor: 'rgba(55, 65, 81, 0.8)',
-        }}
-      >
-        {/* Scrollbar thumb */}
-        <div
-          onMouseDown={handleThumbMouseDown}
-          onTouchStart={handleThumbTouchStart}
-          className="absolute transition-colors duration-150"
-          style={{
-            width: `${Math.max(thumbWidth, 10)}%`,
-            left: `${thumbPosition}%`,
-            cursor: 'grab',
-            touchAction: 'none',
-            minWidth: '48px',
-            top: '2px',
-            bottom: '2px',
-            backgroundColor: isDragging 
-              ? 'rgba(96, 165, 250, 1)' 
-              : 'rgba(156, 163, 175, 0.9)',
-            boxShadow: isDragging ? '0 0 8px rgba(96, 165, 250, 0.5)' : 'none',
-          }}
-        />
-      </div>
-    </div>
-  );
-};
-
 // Virtual keyboard for mobile devices
-const VirtualKeyboard = ({ onKeyPress, onKeyPressWithEnter, isConnected, isQuickTerminal }) => {
+const VirtualKeyboard = ({ 
+  onKeyPress, 
+  onKeyPressWithEnter, 
+  isConnected, 
+  isQuickTerminal,
+  inputMode,
+  onToggleInput,
+  selectMode,
+  onToggleSelect
+}) => {
   const [pressedKey, setPressedKey] = useState(null);
 
   if (!isConnected) return null;
 
   // Different key layouts for AI session vs quick terminal
-  // Split into two rows for better mobile display
   const keysRow1 = isQuickTerminal ? [
     { label: 'ESC', key: '\x1b' },
     { label: 'Tab', key: '\t' },
@@ -387,20 +63,15 @@ const VirtualKeyboard = ({ onKeyPress, onKeyPressWithEnter, isConnected, isQuick
     { label: '↓', key: '\x1b[B' },
     { label: '←', key: '\x1b[D' },
     { label: '→', key: '\x1b[C' },
-    { label: 'Home', key: '\x1b[H' },
   ] : [
     { label: 'ESC', key: '\x1b' },
     { label: 'Tab', key: '\t' },
     { label: 'S+Tab', key: '\x1b[Z' },
     { label: '↑', key: '\x1b[A' },
     { label: '↓', key: '\x1b[B' },
-    { label: '←', key: '\x1b[D' },
-    { label: '→', key: '\x1b[C' },
   ];
 
   const keysRow2 = isQuickTerminal ? [
-    { label: 'End', key: '\x1b[F' },
-    { label: 'Del', key: '\x1b[3~' },
     { label: '⌫', key: '\x7f' },
     { label: 'Enter', key: '\r' },
     { label: 'Ctrl+C', key: '\x03' },
@@ -409,7 +80,6 @@ const VirtualKeyboard = ({ onKeyPress, onKeyPressWithEnter, isConnected, isQuick
   ] : [
     { label: 'Enter', key: '\r' },
     { label: '/clear', key: '/clear', withEnter: true },
-    { label: '/model', key: '/model', withEnter: true },
     { label: 'Ctrl+C', key: '\x03' },
     { label: 'Ctrl+D', key: '\x04' },
   ];
@@ -429,10 +99,10 @@ const VirtualKeyboard = ({ onKeyPress, onKeyPressWithEnter, isConnected, isQuick
         }
       }}
       onTouchCancel={() => setPressedKey(null)}
-      className="vk-btn px-2.5 py-1.5 rounded text-xs font-medium select-none whitespace-nowrap focus:outline-none flex-1"
+      className="vk-btn px-2 py-1.5 rounded text-xs font-medium select-none whitespace-nowrap focus:outline-none flex-1"
       style={{ 
-        minWidth: '36px',
-        maxWidth: '60px',
+        minWidth: '32px',
+        maxWidth: '56px',
         WebkitTapHighlightColor: 'transparent',
         backgroundColor: pressedKey === k.label ? '#4b5563' : '#374151',
         color: '#fff',
@@ -444,11 +114,49 @@ const VirtualKeyboard = ({ onKeyPress, onKeyPressWithEnter, isConnected, isQuick
 
   return (
     <div className="flex-shrink-0 bg-gray-800 border-t border-gray-700 px-2 py-1.5">
+      {/* 功能键第一行 */}
       <div className="flex gap-1 mb-1 justify-center">
         {keysRow1.map(renderKey)}
       </div>
-      <div className="flex gap-1 justify-center">
+      {/* 功能键第二行 + 控制按钮 */}
+      <div className="flex gap-1 justify-center items-center">
         {keysRow2.map(renderKey)}
+        {/* 分隔线 */}
+        <div className="w-px h-6 bg-gray-600 mx-1" />
+        {/* 输入按钮：聚焦/收起键盘 */}
+        <button
+          type="button"
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            onToggleInput();
+          }}
+          className="vk-btn px-2 py-1.5 rounded text-xs font-medium select-none whitespace-nowrap focus:outline-none"
+          style={{ 
+            minWidth: '40px',
+            WebkitTapHighlightColor: 'transparent',
+            backgroundColor: inputMode ? '#2563eb' : '#374151',
+            color: '#fff',
+          }}
+        >
+          {inputMode ? '收起' : '输入'}
+        </button>
+        {/* 选择模式切换 */}
+        <button
+          type="button"
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            onToggleSelect();
+          }}
+          className="vk-btn px-2 py-1.5 rounded text-xs font-medium select-none whitespace-nowrap focus:outline-none"
+          style={{ 
+            minWidth: '40px',
+            WebkitTapHighlightColor: 'transparent',
+            backgroundColor: selectMode ? '#7c3aed' : '#374151',
+            color: '#fff',
+          }}
+        >
+          选择
+        </button>
       </div>
     </div>
   );
@@ -461,11 +169,12 @@ if (typeof document !== 'undefined') {
   document.head.appendChild(styleSheet);
 }
 
-function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell = false, onProcessComplete, minimal = false, autoConnect = false, onShellStateChange, selectMode = false }, ref) {
+function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell = false, onProcessComplete, minimal = false, autoConnect = false, onShellStateChange }, ref) {
   const terminalRef = useRef(null);
   const scrollContainerRef = useRef(null);
   const terminal = useRef(null);
   const fitAddon = useRef(null);
+  const serializeAddon = useRef(null);
   const ws = useRef(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -474,14 +183,17 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   const [isConnecting, setIsConnecting] = useState(false);
   const [userDisconnected, setUserDisconnected] = useState(false);
   
-  // Track if device is mobile for terminal optimizations
-  const isMobileDevice = useRef(window.innerWidth < 768);
+  // ============================================================
+  // 移动端状态
+  // ============================================================
+  const [selectMode, setSelectMode] = useState(false);
+  const [htmlContent, setHtmlContent] = useState('');
+  const [copySuccess, setCopySuccess] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [inputMode, setInputMode] = useState(false);
+  const htmlContainerRef = useRef(null);
   
-  // Check if this is a quick terminal (not AI session)
   const isQuickTerminal = selectedSession?.provider === 'quick-terminal' || selectedSession?.__provider === 'quick-terminal';
-  
-  // Viewport ref for vertical scrollbar - use state to trigger re-render
-  const [viewportElement, setViewportElement] = useState(null);
 
   const selectedProjectRef = useRef(selectedProject);
   const selectedSessionRef = useRef(selectedSession);
@@ -500,7 +212,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   // Update mobile detection on window resize
   useEffect(() => {
     const handleResize = () => {
-      isMobileDevice.current = window.innerWidth < 768;
+      setIsMobile(window.innerWidth < 768);
     };
     
     window.addEventListener('resize', handleResize);
@@ -536,21 +248,10 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
         setTimeout(() => {
           if (terminal.current && fitAddon.current) {
-            const isMobile = isMobileDevice.current;
-            
-            // On mobile, use fit to calculate rows, then force cols to 120
-            // On desktop, use fit addon to calculate optimal dimensions
-            if (isMobile) {
-              try {
-                fitAddon.current.fit();
-                const fittedRows = terminal.current.rows;
-                terminal.current.resize(100, fittedRows);
-              } catch (error) {
-                console.error('[Shell] Error resizing terminal:', error);
-                terminal.current.resize(100, 40);
-              }
-            } else {
+            try {
               fitAddon.current.fit();
+            } catch (error) {
+              console.error('[Shell] Error resizing terminal:', error);
             }
             
             setTimeout(() => {
@@ -687,6 +388,60 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     }
   }, []);
 
+  // ============================================================
+  // 切换选择模式：序列化终端为 HTML 供移动端选择复制
+  // ============================================================
+  const toggleSelectMode = useCallback(() => {
+    setSelectMode(prev => {
+      const newMode = !prev;
+      if (newMode && terminal.current && serializeAddon.current) {
+        try {
+          setHtmlContent(serializeAddon.current.serializeAsHTML());
+        } catch (err) {
+          console.error('[Shell] Serialize failed:', err);
+        }
+        terminal.current.blur();
+        setInputMode(false);
+      } else {
+        setHtmlContent('');
+      }
+      return newMode;
+    });
+  }, []);
+
+  // ============================================================
+  // 切换输入模式：聚焦/取消聚焦终端（弹出/收起系统键盘）
+  // ============================================================
+  const toggleInputMode = useCallback(() => {
+    if (!terminal.current) return;
+    
+    if (inputMode) {
+      terminal.current.blur();
+      setInputMode(false);
+    } else {
+      terminal.current.focus();
+      setInputMode(true);
+    }
+  }, [inputMode]);
+
+  // 监听终端失焦事件，同步 inputMode 状态
+  useEffect(() => {
+    if (!terminal.current) return;
+    
+    const handleBlur = () => setInputMode(false);
+    const handleFocus = () => setInputMode(true);
+    
+    // xterm.js 使用 textarea 接收输入
+    const textarea = terminalRef.current?.querySelector('textarea');
+    if (textarea) {
+      textarea.addEventListener('blur', handleBlur);
+      textarea.addEventListener('focus', handleFocus);
+      return () => {
+        textarea.removeEventListener('blur', handleBlur);
+        textarea.removeEventListener('focus', handleFocus);
+      };
+    }
+  }, [isInitialized]);
 
   const sessionDisplayName = useMemo(() => {
     if (!selectedSession) return null;
@@ -716,6 +471,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
       terminal.current.dispose();
       terminal.current = null;
       fitAddon.current = null;
+      serializeAddon.current = null;
     }
 
     setIsConnected(false);
@@ -765,12 +521,13 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
       return;
     }
 
-    const isMobile = isMobileDevice.current;
-    const scrollbackSize = isMobile ? 1000 : 10000;
+    const isMobileNow = window.innerWidth < 768;
+    // minimal 模式也需要足够的 scrollback 来存储历史内容供 HTML 显示
+    const scrollbackSize = isMobileNow ? 1000 : 10000;
 
     const terminalOptions = {
       cursorBlink: true,
-      fontSize: isMobile ? 11 : 14,
+      fontSize: isMobileNow ? 11 : 14,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       allowProposedApi: true,
       allowTransparency: false,
@@ -813,10 +570,9 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     };
     
     // Add mobile-specific options
-    if (isMobile) {
+    if (isMobileNow) {
       terminalOptions.smoothScrollDuration = 0;
       terminalOptions.fastScrollSensitivity = 3;
-      terminalOptions.cols = 100;
       terminalOptions.scrollSensitivity = 3;
     } else {
       terminalOptions.fastScrollModifier = 'alt';
@@ -826,13 +582,15 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     terminal.current = new Terminal(terminalOptions);
     
     fitAddon.current = new FitAddon();
+    serializeAddon.current = new SerializeAddon();
     const webLinksAddon = new WebLinksAddon();
 
     terminal.current.loadAddon(fitAddon.current);
+    terminal.current.loadAddon(serializeAddon.current);
     terminal.current.loadAddon(webLinksAddon);
 
     // Only use WebGL on desktop for better performance
-    if (!isMobile) {
+    if (!isMobileNow) {
       try {
         const webglAddon = new WebglAddon();
         terminal.current.loadAddon(webglAddon);
@@ -844,9 +602,9 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     try {
       terminal.current.open(terminalRef.current);
       
-      // Initial fit for desktop
+      // Initial fit
       setTimeout(() => {
-        if (fitAddon.current && !isMobile) {
+        if (fitAddon.current) {
           try {
             fitAddon.current.fit();
           } catch (fitError) {
@@ -881,7 +639,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
     // Desktop resize handling
     setTimeout(() => {
-      if (fitAddon.current && !isMobile) {
+      if (fitAddon.current && !isMobileNow) {
         try {
           fitAddon.current.fit();
           if (terminal.current && ws.current && ws.current.readyState === WebSocket.OPEN) {
@@ -899,16 +657,6 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
     setIsInitialized(true);
     
-    // Store viewport ref for vertical scrollbar
-    if (isMobile) {
-      setTimeout(() => {
-        const viewport = terminalRef.current?.querySelector('.xterm-viewport');
-        if (viewport) {
-          setViewportElement(viewport);
-        }
-      }, 200);
-    }
-    
     terminal.current.onData((data) => {
       if (ws.current && ws.current.readyState === WebSocket.OPEN) {
         ws.current.send(JSON.stringify({
@@ -920,7 +668,8 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
     // ResizeObserver for desktop only
     const resizeObserver = new ResizeObserver(() => {
-      if (fitAddon.current && terminal.current && !isMobile) {
+      const isMobileCheck = window.innerWidth < 768;
+      if (fitAddon.current && terminal.current && !isMobileCheck) {
         setTimeout(() => {
           try {
             fitAddon.current.fit();
@@ -944,8 +693,6 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
     return () => {
       resizeObserver.disconnect();
-      
-      setViewportElement(null);
 
       if (ws.current && (ws.current.readyState === WebSocket.OPEN || ws.current.readyState === WebSocket.CONNECTING)) {
         ws.current.close();
@@ -965,53 +712,138 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   }, [autoConnect, isInitialized, isConnecting, isConnected, userDisconnected, connectToShell]);
 
   if (minimal) {
-    const isMobile = isMobileDevice.current;
-    // Calculate terminal width: 100 cols * 6.6px per char (approximate for 11px font)
-    const terminalWidth = isMobile ? 100 * 6.6 : '100%';
-    
-    // In select mode: allow text selection (touch-action: none disables scroll, allows selection)
-    // In scroll mode: allow scrolling (touch-action: pan-x pan-y)
-    const touchActionStyle = selectMode ? 'none' : 'pan-x pan-y';
-    const userSelectStyle = selectMode ? 'text' : 'none';
+    // ============================================================
+    // 移动端简化架构：单一 xterm 全屏显示
+    // - xterm 负责所有渲染和输入
+    // - 选择模式：HTML 弹层显示，支持原生文本选择
+    // - 虚拟键盘提供快捷操作
+    // ============================================================
     
     return (
       <div className="h-full w-full bg-gray-900 flex flex-col relative">
+        {/* xterm 全屏显示 - 选择模式下隐藏 */}
         <div 
           ref={scrollContainerRef}
-          className={`flex-1 relative min-h-0 shell-scroll-container ${isMobile ? 'overflow-x-auto' : 'overflow-auto'}`}
-          style={isMobile ? { touchAction: selectMode ? 'none' : 'pan-x', marginRight: '15px' } : undefined}
+          className="flex-1 relative min-h-0 shell-scroll-container overflow-hidden"
+          style={{ display: selectMode ? 'none' : 'block' }}
         >
           <div 
             ref={terminalRef} 
-            className="focus:outline-none absolute inset-0" 
+            className="focus:outline-none absolute inset-0"
             style={{ 
               outline: 'none',
-              width: typeof terminalWidth === 'number' ? `${terminalWidth}px` : '100%',
-              touchAction: isMobile ? touchActionStyle : 'auto',
-              userSelect: isMobile ? userSelectStyle : 'auto',
-              WebkitUserSelect: isMobile ? userSelectStyle : 'auto',
+              touchAction: 'pan-y',
             }} 
           />
         </div>
-        {isMobile && !selectMode && (
-          <>
-            <HorizontalScrollBar scrollContainerRef={scrollContainerRef} terminalWidth={terminalWidth} />
-            <VirtualKeyboard onKeyPress={handleVirtualKeyPress} onKeyPressWithEnter={handleVirtualKeyPressWithEnter} isConnected={isConnected} isQuickTerminal={isQuickTerminal} />
-          </>
+        
+        {/* 选择模式：HTML 弹层显示 */}
+        {selectMode && (
+          <div 
+            ref={htmlContainerRef}
+            className="flex-1 overflow-auto bg-[#1e1e1e] p-2"
+            style={{
+              userSelect: 'text',
+              WebkitUserSelect: 'text',
+              touchAction: 'auto',
+            }}
+          >
+            <div 
+              dangerouslySetInnerHTML={{ __html: htmlContent }}
+              style={{
+                fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+                fontSize: '11px',
+                lineHeight: '1.2',
+                whiteSpace: 'pre',
+                color: '#d4d4d4',
+              }}
+            />
+          </div>
         )}
-        {isMobile && !selectMode && <VerticalScrollBar viewportElement={viewportElement} topOffset={0} bottomOffset={64} />}
+        
+        {/* 虚拟键盘 - 非选择模式显示 */}
+        {isMobile && !selectMode && (
+          <VirtualKeyboard 
+            onKeyPress={handleVirtualKeyPress} 
+            onKeyPressWithEnter={handleVirtualKeyPressWithEnter} 
+            isConnected={isConnected} 
+            isQuickTerminal={isQuickTerminal}
+            inputMode={inputMode}
+            onToggleInput={toggleInputMode}
+            selectMode={selectMode}
+            onToggleSelect={toggleSelectMode}
+          />
+        )}
+        
+        {/* 选择模式工具栏 */}
         {isMobile && selectMode && (
-          <div className="flex-shrink-0 bg-gray-800 border-t border-gray-700 px-4 py-3 text-center">
-            <span className="text-sm text-gray-400">选择模式：长按选择文字，点击顶部按钮切换回滚动模式</span>
+          <div className="flex-shrink-0 bg-gray-800 border-t border-gray-700 px-2 py-2">
+            <div className="flex items-center justify-center gap-2">
+              <button
+                type="button"
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  if (!htmlContainerRef.current) return;
+                  const selection = window.getSelection();
+                  const range = document.createRange();
+                  range.selectNodeContents(htmlContainerRef.current);
+                  selection.removeAllRanges();
+                  selection.addRange(range);
+                }}
+                className="vk-btn px-3 py-1.5 rounded text-xs font-medium select-none whitespace-nowrap focus:outline-none"
+                style={{ 
+                  WebkitTapHighlightColor: 'transparent',
+                  backgroundColor: '#374151',
+                  color: '#fff',
+                }}
+              >
+                全选
+              </button>
+              <button
+                type="button"
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  const text = window.getSelection()?.toString();
+                  if (text) {
+                    navigator.clipboard.writeText(text).then(() => {
+                      setCopySuccess(true);
+                      setTimeout(() => setCopySuccess(false), 1500);
+                    }).catch(err => console.error('[Shell] Copy failed:', err));
+                  }
+                }}
+                className="vk-btn px-3 py-1.5 rounded text-xs font-medium select-none whitespace-nowrap focus:outline-none"
+                style={{ 
+                  WebkitTapHighlightColor: 'transparent',
+                  backgroundColor: copySuccess ? '#16a34a' : '#2563eb',
+                  color: '#fff',
+                }}
+              >
+                {copySuccess ? '已复制' : '复制选中'}
+              </button>
+              <button
+                type="button"
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  window.getSelection()?.removeAllRanges();
+                  toggleSelectMode();
+                }}
+                className="vk-btn px-3 py-1.5 rounded text-xs font-medium select-none whitespace-nowrap focus:outline-none"
+                style={{ 
+                  WebkitTapHighlightColor: 'transparent',
+                  backgroundColor: '#7c3aed',
+                  color: '#fff',
+                }}
+              >
+                退出选择
+              </button>
+            </div>
           </div>
         )}
       </div>
     );
   }
 
-  const isMobile = isMobileDevice.current;
-  const terminalWidth = isMobile ? 100 * 6.6 : '100%';
-
+  // 非 minimal 模式（桌面端完整界面）
   return (
     <div className="h-full flex flex-col bg-gray-900 w-full relative">
       {/* Desktop toolbar - hidden on mobile since controls are in MainContent header */}
@@ -1067,15 +899,14 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
       <div 
         ref={scrollContainerRef}
-        className={`flex-1 relative min-h-0 shell-scroll-container ${isMobile ? 'overflow-x-auto' : 'overflow-auto'}`} 
-        style={{ ...(isMobile ? { touchAction: 'pan-x', marginRight: '15px' } : { padding: '0.5rem' }) }}
+        className="flex-1 relative min-h-0 shell-scroll-container overflow-auto"
+        style={{ padding: isMobile ? 0 : '0.5rem' }}
       >
         <div 
           ref={terminalRef} 
           className="focus:outline-none absolute inset-0" 
           style={{ 
             outline: 'none',
-            width: typeof terminalWidth === 'number' ? `${terminalWidth}px` : '100%',
             margin: isMobile ? 0 : '0.5rem',
             touchAction: isMobile ? 'pan-y' : 'auto'
           }} 
@@ -1131,12 +962,17 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
       </div>
 
       {isMobile && (
-        <>
-          <HorizontalScrollBar scrollContainerRef={scrollContainerRef} terminalWidth={terminalWidth} />
-          <VirtualKeyboard onKeyPress={handleVirtualKeyPress} onKeyPressWithEnter={handleVirtualKeyPressWithEnter} isConnected={isConnected} isQuickTerminal={isQuickTerminal} />
-        </>
+        <VirtualKeyboard 
+          onKeyPress={handleVirtualKeyPress} 
+          onKeyPressWithEnter={handleVirtualKeyPressWithEnter} 
+          isConnected={isConnected} 
+          isQuickTerminal={isQuickTerminal}
+          inputMode={inputMode}
+          onToggleInput={toggleInputMode}
+          selectMode={selectMode}
+          onToggleSelect={toggleSelectMode}
+        />
       )}
-      {isMobile && <VerticalScrollBar viewportElement={viewportElement} topOffset={0} bottomOffset={64} />}
     </div>
   );
 }
