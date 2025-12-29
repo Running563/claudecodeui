@@ -1081,16 +1081,13 @@ function handleShellConnection(ws) {
                     let shellCommand;
                     if (isQuickTerminal) {
                         // Quick terminal mode - just start an interactive shell in the directory
-                        // For keepAlive terminals, disable shell timeout (TMOUT) and set options to keep alive
+                        // Always disable shell timeout for quick terminals to prevent auto-exit
                         if (os.platform() === 'win32') {
                             shellCommand = `Set-Location -Path "${projectPath}"`;
                         } else {
-                            if (isKeepAlive) {
-                                // Disable TMOUT, set IGNOREEOF to prevent accidental Ctrl+D exit
-                                shellCommand = `cd "${projectPath}" && export TMOUT=0 && export IGNOREEOF=10 && exec $SHELL`;
-                            } else {
-                                shellCommand = `cd "${projectPath}" && exec $SHELL`;
-                            }
+                            // Use PROMPT_COMMAND to continuously reset TMOUT (prevents .bashrc/.zshrc from re-enabling it)
+                            // Also set IGNOREEOF to prevent accidental Ctrl+D exit
+                            shellCommand = `cd "${projectPath}" && export TMOUT=0 && export IGNOREEOF=10 && export AUTOLOGOUT=0 && export PROMPT_COMMAND='TMOUT=0' && exec $SHELL`;
                         }
                     } else if (isPlainShell) {
                         // Plain shell mode - just run the initial command in the project directory
@@ -1169,12 +1166,14 @@ function handleShellConnection(ws) {
                         BROWSER: os.platform() === 'win32' ? 'echo "OPEN_URL:"' : 'echo "OPEN_URL:"'
                     };
                     
-                    // For keepAlive terminals, add environment variables to prevent shell timeout
-                    if (isKeepAlive && os.platform() !== 'win32') {
+                    // For keepAlive terminals or quick terminals, add environment variables to prevent shell timeout
+                    if ((isKeepAlive || isQuickTerminal) && os.platform() !== 'win32') {
                         ptyEnv.TMOUT = '0';           // Disable bash/zsh idle timeout
                         ptyEnv.IGNOREEOF = '10';      // Require 10 Ctrl+D to exit
                         ptyEnv.HISTCONTROL = 'ignoredups:erasedups';  // Better history handling
-                        console.log('🔒 KeepAlive terminal: disabled TMOUT and set IGNOREEOF');
+                        // Prevent auto-logout in some shells
+                        ptyEnv.AUTOLOGOUT = '0';
+                        console.log('🔒 Quick/KeepAlive terminal: disabled TMOUT and set IGNOREEOF');
                     }
 
                     shellProcess = pty.spawn(shell, shellArgs, {
@@ -1347,15 +1346,21 @@ function handleShellConnection(ws) {
 
                 // Check if this is a quick terminal with keepAlive enabled
                 // Quick terminal session keys are formatted as: terminal_{sessionId}_{projectPath}
+                // where sessionId itself is like "terminal_1234567890"
+                // So the full key looks like: terminal_terminal_1234567890_/path/to/project
                 const isQuickTerminalSession = ptySessionKey.startsWith('terminal_');
                 let shouldKeepAlive = false;
                 
                 if (isQuickTerminalSession) {
-                    // Extract sessionId from the key: terminal_{sessionId}_{projectPath}
-                    const match = ptySessionKey.match(/^terminal_([^_]+)_/);
+                    // Extract the full sessionId (terminal_XXXXX) from the key
+                    // Key format: terminal_{sessionId}_{projectPath}
+                    // sessionId format: terminal_1234567890
+                    // So we need to match: terminal_(terminal_\d+)_
+                    const match = ptySessionKey.match(/^terminal_(terminal_\d+)_/);
                     if (match) {
-                        const terminalId = `terminal_${match[1]}`;
+                        const terminalId = match[1];
                         const terminal = quickTerminals.get(terminalId);
+                        console.log('🔍 Looking up terminal:', terminalId, 'found:', !!terminal, 'keepAlive:', terminal?.keepAlive);
                         if (terminal && terminal.keepAlive) {
                             shouldKeepAlive = true;
                             console.log('🔒 PTY session will be kept alive indefinitely (keepAlive enabled):', ptySessionKey);
