@@ -36,6 +36,23 @@ export function useWebSocketMessages({
   const processedMessageCountRef = useRef(0);
   // Track last processed messages array length to detect resets
   const lastMessagesLengthRef = useRef(0);
+  // Track current session to detect session changes
+  const lastSessionIdRef = useRef(currentSessionId);
+
+  // Reset message processing state when session changes
+  useEffect(() => {
+    if (lastSessionIdRef.current !== currentSessionId) {
+      lastSessionIdRef.current = currentSessionId;
+      processedMessageCountRef.current = 0;
+      lastMessagesLengthRef.current = 0;
+      streamBufferRef.current = '';
+      if (streamTimerRef.current) {
+        clearTimeout(streamTimerRef.current);
+        streamTimerRef.current = null;
+      }
+      pendingToolResultsRef.current.clear();
+    }
+  }, [currentSessionId]);
 
   // Helper to flush stream buffer
   const flushStreamBuffer = useCallback((finalizeStreaming = false) => {
@@ -314,7 +331,7 @@ export function useWebSocketMessages({
 
     // Filter messages by session ID to prevent cross-session interference
     // Include system init messages that may set up new sessions
-    const globalMessageTypes = ['projects_updated', 'session-created', 'claude-complete', 'codebuddy-system', 'cursor-system'];
+    const globalMessageTypes = ['projects_updated', 'session-created', 'claude-complete', 'codebuddy-system', 'cursor-system', 'session-status', 'codebuddy-complete', 'codebuddy-result'];
     const isGlobalMessage = globalMessageTypes.includes(latestMessage.type);
 
     if (!isGlobalMessage && latestMessage.sessionId && currentSessionId && latestMessage.sessionId !== currentSessionId) {
@@ -791,11 +808,6 @@ export function useWebSocketMessages({
             onNavigateToSession(pendingSessionId);
           }
         }
-        
-        // Clear persisted chat messages after successful completion
-        if (selectedProject && latestMessage.exitCode === 0) {
-          safeLocalStorage.removeItem(`chat_messages_${selectedProject.name}`);
-        }
         break;
       }
         
@@ -829,11 +841,21 @@ export function useWebSocketMessages({
         const statusSessionId = latestMessage.sessionId;
         const isCurrentSession = statusSessionId === currentSessionId ||
                                  (selectedSession && statusSessionId === selectedSession.id);
-        if (isCurrentSession && latestMessage.isProcessing) {
-          setIsLoading(true);
-          setCanAbortSession(true);
-          if (onSessionProcessing) {
-            onSessionProcessing(statusSessionId);
+        if (isCurrentSession) {
+          if (latestMessage.isProcessing) {
+            setIsLoading(true);
+            setCanAbortSession(true);
+            if (onSessionProcessing) {
+              onSessionProcessing(statusSessionId);
+            }
+          } else {
+            // Session is not processing - update UI state
+            setIsLoading(false);
+            setCanAbortSession(false);
+            setClaudeStatus(null);
+            if (onSessionNotProcessing) {
+              onSessionNotProcessing(statusSessionId);
+            }
           }
         }
         break;
@@ -869,6 +891,18 @@ export function useWebSocketMessages({
           setClaudeStatus(statusInfo);
           setIsLoading(true);
           setCanAbortSession(statusInfo.can_interrupt);
+        }
+        break;
+      }
+
+      case 'project-tasks': {
+        // Received list of tasks for a specific project
+        // Check if any task is running for the current session
+        const tasks = latestMessage.tasks || [];
+        const currentTask = tasks.find(t => t.sessionId === currentSessionId);
+        if (currentTask) {
+          setIsLoading(true);
+          setCanAbortSession(true);
         }
         break;
       }

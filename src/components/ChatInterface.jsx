@@ -77,7 +77,9 @@ function ChatInterface({
   autoScrollToBottom, 
   sendByCtrlEnter, 
   externalMessageUpdate, 
-  onToggleQuickSettings 
+  onToggleQuickSettings,
+  // Background task support
+  getProjectTasks
 }) {
   // Refs
   const messagesEndRef = useRef(null);
@@ -172,7 +174,9 @@ function ChatInterface({
     isNearBottom,
     autoScrollToBottom,
     processingSessions,
-    externalMessageUpdate
+    externalMessageUpdate,
+    // Background task support
+    getProjectTasks
   });
 
   // Image upload management via custom hook

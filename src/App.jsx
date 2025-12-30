@@ -89,7 +89,7 @@ function AppContent() {
   // Track last processed message index to avoid re-processing when useEffect re-runs
   const lastProcessedMessageIndexRef = React.useRef(-1);
 
-  const { ws, sendMessage, messages } = useWebSocketContext();
+  const { ws, sendMessage, messages, getProjectTasks, clearMessages } = useWebSocketContext();
   
   // Detect if running as PWA
   const [isPWA, setIsPWA] = useState(false);
@@ -528,6 +528,9 @@ function AppContent() {
   };
 
   const handleSessionSelect = (session) => {
+    // Clear WebSocket message queue to prevent cross-session message pollution
+    clearMessages();
+    
     setSelectedSession(session);
     // Only switch to chat tab when user explicitly selects a session
     // This prevents tab switching during automatic updates
@@ -1026,6 +1029,7 @@ function AppContent() {
             onToggleQuickSettings={() => setShowQuickSettings(prev => !prev)}
             onSelectTerminal={handleSelectTerminal}
             onCreateTerminal={handleCreateTerminal}
+            getProjectTasks={getProjectTasks}
           />
         )}
       </div>

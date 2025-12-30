@@ -9,7 +9,6 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { safeLocalStorage } from '../utils';
 import { getProjectId } from '../../../utils/api';
 
 /**
@@ -35,22 +34,20 @@ export function useChatSession({
   // Processing sessions
   processingSessions,
   // External update trigger
-  externalMessageUpdate
+  externalMessageUpdate,
+  // Background task check
+  getProjectTasks
 }) {
   const [currentSessionId, setCurrentSessionId] = useState(selectedSession?.id || null);
   const [isSystemSessionChange, setIsSystemSessionChange] = useState(false);
-  const [chatMessages, setChatMessages] = useState(() => {
-    if (typeof window !== 'undefined' && selectedProject) {
-      const saved = safeLocalStorage.getItem(`chat_messages_${selectedProject.name}`);
-      return saved ? JSON.parse(saved) : [];
-    }
-    return [];
-  });
+  const [chatMessages, setChatMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [canAbortSession, setCanAbortSession] = useState(false);
   
   // Track session loading to prevent multiple scrolls
   const isLoadingSessionRef = useRef(false);
+  // Track if we've already checked for background tasks
+  const hasCheckedBackgroundTasksRef = useRef(false);
 
   // Load session messages when session changes
   useEffect(() => {
@@ -65,7 +62,6 @@ export function useChatSession({
         const sessionChanged = currentSessionId !== null && currentSessionId !== selectedSession.id;
 
         // CRITICAL: If we're currently loading (processing a message), don't reload messages
-        // This prevents the issue where session-created triggers a reload and loses user messages
         if (isLoading && !sessionChanged) {
           console.log('[useChatSession] Skipping message reload - currently loading');
           isLoadingSessionRef.current = false;
@@ -73,14 +69,10 @@ export function useChatSession({
         }
 
         if (sessionChanged) {
-          // Reset pagination state when switching sessions
           resetPagination();
-          // Reset token budget when switching sessions
           resetTokenBudget();
-          // Reset loading state when switching sessions
           setIsLoading(false);
 
-          // Check if the session is currently processing on the backend
           if (ws && sendMessage) {
             sendMessage({
               type: 'check-session-status',
@@ -89,10 +81,8 @@ export function useChatSession({
             });
           }
         } else if (currentSessionId === null) {
-          // Initial load - reset pagination but not token budget
           resetPagination();
 
-          // Check if the session is currently processing on the backend
           if (ws && sendMessage) {
             sendMessage({
               type: 'check-session-status',
@@ -103,11 +93,9 @@ export function useChatSession({
         }
         
         if (currentProvider === 'cursor') {
-          // For Cursor, set the session ID for resuming
           setCurrentSessionId(selectedSession.id);
           sessionStorage.setItem('cursorSessionId', selectedSession.id);
           
-          // Only load messages from SQLite if this is NOT a system-initiated session change
           if (!isSystemSessionChange) {
             const projectPath = selectedProject.path || selectedProject.path;
             const converted = await loadCursorSessionMessagesWithState(projectPath, selectedSession.id);
@@ -117,18 +105,17 @@ export function useChatSession({
             setIsSystemSessionChange(false);
           }
         } else {
-          // For Claude, load messages normally with pagination
           setCurrentSessionId(selectedSession.id);
           
           if (!isSystemSessionChange) {
             const messages = await loadSessionMessages(getProjectId(selectedProject), selectedSession.id, false);
             setSessionMessages(messages);
+            // chatMessages will be updated by the useEffect that watches convertedMessages
           } else {
             setIsSystemSessionChange(false);
           }
         }
       } else {
-        // Only clear messages if this is NOT a system-initiated session change AND we're not loading
         if (!isSystemSessionChange && !isLoading) {
           setChatMessages([]);
           setSessionMessages([]);
@@ -138,16 +125,15 @@ export function useChatSession({
         resetPagination();
       }
 
-      // Mark loading as complete after messages are set
       setTimeout(() => {
         isLoadingSessionRef.current = false;
       }, 250);
     };
 
     loadMessages();
-  }, [selectedSession?.id, selectedProject?.name]); // Simplified dependencies
+  }, [selectedSession?.id, selectedProject?.name]);
 
-  // External Message Update Handler: Reload messages when external CLI modifies current session
+  // External Message Update Handler
   useEffect(() => {
     if (externalMessageUpdate > 0 && selectedSession && selectedProject) {
       const reloadExternalMessages = async () => {
@@ -163,7 +149,6 @@ export function useChatSession({
             const messages = await loadSessionMessages(getProjectId(selectedProject), selectedSession.id, false);
             setSessionMessages(messages);
 
-            // Smart scroll behavior: only auto-scroll if user is near bottom
             if (isNearBottom && autoScrollToBottom) {
               setTimeout(() => scrollToBottom(), 200);
             }
@@ -188,12 +173,25 @@ export function useChatSession({
     }
   }, [currentSessionId, processingSessions]);
 
-  // Persist chat messages to localStorage
+  // Check for background tasks when session changes
   useEffect(() => {
-    if (selectedProject && chatMessages.length > 0) {
-      safeLocalStorage.setItem(`chat_messages_${selectedProject.name}`, JSON.stringify(chatMessages));
+    if (!selectedSession || !selectedProject || !getProjectTasks) return;
+    if (hasCheckedBackgroundTasksRef.current && currentSessionId === selectedSession.id) return;
+    
+    hasCheckedBackgroundTasksRef.current = true;
+    
+    // Request project tasks to see if there are any running tasks
+    if (selectedProject.path) {
+      getProjectTasks(selectedProject.path);
     }
-  }, [chatMessages, selectedProject?.name]);
+  }, [selectedSession?.id, selectedProject?.path, getProjectTasks]);
+
+  // Reset background task check flag when session changes
+  useEffect(() => {
+    if (currentSessionId !== selectedSession?.id) {
+      hasCheckedBackgroundTasksRef.current = false;
+    }
+  }, [selectedSession?.id, currentSessionId]);
 
   // Abort session handler
   const handleAbortSession = useCallback(() => {

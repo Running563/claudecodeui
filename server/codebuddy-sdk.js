@@ -4,6 +4,13 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
 import { getProjectByPath, createSession } from './db.js';
+import {
+  registerTask,
+  updateTaskId,
+  setAbortFn,
+  completeTask,
+  isTaskRunning
+} from './background-task-manager.js';
 
 // Use cross-spawn for better command execution (handles PATH lookup without shell)
 const spawnFunction = crossSpawn;
@@ -144,7 +151,8 @@ async function handleImages(command, images, cwd) {
 
 /**
  * Spawns a CodeBuddy CLI process to handle a query
- * Modeled after Cursor CLI behavior
+ * Tasks continue running in background even if client disconnects.
+ * Only manual abort stops the task.
  * 
  * @param {string} command - User prompt/command
  * @param {Object} options - Query options
@@ -157,23 +165,30 @@ async function spawnCodeBuddy(command, options = {}, ws) {
     let capturedSessionId = sessionId; // Track session ID throughout the process
     let sessionCreatedSent = false; // Track if we've already sent session-created event
     let messageBuffer = ''; // Buffer for accumulating assistant messages
-    // isNewSession should only be true when we start without a sessionId (not resuming)
-    // This matches CodeBuddy SDK behavior: isNewSession: !sessionId && !!command
     const isNewSession = !sessionId && !!command;
     let tempImagePaths = [];
     let tempDir = null;
     
+    // Generate a temporary task ID for new sessions
+    const tempTaskId = sessionId || `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Register background task (简化版：不缓存消息，只跟踪任务状态)
+    registerTask(tempTaskId, 'codebuddy', projectPath, null);
+
+    // Helper: 安全发送消息（忽略断开的连接）
+    const safeSend = (data) => {
+      try {
+        if (ws && ws.readyState === 1) { // WebSocket.OPEN = 1
+          ws.send(data);
+        }
+      } catch (e) {
+        // 连接已断开，忽略发送错误
+      }
+    };
+    
     // Debug log for images
     if (images && images.length > 0) {
       console.log('🖼️  [CodeBuddy] Received images:', images.length, 'images');
-      console.log('🖼️  [CodeBuddy] Image details:', images.map(img => ({
-        name: img.name,
-        size: img.size,
-        mimeType: img.mimeType,
-        dataLength: img.data?.length
-      })));
-    } else {
-      console.log('🖼️  [CodeBuddy] No images received');
     }
     
     // Use tools settings passed from frontend, or defaults
@@ -184,13 +199,12 @@ async function spawnCodeBuddy(command, options = {}, ws) {
     };
     
     // Use cwd (actual project directory) instead of projectPath
-    // Ensure workingDir is an absolute path
     let workingDir = cwd || projectPath || process.cwd();
     if (!path.isAbsolute(workingDir)) {
       workingDir = path.join('/', workingDir);
     }
 
-    // Handle images - save to temp files and modify prompt (same as Claude SDK)
+    // Handle images - save to temp files and modify prompt
     const imageResult = await handleImages(command, images, workingDir);
     const finalCommand = imageResult.modifiedCommand;
     tempImagePaths = imageResult.tempImagePaths;
@@ -199,26 +213,19 @@ async function spawnCodeBuddy(command, options = {}, ws) {
     // Build CodeBuddy CLI command
     const args = [];
     
-    // Build flags allowing both resume and prompt together (reply in existing session)
-    // ONLY add --resume if sessionId exists and is NOT a temp ID
+    // Build flags allowing both resume and prompt together
     if (sessionId && !sessionId.startsWith('temp-')) {
       args.push('--resume=' + sessionId);
       console.log('🔄 Resuming existing session:', sessionId);
     } else if (sessionId && sessionId.startsWith('temp-')) {
       console.log('⚠️  Ignoring temp session ID, starting new session');
-      capturedSessionId = null; // Reset to allow new session
+      capturedSessionId = null;
     }
 
-    // Use simple -p mode with modified command (containing image paths)
+    // Use simple -p mode with modified command
     if (finalCommand && finalCommand.trim()) {
-      // Sanitize command to prevent shell injection and newline issues
       const sanitizedCommand = finalCommand.replace(/\n/g, ' ').replace(/\r/g, '');
-      // Note: -p is shorthand for --print, so we use it with the prompt
-      // The prompt follows -p directly as its argument
       args.push('-p', sanitizedCommand);
-
-      // Request streaming JSON output
-      // Note: -p already enables print mode, so we just need --output-format
       args.push('--output-format', 'stream-json');
       
       // Increase max turns to allow longer conversations with many tool calls
@@ -298,11 +305,15 @@ async function spawnCodeBuddy(command, options = {}, ws) {
     codebuddyProcess.stdin.end();
     
     // Store process reference for potential abort
-    // Use timestamp as key for new sessions (will be updated when we capture real session ID)
     const processKey = (capturedSessionId && !capturedSessionId.startsWith('temp-')) 
       ? capturedSessionId 
       : `process-${Date.now()}`;
     activeCodeBuddyProcesses.set(processKey, codebuddyProcess);
+    
+    // 设置 abort 函数
+    setAbortFn(tempTaskId, () => {
+      codebuddyProcess.kill('SIGTERM');
+    });
     
     
     // Handle stdout (streaming JSON responses)
@@ -314,9 +325,6 @@ async function spawnCodeBuddy(command, options = {}, ws) {
         try {
           const response = JSON.parse(line);
           
-          // Debug log all message types
-          // console.log('📨 CodeBuddy message:', response.type, response.subtype || '');
-          
           // Handle different message types
           switch (response.type) {
             case 'system':
@@ -325,11 +333,10 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                 if (response.session_id) {
                   const newSessionId = response.session_id;
                   
-                  // Issue 3 fix: Detect session resume failure
-                  // If we requested a specific session but got a different one, resume failed
+                  // Detect session resume failure
                   if (sessionId && !sessionId.startsWith('temp-') && sessionId !== newSessionId) {
                     console.warn('⚠️ Session resume failed! Requested:', sessionId, 'Got:', newSessionId);
-                    ws.send(JSON.stringify({
+                    safeSend(JSON.stringify({
                       type: 'session-resume-failed',
                       requestedSessionId: sessionId,
                       newSessionId: newSessionId,
@@ -347,20 +354,17 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                       activeCodeBuddyProcesses.set(capturedSessionId, codebuddyProcess);
                     }
                     
-                    // Set session ID on writer (for API endpoint compatibility)
-                    if (ws.setSessionId && typeof ws.setSessionId === 'function') {
-                      ws.setSessionId(capturedSessionId);
-                    }
+                    // Update task ID in background manager
+                    updateTaskId(tempTaskId, capturedSessionId);
 
                     // Send session-created event only once for new sessions
                     if (!sessionId && !sessionCreatedSent) {
                       sessionCreatedSent = true;
                       
-                      // Save session to database immediately so frontend can refresh
+                      // Save session to database
                       try {
                         const project = getProjectByPath(projectPath);
                         if (project) {
-                          // provider 字段存储 provider 类型，不是 AI 模型名称
                           createSession(project.id, capturedSessionId, 'codebuddy', null, null);
                           console.log('✅ [CodeBuddy] Session saved to database:', capturedSessionId);
                         }
@@ -368,7 +372,7 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                         console.error('❌ [CodeBuddy] Failed to save session to database:', dbError);
                       }
                       
-                      ws.send(JSON.stringify({
+                      safeSend(JSON.stringify({
                         type: 'session-created',
                         sessionId: capturedSessionId,
                         model: response.model,
@@ -379,7 +383,7 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                 }
                 
                 // Send system info to frontend
-                ws.send(JSON.stringify({
+                safeSend(JSON.stringify({
                   type: 'codebuddy-system',
                   data: response
                 }));
@@ -388,16 +392,11 @@ async function spawnCodeBuddy(command, options = {}, ws) {
               
             case 'user':
               // User messages contain tool execution results
-              // Forward them to frontend so users can see tool call results
-              console.log('📥 CodeBuddy user message (tool result):', JSON.stringify(response.message?.content || response).slice(0, 500));
-              
               if (response.message && response.message.content) {
                 for (const contentBlock of response.message.content) {
                   if (contentBlock.type === 'tool_result') {
-                    // Convert content to string if it's an array or object
                     let resultContent = contentBlock.content;
                     if (Array.isArray(resultContent)) {
-                      // Extract text from content array (common format: [{type: 'text', text: '...'}])
                       resultContent = resultContent
                         .map(item => item.text || JSON.stringify(item))
                         .join('\n');
@@ -405,8 +404,7 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                       resultContent = JSON.stringify(resultContent, null, 2);
                     }
                     
-                    // Forward tool result to frontend
-                    ws.send(JSON.stringify({
+                    safeSend(JSON.stringify({
                       type: 'claude-response',
                       data: {
                         type: 'tool_result',
@@ -415,25 +413,18 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                         is_error: contentBlock.is_error
                       }
                     }));
-                    // console.log('📤 Sending tool result to frontend:', contentBlock.tool_use_id, 'content length:', String(resultContent).length);
                   }
                 }
               }
               break;
               
             case 'assistant':
-              // Handle assistant message - may have different content structures
-              // console.log('📝 Assistant message content:', JSON.stringify(response.message?.content || response).slice(0, 500));
-              
               if (response.message && response.message.content) {
                 for (const contentBlock of response.message.content) {
-                  console.log('📦 Content block type:', contentBlock.type);
-                  
                   if (contentBlock.type === 'text' && contentBlock.text) {
                     messageBuffer += contentBlock.text;
                     
-                    // Send as Claude-compatible format for frontend
-                    const textMessage = {
+                    safeSend(JSON.stringify({
                       type: 'claude-response',
                       data: {
                         type: 'content_block_delta',
@@ -442,12 +433,9 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                           text: contentBlock.text
                         }
                       }
-                    };
-                    // console.log('📤 Sending text delta to frontend:', contentBlock.text.slice(0, 100));
-                    ws.send(JSON.stringify(textMessage));
+                    }));
                   } else if (contentBlock.type === 'tool_use') {
-                    // Forward tool use as claude-response for frontend compatibility
-                    ws.send(JSON.stringify({
+                    safeSend(JSON.stringify({
                       type: 'claude-response',
                       data: {
                         type: 'content_block_start',
@@ -459,16 +447,14 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                         }
                       }
                     }));
-                    // Also send tool_use complete
-                    ws.send(JSON.stringify({
+                    safeSend(JSON.stringify({
                       type: 'claude-response',
                       data: {
                         type: 'content_block_stop'
                       }
                     }));
                   } else if (contentBlock.type === 'tool_result') {
-                    // Forward tool result
-                    ws.send(JSON.stringify({
+                    safeSend(JSON.stringify({
                       type: 'claude-response',
                       data: {
                         type: 'tool_result',
@@ -479,16 +465,11 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                   }
                 }
               }
-              // Note: Not forwarding raw assistant message to avoid cluttering frontend
               break;
               
             case 'result':
-              // Session complete
-              // console.log('📋 CodeBuddy result:', JSON.stringify(response).slice(0, 500));
-              
-              // Send final message if we have buffered content
               if (messageBuffer) {
-                ws.send(JSON.stringify({
+                safeSend(JSON.stringify({
                   type: 'claude-response',
                   data: {
                     type: 'content_block_stop'
@@ -496,75 +477,57 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                 }));
               }
               
-              // Send completion event
-              ws.send(JSON.stringify({
+              safeSend(JSON.stringify({
                 type: 'codebuddy-result',
                 sessionId: capturedSessionId || sessionId,
                 data: response,
                 success: response.subtype === 'success'
               }));
               
-              // Cleanup
               activeCodeBuddyProcesses.delete(capturedSessionId || processKey);
               break;
             
             case 'content_block_start':
             case 'content_block_delta':
             case 'content_block_stop':
-              // Forward content blocks directly as claude-response
-              ws.send(JSON.stringify({
+              safeSend(JSON.stringify({
                 type: 'claude-response',
                 data: response
               }));
               break;
               
             default:
-              // Log unknown message types for debugging but don't forward to frontend
-              // to avoid cluttering the UI with raw JSON
-              console.log('📦 Unknown CodeBuddy message type:', response.type, JSON.stringify(response).slice(0, 200));
+              console.log('📦 Unknown CodeBuddy message type:', response.type);
           }
         } catch (parseError) {
-          // If not JSON, check for OSC title sequence first
-          // OSC sequence format: ESC ] 0 ; title BEL (where ESC=\x1b=\u001b, BEL=\x07=\u0007)
-          // Issue 6 fix: Improved OSC title sequence regex
-          // Supports both BEL (\x07) and ST (\x9c) terminators
+          // Check for OSC title sequence
           const oscTitleMatch = line.match(/\u001b\]0;([^\u0007\u009c]+)[\u0007\u009c]/);
           if (oscTitleMatch && oscTitleMatch[1]) {
-            // Extract title (remove status emoji prefix like ✳ ✓ ✗ ⏳)
             const rawTitle = oscTitleMatch[1];
             const cleanTitle = rawTitle.replace(/^[✳✓✗⏳]\s*/, '').trim();
             if (cleanTitle) {
               const currentSessionId = capturedSessionId || sessionId;
               console.log('📝 OSC title detected:', cleanTitle);
-              ws.send(JSON.stringify({
+              safeSend(JSON.stringify({
                 type: 'session-title-update',
                 sessionId: currentSessionId,
                 title: cleanTitle
               }));
               
-              // Persist title to a separate JSON file (not JSONL - CodeBuddy CLI doesn't recognize 'summary' type)
-              // Store in session-titles.json in the project directory
+              // Persist title
               if (currentSessionId && workingDir) {
                 const projectName = workingDir.replace(/\//g, '-').replace(/^-/, '');
                 const codebuddyProjectDir = path.join(os.homedir(), '.codebuddy', 'projects', projectName);
                 const titlesFile = path.join(codebuddyProjectDir, 'session-titles.json');
                 
-                // Use async IIFE since we're in a non-async callback
                 (async () => {
                   try {
-                    // Read existing titles or create new object
                     let titles = {};
                     try {
                       const content = await fs.readFile(titlesFile, 'utf8');
                       titles = JSON.parse(content);
-                    } catch (e) {
-                      // File doesn't exist or is invalid, start fresh
-                    }
-                    
-                    // Update title for this session
+                    } catch (e) {}
                     titles[currentSessionId] = cleanTitle;
-                    
-                    // Write back
                     await fs.writeFile(titlesFile, JSON.stringify(titles, null, 2));
                   } catch (err) {
                     console.warn('⚠️  Failed to persist session title:', err.message);
@@ -572,32 +535,26 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                 })();
               }
             }
-            // Don't send as codebuddy-output if it's just a title update
             if (line.trim() === oscTitleMatch[0]) {
               continue;
             }
           }
-          // In stream-json mode, non-JSON output is typically debug/internal output
-          // that shouldn't be shown to users. Only log it for debugging.
-          console.log('📝 CodeBuddy non-JSON output (ignored):', line.slice(0, 100));
         }
       }
     });
     
-    // Handle stderr with error classification for user-friendly messages
+    // Handle stderr
     codebuddyProcess.stderr.on('data', (data) => {
       const rawError = data.toString();
       console.error('❌ CodeBuddy CLI stderr:', rawError);
       
-      // Classify error for user-friendly display
       const classifiedError = classifyError(rawError);
       
-      ws.send(JSON.stringify({
+      safeSend(JSON.stringify({
         type: 'codebuddy-error',
         error: rawError,
         errorType: classifiedError.type,
         userMessage: classifiedError.userMessage,
-        // Include technical details for debugging
         details: {
           raw: classifiedError.rawMessage,
           classified: classifiedError.type !== 'unknown'
@@ -607,18 +564,16 @@ async function spawnCodeBuddy(command, options = {}, ws) {
     
     // Handle process completion
     codebuddyProcess.on('close', (code) => {
-      // Clean up process reference
       activeCodeBuddyProcesses.delete(capturedSessionId || processKey);
       
-      // NOTE: Do NOT clean up temp images here!
-      // Images need to persist for session resume/refresh scenarios
-      // CodeBuddy may reference these images again when the session is resumed
+      // Mark background task as completed
+      completeTask(capturedSessionId || tempTaskId);
       
-      ws.send(JSON.stringify({
+      safeSend(JSON.stringify({
         type: 'codebuddy-complete',
         sessionId: capturedSessionId || sessionId,
         exitCode: code,
-        isNewSession: isNewSession // Use tracked flag instead of calculating
+        isNewSession: isNewSession
       }));
       
       resolve({ 
@@ -631,12 +586,12 @@ async function spawnCodeBuddy(command, options = {}, ws) {
     codebuddyProcess.on('error', (error) => {
       console.error('❌ CodeBuddy process error:', error);
       
-      // Clean up process reference
       activeCodeBuddyProcesses.delete(capturedSessionId || processKey);
       
-      // NOTE: Keep temp images even on error - session might be resumed
+      // Mark background task as completed (with error)
+      completeTask(capturedSessionId || tempTaskId);
       
-      ws.send(JSON.stringify({
+      safeSend(JSON.stringify({
         type: 'codebuddy-error',
         error: error.message
       }));

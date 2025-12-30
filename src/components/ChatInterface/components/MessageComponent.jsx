@@ -1339,64 +1339,82 @@ const MessageComponent = memo(({
               </div>
             ) : (
               <div className="text-sm text-gray-700 dark:text-gray-300">
-                {/* Thinking accordion for reasoning */}
-                {showThinking && message.reasoning && (
-                  <details className="mb-3">
-                    <summary className="cursor-pointer text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 font-medium">
-                      💭 Thinking...
-                    </summary>
-                    <div className="mt-2 pl-4 border-l-2 border-gray-300 dark:border-gray-600 italic text-gray-600 dark:text-gray-400 text-sm">
-                      <div className="whitespace-pre-wrap">
-                        {message.reasoning}
+                {/* Handle thinking/reasoning messages */}
+                {message.isThinking ? (
+                  showThinking ? (
+                    <details className="mb-3" open>
+                      <summary className="cursor-pointer text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 font-medium">
+                        💭 Thinking...
+                      </summary>
+                      <div className="mt-2 pl-4 border-l-2 border-gray-300 dark:border-gray-600 italic text-gray-600 dark:text-gray-400 text-sm">
+                        <div className="whitespace-pre-wrap">
+                          {message.content}
+                        </div>
                       </div>
-                    </div>
-                  </details>
-                )}
-                
-                {(() => {
-                  const content = formatUsageLimitText(String(message.content || ''));
-
-                  // Detect if content is pure JSON (starts with { or [)
-                  const trimmedContent = content.trim();
-                  if ((trimmedContent.startsWith('{') || trimmedContent.startsWith('[')) &&
-                      (trimmedContent.endsWith('}') || trimmedContent.endsWith(']'))) {
-                    try {
-                      const parsed = JSON.parse(trimmedContent);
-                      const formatted = JSON.stringify(parsed, null, 2);
-
-                      return (
-                        <div className="my-2">
-                          <div className="flex items-center gap-2 mb-2 text-sm text-gray-600 dark:text-gray-400">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                            </svg>
-                            <span className="font-medium">JSON Response</span>
-                          </div>
-                          <div className="bg-gray-800 dark:bg-gray-900 border border-gray-600/30 dark:border-gray-700 rounded-lg overflow-hidden">
-                            <pre className="p-4 overflow-x-auto">
-                              <code className="text-gray-100 dark:text-gray-200 text-sm font-mono block whitespace-pre">
-                                {formatted}
-                              </code>
-                            </pre>
+                    </details>
+                  ) : null
+                ) : (
+                  <>
+                    {/* Thinking accordion for reasoning */}
+                    {showThinking && message.reasoning && (
+                      <details className="mb-3">
+                        <summary className="cursor-pointer text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 font-medium">
+                          💭 Thinking...
+                        </summary>
+                        <div className="mt-2 pl-4 border-l-2 border-gray-300 dark:border-gray-600 italic text-gray-600 dark:text-gray-400 text-sm">
+                          <div className="whitespace-pre-wrap">
+                            {message.reasoning}
                           </div>
                         </div>
-                      );
-                    } catch (e) {
-                      // Not valid JSON, fall through to normal rendering
-                    }
-                  }
+                      </details>
+                    )}
+                    
+                    {(() => {
+                      const content = formatUsageLimitText(String(message.content || ''));
 
-                  // Normal rendering for non-JSON content
-                  return message.type === 'assistant' ? (
-                    <Markdown className="prose prose-sm max-w-none dark:prose-invert prose-gray">
-                      {content}
-                    </Markdown>
-                  ) : (
-                    <div className="whitespace-pre-wrap">
-                      {content}
-                    </div>
-                  );
-                })()}
+                      // Detect if content is pure JSON (starts with { or [)
+                      const trimmedContent = content.trim();
+                      if ((trimmedContent.startsWith('{') || trimmedContent.startsWith('[')) &&
+                          (trimmedContent.endsWith('}') || trimmedContent.endsWith(']'))) {
+                        try {
+                          const parsed = JSON.parse(trimmedContent);
+                          const formatted = JSON.stringify(parsed, null, 2);
+
+                          return (
+                            <div className="my-2">
+                              <div className="flex items-center gap-2 mb-2 text-sm text-gray-600 dark:text-gray-400">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                </svg>
+                                <span className="font-medium">JSON Response</span>
+                              </div>
+                              <div className="bg-gray-800 dark:bg-gray-900 border border-gray-600/30 dark:border-gray-700 rounded-lg overflow-hidden">
+                                <pre className="p-4 overflow-x-auto">
+                                  <code className="text-gray-100 dark:text-gray-200 text-sm font-mono block whitespace-pre">
+                                    {formatted}
+                                  </code>
+                                </pre>
+                              </div>
+                            </div>
+                          );
+                        } catch (e) {
+                          // Not valid JSON, fall through to normal rendering
+                        }
+                      }
+
+                      // Normal rendering for non-JSON content
+                      return message.type === 'assistant' ? (
+                        <Markdown className="prose prose-sm max-w-none dark:prose-invert prose-gray">
+                          {content}
+                        </Markdown>
+                      ) : (
+                        <div className="whitespace-pre-wrap">
+                          {content}
+                        </div>
+                      );
+                    })()}
+                  </>
+                )}
               </div>
             )}
             

@@ -156,6 +156,18 @@ export const convertSessionMessages = (rawMessages) => {
               content: text,
               timestamp: msg.timestamp || new Date().toISOString()
             });
+          } else if (part.type === 'reasoning_text' || part.type === 'thinking') {
+            // Handle reasoning/thinking content
+            let text = part.text;
+            if (typeof text === 'string') {
+              text = unescapeWithMathProtection(text);
+            }
+            converted.push({
+              type: 'assistant',
+              content: text,
+              timestamp: msg.timestamp || new Date().toISOString(),
+              isThinking: true
+            });
           } else if (part.type === 'tool_use') {
             // Get the corresponding tool result
             const toolResult = toolResults.get(part.id);

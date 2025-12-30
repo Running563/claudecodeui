@@ -1,10 +1,25 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 export function useWebSocket() {
   const [ws, setWs] = useState(null);
   const [messages, setMessages] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
   const reconnectTimeoutRef = useRef(null);
+
+  // Function to get tasks for a specific project (check if any task is running)
+  const getProjectTasks = useCallback((projectPath) => {
+    if (ws && isConnected) {
+      ws.send(JSON.stringify({
+        type: 'get-project-tasks',
+        projectPath
+      }));
+    }
+  }, [ws, isConnected]);
+
+  // Clear messages queue (call when switching sessions)
+  const clearMessages = useCallback(() => {
+    setMessages([]);
+  }, []);
 
   useEffect(() => {
     connect();
@@ -17,7 +32,7 @@ export function useWebSocket() {
         ws.close();
       }
     };
-  }, []); // Keep dependency array but add proper cleanup
+  }, []);
 
   const connect = async () => {
     try {
@@ -27,11 +42,9 @@ export function useWebSocket() {
       let wsUrl;
 
       if (isPlatform) {
-        // Platform mode: Use same domain as the page (goes through proxy)
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         wsUrl = `${protocol}//${window.location.host}/ws`;
       } else {
-        // OSS mode: Connect to same host:port that served the page
         const token = localStorage.getItem('auth-token');
         if (!token) {
           console.warn('No authentication token found for WebSocket connection');
@@ -45,6 +58,7 @@ export function useWebSocket() {
       const websocket = new WebSocket(wsUrl);
 
       websocket.onopen = () => {
+        console.log('[WS] WebSocket connected');
         setIsConnected(true);
         setWs(websocket);
       };
@@ -59,6 +73,7 @@ export function useWebSocket() {
       };
 
       websocket.onclose = () => {
+        console.log('[WS] WebSocket disconnected');
         setIsConnected(false);
         setWs(null);
         
@@ -89,6 +104,8 @@ export function useWebSocket() {
     ws,
     sendMessage,
     messages,
-    isConnected
+    isConnected,
+    getProjectTasks,
+    clearMessages
   };
 }

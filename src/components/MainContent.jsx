@@ -59,7 +59,9 @@ function MainContent({
   externalMessageUpdate,  // Trigger for external CLI updates to current session
   onToggleQuickSettings,  // Toggle quick settings panel
   onSelectTerminal,       // Select a terminal from the list
-  onCreateTerminal        // Create a new terminal
+  onCreateTerminal,       // Create a new terminal
+  // Background task support
+  getProjectTasks         // Get tasks for a specific project
 }) {
   const [editingFile, setEditingFile] = useState(null);
   const [editorWidth, setEditorWidth] = useState(600);
@@ -677,6 +679,7 @@ function MainContent({
               sendByCtrlEnter={sendByCtrlEnter}
               externalMessageUpdate={externalMessageUpdate}
               onToggleQuickSettings={onToggleQuickSettings}
+              getProjectTasks={getProjectTasks}
             />
           </ErrorBoundary>
         </div>

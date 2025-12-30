@@ -10,6 +10,7 @@
  * - Session management with abort capability
  * - Options mapping between CLI and SDK formats
  * - WebSocket message streaming
+ * - Background task support (tasks continue even when client disconnects)
  */
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -17,6 +18,13 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
 import { getProjectByPath, createSession } from './db.js';
+import {
+  registerTask,
+  updateTaskId,
+  setAbortFn,
+  completeTask,
+  isTaskRunning
+} from './background-task-manager.js';
 
 // Session tracking: Map of session IDs to active query instances
 const activeSessions = new Map();
@@ -390,6 +398,9 @@ async function loadMcpConfig(cwd) {
 
 /**
  * Executes a Claude query using the SDK
+ * Tasks continue running in background even if client disconnects.
+ * Only manual abort stops the task.
+ * 
  * @param {string} command - User prompt/command
  * @param {Object} options - Query options
  * @param {Object} ws - WebSocket connection
@@ -401,6 +412,24 @@ async function queryClaudeSDK(command, options = {}, ws) {
   let sessionCreatedSent = false;
   let tempImagePaths = [];
   let tempDir = null;
+  let queryInstance = null;
+  
+  // Generate a temporary task ID for new sessions
+  const tempTaskId = sessionId || `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  // Register background task (简化版：不缓存消息，只跟踪任务状态)
+  registerTask(tempTaskId, 'claude', projectPath, null);
+
+  // Helper: 安全发送消息（忽略断开的连接）
+  const safeSend = (data) => {
+    try {
+      if (ws && ws.readyState === 1) { // WebSocket.OPEN = 1
+        ws.send(data);
+      }
+    } catch (e) {
+      // 连接已断开，忽略发送错误
+    }
+  };
 
   try {
     // Map CLI options to SDK format
@@ -419,7 +448,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     tempDir = imageResult.tempDir;
 
     // Create SDK query instance
-    const queryInstance = query({
+    queryInstance = query({
       prompt: finalCommand,
       options: sdkOptions
     });
@@ -428,20 +457,30 @@ async function queryClaudeSDK(command, options = {}, ws) {
     if (capturedSessionId) {
       addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir);
     }
+    
+    // 设置 abort 函数
+    setAbortFn(tempTaskId, async () => {
+      if (queryInstance) {
+        await queryInstance.interrupt();
+      }
+    });
 
     // Process streaming messages
     console.log('🔄 Starting async generator loop for session:', capturedSessionId || 'NEW');
     for await (const message of queryInstance) {
+      // Check if task is still running (may have been aborted)
+      if (!isTaskRunning(capturedSessionId || tempTaskId)) {
+        console.log('🛑 Task was aborted, stopping message processing');
+        break;
+      }
+      
       // Capture session ID from first message
       if (message.session_id && !capturedSessionId) {
-
         capturedSessionId = message.session_id;
         addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir);
-
-        // Set session ID on writer
-        if (ws.setSessionId && typeof ws.setSessionId === 'function') {
-          ws.setSessionId(capturedSessionId);
-        }
+        
+        // Update task ID in background manager
+        updateTaskId(tempTaskId, capturedSessionId);
 
         // Send session-created event only once for new sessions
         if (!sessionId && !sessionCreatedSent) {
@@ -451,7 +490,6 @@ async function queryClaudeSDK(command, options = {}, ws) {
           try {
             const project = getProjectByPath(projectPath);
             if (project) {
-              // provider 字段存储 provider 类型，不是 AI 模型名称
               createSession(project.id, capturedSessionId, 'claude', null, null);
               console.log('✅ [Claude SDK] Session saved to database:', capturedSessionId);
             }
@@ -459,20 +497,16 @@ async function queryClaudeSDK(command, options = {}, ws) {
             console.error('❌ [Claude SDK] Failed to save session to database:', dbError);
           }
           
-          ws.send(JSON.stringify({
+          safeSend(JSON.stringify({
             type: 'session-created',
             sessionId: capturedSessionId
           }));
-        } else {
-          console.log('⚠️ Not sending session-created. sessionId:', sessionId, 'sessionCreatedSent:', sessionCreatedSent);
         }
-      } else {
-        console.log('⚠️ No session_id in message or already captured. message.session_id:', message.session_id, 'capturedSessionId:', capturedSessionId);
       }
 
-      // Transform and send message to WebSocket
+      // Transform and send message (ignore if client disconnected)
       const transformedMessage = transformMessage(message);
-      ws.send(JSON.stringify({
+      safeSend(JSON.stringify({
         type: 'claude-response',
         data: transformedMessage
       }));
@@ -482,7 +516,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
         const tokenBudget = extractTokenBudget(message);
         if (tokenBudget) {
           console.log('📊 Token budget from modelUsage:', tokenBudget);
-          ws.send(JSON.stringify({
+          safeSend(JSON.stringify({
             type: 'token-budget',
             data: tokenBudget
           }));
@@ -495,19 +529,17 @@ async function queryClaudeSDK(command, options = {}, ws) {
       removeSession(capturedSessionId);
     }
 
-    // NOTE: Do NOT clean up temp images here!
-    // Images need to persist for session resume/refresh scenarios
-    // Claude may reference these images again when the session is resumed
+    // Mark background task as completed
+    completeTask(capturedSessionId || tempTaskId);
 
     // Send completion event
     console.log('✅ Streaming complete, sending claude-complete event');
-    ws.send(JSON.stringify({
+    safeSend(JSON.stringify({
       type: 'claude-complete',
       sessionId: capturedSessionId,
       exitCode: 0,
       isNewSession: !sessionId && !!command
     }));
-    console.log('📤 claude-complete event sent');
 
   } catch (error) {
     console.error('SDK query error:', error);
@@ -517,10 +549,11 @@ async function queryClaudeSDK(command, options = {}, ws) {
       removeSession(capturedSessionId);
     }
 
-    // NOTE: Keep temp images even on error - session might be resumed
+    // Mark background task as completed (with error)
+    completeTask(capturedSessionId || tempTaskId);
 
-    // Send error to WebSocket
-    ws.send(JSON.stringify({
+    // Send error
+    safeSend(JSON.stringify({
       type: 'claude-error',
       error: error.message
     }));
@@ -537,7 +570,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
 async function abortClaudeSDKSession(sessionId) {
   const session = getSession(sessionId);
 
-  if (!session) {
+  if (!session && !isTaskRunning(sessionId)) {
     console.log(`Session ${sessionId} not found`);
     return false;
   }
@@ -546,15 +579,21 @@ async function abortClaudeSDKSession(sessionId) {
     console.log(`🛑 Aborting SDK session: ${sessionId}`);
 
     // Call interrupt() on the query instance
-    await session.instance.interrupt();
+    if (session && session.instance) {
+      await session.instance.interrupt();
+    }
 
     // Update session status
-    session.status = 'aborted';
-
-    // NOTE: Keep temp images - session might be resumed after abort
+    if (session) {
+      session.status = 'aborted';
+    }
 
     // Clean up session
     removeSession(sessionId);
+    
+    // Also abort in background task manager
+    const { abortTask } = await import('./background-task-manager.js');
+    abortTask(sessionId);
 
     return true;
   } catch (error) {

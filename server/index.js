@@ -64,6 +64,12 @@ import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getAct
 import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
 // Use SDK-style CodeBuddy integration (similar to Cursor CLI)
 import { spawnCodeBuddy, abortCodeBuddySession, isCodeBuddySessionActive, getActiveCodeBuddySessions } from './codebuddy-sdk.js';
+// Background task manager for persistent tasks
+import { 
+    getRunningTasks, 
+    getTasksByProject,
+    isTaskRunning 
+} from './background-task-manager.js';
 import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
 import mcpRoutes from './routes/mcp.js';
@@ -861,6 +867,10 @@ function handleChatConnection(ws) {
     // Add unique ID for debugging
     const wsId = Math.random().toString(36).substring(7);
     ws.id = wsId;
+    
+    // Track current session for this connection (for disconnect handling)
+    let currentSessionId = null;
+    let currentProvider = null;
 
     // Add to connected clients for project updates
     connectedClients.add(ws);
@@ -873,6 +883,10 @@ function handleChatConnection(ws) {
                 console.log('[DEBUG] User message:', data.command || '[Continue/Resume]');
                 console.log('📁 Project:', data.options?.projectPath || 'Unknown');
                 console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
+                
+                // Track current session for disconnect handling
+                currentSessionId = data.options?.sessionId;
+                currentProvider = 'claude';
 
                 // Use Claude Agents SDK
                 await queryClaudeSDK(data.command, data.options, ws);
@@ -881,16 +895,27 @@ function handleChatConnection(ws) {
                 console.log('📁 Project:', data.options?.cwd || 'Unknown');
                 console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
                 console.log('🤖 Model:', data.options?.model || 'default');
+                
+                currentSessionId = data.options?.sessionId;
+                currentProvider = 'cursor';
+                
                 await spawnCursor(data.command, data.options, ws);
             } else if (data.type === 'codebuddy-command') {
                 console.log('[DEBUG] CodeBuddy message:', data.command || '[Continue/Resume]');
                 console.log('📁 Project:', data.options?.cwd || 'Unknown');
                 console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
                 console.log('🤖 Model:', data.options?.model || 'default');
+                
+                currentSessionId = data.options?.sessionId;
+                currentProvider = 'codebuddy';
+                
                 await spawnCodeBuddy(data.command, data.options, ws);
             } else if (data.type === 'cursor-resume') {
                 // Backward compatibility: treat as cursor-command with resume and no prompt
                 console.log('[DEBUG] Cursor resume session (compat):', data.sessionId);
+                currentSessionId = data.sessionId;
+                currentProvider = 'cursor';
+                
                 await spawnCursor('', {
                     sessionId: data.sessionId,
                     resume: true,
@@ -936,8 +961,8 @@ function handleChatConnection(ws) {
                 } else if (provider === 'codebuddy') {
                     isActive = isCodeBuddySessionActive(sessionId);
                 } else {
-                    // Use Claude Agents SDK
-                    isActive = isClaudeSDKSessionActive(sessionId);
+                    // Use Claude Agents SDK - also check background tasks
+                    isActive = isClaudeSDKSessionActive(sessionId) || isTaskRunning(sessionId);
                 }
 
                 ws.send(JSON.stringify({
@@ -957,6 +982,21 @@ function handleChatConnection(ws) {
                     type: 'active-sessions',
                     sessions: activeSessions
                 }));
+            } else if (data.type === 'get-running-tasks') {
+                // Get all running background tasks
+                const runningTasks = getRunningTasks();
+                ws.send(JSON.stringify({
+                    type: 'running-tasks',
+                    tasks: runningTasks
+                }));
+            } else if (data.type === 'get-project-tasks') {
+                // Get tasks for a specific project
+                const projectTasks = getTasksByProject(data.projectPath);
+                ws.send(JSON.stringify({
+                    type: 'project-tasks',
+                    projectPath: data.projectPath,
+                    tasks: projectTasks
+                }));
             }
         } catch (error) {
             console.error('[ERROR] Chat WebSocket error:', error.message);
@@ -971,6 +1011,7 @@ function handleChatConnection(ws) {
         console.log('🔌 Chat client disconnected, ID:', ws.id || 'unknown');
         // Remove from connected clients
         connectedClients.delete(ws);
+        // Note: Tasks continue running in background, no need to mark disconnected
     });
 }
 

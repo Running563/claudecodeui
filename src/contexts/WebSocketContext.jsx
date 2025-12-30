@@ -5,7 +5,9 @@ const WebSocketContext = createContext({
   ws: null,
   sendMessage: () => {},
   messages: [],
-  isConnected: false
+  isConnected: false,
+  getProjectTasks: () => {},
+  clearMessages: () => {}
 });
 
 export const useWebSocketContext = () => {
