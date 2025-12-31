@@ -106,38 +106,122 @@ router.get('/status', async (req, res) => {
       }
     }
 
-    // Get git status
-    const { stdout: statusOutput } = await execAsync('git status --porcelain', { cwd: projectPath });
+    // Get git status - use --untracked-files=all to show all untracked files (not just directories)
+    const { stdout: statusOutput } = await execAsync('git status --porcelain --untracked-files=all', { cwd: projectPath });
 
+    // Staged changes (index)
+    const staged = {
+      modified: [],
+      added: [],
+      deleted: [],
+      renamed: []
+    };
+    
+    // Unstaged changes (working tree)
+    const unstaged = {
+      modified: [],
+      deleted: []
+    };
+    
+    const untracked = [];
+
+    // For backward compatibility
     const modified = [];
     const added = [];
     const deleted = [];
-    const untracked = [];
 
     statusOutput.split('\n').forEach(line => {
       if (!line.trim()) return;
 
-      const status = line.substring(0, 2);
+      const indexStatus = line[0];  // First char: staged status
+      const workStatus = line[1];   // Second char: unstaged status
       const file = line.substring(3);
 
-      if (status === 'M ' || status === ' M' || status === 'MM') {
-        modified.push(file);
-      } else if (status === 'A ' || status === 'AM') {
-        added.push(file);
-      } else if (status === 'D ' || status === ' D') {
-        deleted.push(file);
-      } else if (status === '??') {
+      // Staged changes (first column)
+      if (indexStatus === 'M') {
+        staged.modified.push(file);
+        if (!modified.includes(file)) modified.push(file);
+      } else if (indexStatus === 'A') {
+        staged.added.push(file);
+        if (!added.includes(file)) added.push(file);
+      } else if (indexStatus === 'D') {
+        staged.deleted.push(file);
+        if (!deleted.includes(file)) deleted.push(file);
+      } else if (indexStatus === 'R') {
+        staged.renamed.push(file);
+        if (!added.includes(file)) added.push(file);
+      }
+
+      // Unstaged changes (second column)
+      if (workStatus === 'M') {
+        unstaged.modified.push(file);
+        if (!modified.includes(file)) modified.push(file);
+      } else if (workStatus === 'D') {
+        unstaged.deleted.push(file);
+        if (!deleted.includes(file)) deleted.push(file);
+      }
+
+      // Untracked files
+      if (indexStatus === '?' && workStatus === '?') {
         untracked.push(file);
       }
     });
 
+    // Get line stats for all changed files using git diff --numstat
+    const fileStats = {};
+    
+    try {
+      // Get stats for staged files
+      if (hasCommits) {
+        const { stdout: stagedStats } = await execAsync('git diff --cached --numstat', { cwd: projectPath });
+        stagedStats.split('\n').forEach(line => {
+          if (!line.trim()) return;
+          const [additions, deletions, filename] = line.split('\t');
+          if (filename) {
+            fileStats[filename] = {
+              additions: additions === '-' ? 0 : parseInt(additions, 10) || 0,
+              deletions: deletions === '-' ? 0 : parseInt(deletions, 10) || 0
+            };
+          }
+        });
+      }
+      
+      // Get stats for unstaged files
+      const { stdout: unstagedStats } = await execAsync('git diff --numstat', { cwd: projectPath });
+      unstagedStats.split('\n').forEach(line => {
+        if (!line.trim()) return;
+        const [additions, deletions, filename] = line.split('\t');
+        if (filename) {
+          if (fileStats[filename]) {
+            // Merge with existing stats
+            fileStats[filename].additions += additions === '-' ? 0 : parseInt(additions, 10) || 0;
+            fileStats[filename].deletions += deletions === '-' ? 0 : parseInt(deletions, 10) || 0;
+          } else {
+            fileStats[filename] = {
+              additions: additions === '-' ? 0 : parseInt(additions, 10) || 0,
+              deletions: deletions === '-' ? 0 : parseInt(deletions, 10) || 0
+            };
+          }
+        }
+      });
+    } catch (error) {
+      // Ignore stats fetch error, continue without stats
+      console.error('Error fetching file stats:', error.message);
+    }
+
     res.json({
       branch,
       hasCommits,
+      // New structured format
+      staged,
+      unstaged,
+      untracked,
+      // Backward compatible flat format
       modified,
       added,
       deleted,
-      untracked
+      // Line change stats per file
+      fileStats
     });
   } catch (error) {
     console.error('Git status error:', error);
@@ -317,6 +401,96 @@ router.post('/initial-commit', async (req, res) => {
       });
     }
 
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Stage files (git add)
+router.post('/stage', async (req, res) => {
+  const { project, files } = req.body;
+  
+  if (!project || !files || files.length === 0) {
+    return res.status(400).json({ error: 'Project name and files are required' });
+  }
+
+  try {
+    const projectPath = await getActualProjectPath(project);
+    await validateGitRepository(projectPath);
+    
+    // Stage selected files
+    for (const file of files) {
+      await execAsync(`git add "${file}"`, { cwd: projectPath });
+    }
+    
+    res.json({ success: true, message: `Staged ${files.length} file(s)` });
+  } catch (error) {
+    console.error('Git stage error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Unstage files (git reset HEAD)
+router.post('/unstage', async (req, res) => {
+  const { project, files } = req.body;
+  
+  if (!project || !files || files.length === 0) {
+    return res.status(400).json({ error: 'Project name and files are required' });
+  }
+
+  try {
+    const projectPath = await getActualProjectPath(project);
+    await validateGitRepository(projectPath);
+    
+    // Unstage selected files
+    for (const file of files) {
+      await execAsync(`git reset HEAD "${file}"`, { cwd: projectPath });
+    }
+    
+    res.json({ success: true, message: `Unstaged ${files.length} file(s)` });
+  } catch (error) {
+    console.error('Git unstage error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Stage all files
+router.post('/stage-all', async (req, res) => {
+  const { project } = req.body;
+  
+  if (!project) {
+    return res.status(400).json({ error: 'Project name is required' });
+  }
+
+  try {
+    const projectPath = await getActualProjectPath(project);
+    await validateGitRepository(projectPath);
+    
+    await execAsync('git add -A', { cwd: projectPath });
+    
+    res.json({ success: true, message: 'All files staged' });
+  } catch (error) {
+    console.error('Git stage all error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Unstage all files
+router.post('/unstage-all', async (req, res) => {
+  const { project } = req.body;
+  
+  if (!project) {
+    return res.status(400).json({ error: 'Project name is required' });
+  }
+
+  try {
+    const projectPath = await getActualProjectPath(project);
+    await validateGitRepository(projectPath);
+    
+    await execAsync('git reset HEAD', { cwd: projectPath });
+    
+    res.json({ success: true, message: 'All files unstaged' });
+  } catch (error) {
+    console.error('Git unstage all error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1264,6 +1438,333 @@ router.post('/delete-untracked', async (req, res) => {
     }
   } catch (error) {
     console.error('Git delete untracked error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============ Git Stash APIs ============
+
+// Get stash list
+router.get('/stash/list', async (req, res) => {
+  const { project } = req.query;
+  
+  if (!project) {
+    return res.status(400).json({ error: 'Project name is required' });
+  }
+
+  try {
+    const projectPath = await getActualProjectPath(project);
+    await validateGitRepository(projectPath);
+
+    // Get stash list with details
+    const { stdout } = await execAsync('git stash list --format="%gd|%gs|%ci"', { cwd: projectPath });
+    
+    if (!stdout.trim()) {
+      return res.json({ stashes: [] });
+    }
+
+    const stashes = stdout.trim().split('\n').map(line => {
+      const [ref, message, date] = line.split('|');
+      return {
+        ref: ref.trim(),
+        message: message.trim(),
+        date: date.trim(),
+        index: parseInt(ref.match(/stash@\{(\d+)\}/)?.[1] || '0')
+      };
+    });
+
+    res.json({ stashes });
+  } catch (error) {
+    console.error('Git stash list error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create a new stash
+router.post('/stash/push', async (req, res) => {
+  const { project, message, includeUntracked } = req.body;
+  
+  if (!project) {
+    return res.status(400).json({ error: 'Project name is required' });
+  }
+
+  try {
+    const projectPath = await getActualProjectPath(project);
+    await validateGitRepository(projectPath);
+
+    // Build stash command
+    let cmd = 'git stash push';
+    if (includeUntracked) {
+      cmd += ' --include-untracked';
+    }
+    if (message) {
+      cmd += ` -m "${message.replace(/"/g, '\\"')}"`;
+    }
+
+    const { stdout, stderr } = await execAsync(cmd, { cwd: projectPath });
+    
+    // Check if anything was stashed
+    if (stdout.includes('No local changes to save') || stderr.includes('No local changes to save')) {
+      return res.status(400).json({ error: 'No local changes to stash' });
+    }
+
+    res.json({ 
+      success: true, 
+      message: stdout.trim() || 'Changes stashed successfully'
+    });
+  } catch (error) {
+    console.error('Git stash push error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Apply a stash (keep stash in list)
+router.post('/stash/apply', async (req, res) => {
+  const { project, index } = req.body;
+  
+  if (!project) {
+    return res.status(400).json({ error: 'Project name is required' });
+  }
+
+  try {
+    const projectPath = await getActualProjectPath(project);
+    await validateGitRepository(projectPath);
+
+    const stashRef = index !== undefined ? `stash@{${index}}` : 'stash@{0}';
+    const { stdout } = await execAsync(`git stash apply ${stashRef}`, { cwd: projectPath });
+
+    res.json({ 
+      success: true, 
+      message: stdout.trim() || 'Stash applied successfully'
+    });
+  } catch (error) {
+    console.error('Git stash apply error:', error);
+    
+    let errorMessage = error.message;
+    if (error.message.includes('CONFLICT')) {
+      errorMessage = 'Stash applied with conflicts. Please resolve conflicts manually.';
+    } else if (error.message.includes('No stash entries found')) {
+      errorMessage = 'No stash entries found';
+    }
+    
+    res.status(500).json({ error: errorMessage });
+  }
+});
+
+// Pop a stash (apply and remove from list)
+router.post('/stash/pop', async (req, res) => {
+  const { project, index } = req.body;
+  
+  if (!project) {
+    return res.status(400).json({ error: 'Project name is required' });
+  }
+
+  try {
+    const projectPath = await getActualProjectPath(project);
+    await validateGitRepository(projectPath);
+
+    const stashRef = index !== undefined ? `stash@{${index}}` : 'stash@{0}';
+    const { stdout } = await execAsync(`git stash pop ${stashRef}`, { cwd: projectPath });
+
+    res.json({ 
+      success: true, 
+      message: stdout.trim() || 'Stash popped successfully'
+    });
+  } catch (error) {
+    console.error('Git stash pop error:', error);
+    
+    let errorMessage = error.message;
+    if (error.message.includes('CONFLICT')) {
+      errorMessage = 'Stash popped with conflicts. Please resolve conflicts manually. Stash was not removed.';
+    } else if (error.message.includes('No stash entries found')) {
+      errorMessage = 'No stash entries found';
+    }
+    
+    res.status(500).json({ error: errorMessage });
+  }
+});
+
+// Drop a stash
+router.post('/stash/drop', async (req, res) => {
+  const { project, index } = req.body;
+  
+  if (!project) {
+    return res.status(400).json({ error: 'Project name is required' });
+  }
+
+  try {
+    const projectPath = await getActualProjectPath(project);
+    await validateGitRepository(projectPath);
+
+    const stashRef = index !== undefined ? `stash@{${index}}` : 'stash@{0}';
+    const { stdout } = await execAsync(`git stash drop ${stashRef}`, { cwd: projectPath });
+
+    res.json({ 
+      success: true, 
+      message: stdout.trim() || 'Stash dropped successfully'
+    });
+  } catch (error) {
+    console.error('Git stash drop error:', error);
+    
+    let errorMessage = error.message;
+    if (error.message.includes('No stash entries found')) {
+      errorMessage = 'No stash entries found';
+    }
+    
+    res.status(500).json({ error: errorMessage });
+  }
+});
+
+// Clear all stashes
+router.post('/stash/clear', async (req, res) => {
+  const { project } = req.body;
+  
+  if (!project) {
+    return res.status(400).json({ error: 'Project name is required' });
+  }
+
+  try {
+    const projectPath = await getActualProjectPath(project);
+    await validateGitRepository(projectPath);
+
+    await execAsync('git stash clear', { cwd: projectPath });
+
+    res.json({ 
+      success: true, 
+      message: 'All stashes cleared'
+    });
+  } catch (error) {
+    console.error('Git stash clear error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Show stash diff
+router.get('/stash/show', async (req, res) => {
+  const { project, index } = req.query;
+  
+  if (!project) {
+    return res.status(400).json({ error: 'Project name is required' });
+  }
+
+  try {
+    const projectPath = await getActualProjectPath(project);
+    await validateGitRepository(projectPath);
+
+    const stashRef = index !== undefined ? `stash@{${index}}` : 'stash@{0}';
+    
+    // Get file list with stats using --numstat
+    const { stdout: numstatOutput } = await execAsync(
+      `git stash show ${stashRef} --numstat`,
+      { cwd: projectPath }
+    );
+    
+    // Parse numstat output: additions deletions filename
+    const files = numstatOutput
+      .trim()
+      .split('\n')
+      .filter(line => line.trim())
+      .map(line => {
+        const parts = line.split('\t');
+        if (parts.length >= 3) {
+          const additions = parts[0] === '-' ? 0 : parseInt(parts[0], 10) || 0;
+          const deletions = parts[1] === '-' ? 0 : parseInt(parts[1], 10) || 0;
+          const filename = parts.slice(2).join('\t');
+          return { filename, additions, deletions, status: 'M' };
+        }
+        return null;
+      })
+      .filter(Boolean);
+    
+    // Get more accurate status using --name-status
+    try {
+      const { stdout: nameStatusOutput } = await execAsync(
+        `git stash show ${stashRef} --name-status`,
+        { cwd: projectPath }
+      );
+      
+      const statusMap = {};
+      nameStatusOutput
+        .trim()
+        .split('\n')
+        .filter(line => line.trim())
+        .forEach(line => {
+          const match = line.match(/^([AMDRC])\d*\t(.+)$/);
+          if (match) {
+            statusMap[match[2]] = match[1];
+          }
+        });
+      
+      // Update file statuses
+      files.forEach(file => {
+        if (statusMap[file.filename]) {
+          file.status = statusMap[file.filename];
+        }
+      });
+    } catch (error) {
+      // Ignore status fetch error, keep default statuses
+    }
+
+    res.json({ files });
+  } catch (error) {
+    console.error('Git stash show error:', error);
+    
+    let errorMessage = error.message;
+    if (error.message.includes('No stash entries found')) {
+      errorMessage = 'No stash entries found';
+    }
+    
+    res.status(500).json({ error: errorMessage });
+  }
+});
+
+// Get diff for a specific file in a stash
+router.get('/stash/file-diff', async (req, res) => {
+  const { project, index, file } = req.query;
+  
+  if (!project || !file) {
+    return res.status(400).json({ error: 'Project and file path are required' });
+  }
+
+  try {
+    const projectPath = await getActualProjectPath(project);
+    await validateGitRepository(projectPath);
+
+    const stashRef = index !== undefined ? `stash@{${index}}` : 'stash@{0}';
+    
+    // Get the file content from stash (the modified version)
+    let newContent = '';
+    try {
+      const { stdout } = await execAsync(
+        `git show "${stashRef}:${file}"`,
+        { cwd: projectPath, maxBuffer: 10 * 1024 * 1024 }
+      );
+      newContent = stdout;
+    } catch (error) {
+      // File might be deleted in stash
+      newContent = '';
+    }
+    
+    // Get the file content from stash's parent commit (the original version before stash was created)
+    // stash@{n}^1 is the parent commit of the stash (the HEAD when stash was created)
+    let oldContent = '';
+    try {
+      const { stdout } = await execAsync(
+        `git show "${stashRef}^1:${file}"`,
+        { cwd: projectPath, maxBuffer: 10 * 1024 * 1024 }
+      );
+      oldContent = stdout;
+    } catch (error) {
+      // File might be new in the stash
+      oldContent = '';
+    }
+
+    res.json({ 
+      oldContent,
+      newContent
+    });
+  } catch (error) {
+    console.error('Git stash file diff error:', error);
     res.status(500).json({ error: error.message });
   }
 });
