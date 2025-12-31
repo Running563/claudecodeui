@@ -120,7 +120,7 @@ function CredentialsSettings() {
   };
 
   const deleteGithubCredential = async (credentialId) => {
-    if (!confirm('Are you sure you want to delete this GitHub token?')) return;
+    if (!confirm('确定要删除此 GitHub 令牌吗?')) return;
 
     try {
       await authenticatedFetch(`/api/settings/credentials/${credentialId}`, {
@@ -151,7 +151,7 @@ function CredentialsSettings() {
   };
 
   if (loading) {
-    return <div className="text-muted-foreground">Loading...</div>;
+    return <div className="text-muted-foreground">加载中...</div>;
   }
 
   return (
@@ -159,9 +159,9 @@ function CredentialsSettings() {
       {/* New API Key Alert */}
       {newlyCreatedKey && (
         <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-          <h4 className="font-semibold text-yellow-500 mb-2">⚠️ Save Your API Key</h4>
+          <h4 className="font-semibold text-yellow-500 mb-2">⚠️ 保存您的 API 密钥</h4>
           <p className="text-sm text-muted-foreground mb-3">
-            This is the only time you'll see this key. Store it securely.
+            这是您唯一一次看到此密钥的机会，请妥善保存。
           </p>
           <div className="flex items-center gap-2">
             <code className="flex-1 px-3 py-2 bg-background/50 rounded font-mono text-sm break-all">
@@ -181,7 +181,7 @@ function CredentialsSettings() {
             className="mt-3"
             onClick={() => setNewlyCreatedKey(null)}
           >
-            I've saved it
+            我已保存
           </Button>
         </div>
       )}
@@ -191,20 +191,20 @@ function CredentialsSettings() {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Key className="h-5 w-5" />
-            <h3 className="text-lg font-semibold">API Keys</h3>
+            <h3 className="text-lg font-semibold">API 密钥</h3>
           </div>
           <Button
             size="sm"
             onClick={() => setShowNewKeyForm(!showNewKeyForm)}
           >
             <Plus className="h-4 w-4 mr-1" />
-            New API Key
+            新建密钥
           </Button>
         </div>
 
         <div className="mb-4">
           <p className="text-sm text-muted-foreground mb-2">
-            Generate API keys to access the external API from other applications.
+            生成 API 密钥以便从其他应用程序访问外部 API。
           </p>
           <a
             href="/api-docs.html"
@@ -212,7 +212,7 @@ function CredentialsSettings() {
             rel="noopener noreferrer"
             className="text-sm text-primary hover:underline inline-flex items-center gap-1"
           >
-            API Documentation
+            API 文档
             <ExternalLink className="h-3 w-3" />
           </a>
         </div>
@@ -220,15 +220,15 @@ function CredentialsSettings() {
         {showNewKeyForm && (
           <div className="mb-4 p-4 border rounded-lg bg-card">
             <Input
-              placeholder="API Key Name (e.g., Production Server)"
+              placeholder="API 密钥名称（例如：生产服务器）"
               value={newKeyName}
               onChange={(e) => setNewKeyName(e.target.value)}
               className="mb-2"
             />
             <div className="flex gap-2">
-              <Button onClick={createApiKey}>Create</Button>
+              <Button onClick={createApiKey}>创建</Button>
               <Button variant="outline" onClick={() => setShowNewKeyForm(false)}>
-                Cancel
+                取消
               </Button>
             </div>
           </div>
@@ -236,7 +236,7 @@ function CredentialsSettings() {
 
         <div className="space-y-2">
           {apiKeys.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic">No API keys created yet.</p>
+            <p className="text-sm text-muted-foreground italic">尚未创建任何 API 密钥。</p>
           ) : (
             apiKeys.map((key) => (
               <div
@@ -247,8 +247,8 @@ function CredentialsSettings() {
                   <div className="font-medium">{key.key_name}</div>
                   <code className="text-xs text-muted-foreground">{key.api_key}</code>
                   <div className="text-xs text-muted-foreground mt-1">
-                    Created: {new Date(key.created_at).toLocaleDateString()}
-                    {key.last_used && ` • Last used: ${new Date(key.last_used).toLocaleDateString()}`}
+                    创建于: {new Date(key.created_at).toLocaleDateString()}
+                    {key.last_used && ` • 最后使用: ${new Date(key.last_used).toLocaleDateString()}`}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -257,7 +257,7 @@ function CredentialsSettings() {
                     variant={key.is_active ? 'outline' : 'secondary'}
                     onClick={() => toggleApiKey(key.id, key.is_active)}
                   >
-                    {key.is_active ? 'Active' : 'Inactive'}
+                    {key.is_active ? '已启用' : '已禁用'}
                   </Button>
                   <Button
                     size="sm"
@@ -278,25 +278,25 @@ function CredentialsSettings() {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Github className="h-5 w-5" />
-            <h3 className="text-lg font-semibold">GitHub Credentials</h3>
+            <h3 className="text-lg font-semibold">GitHub 凭据</h3>
           </div>
           <Button
             size="sm"
             onClick={() => setShowNewGithubForm(!showNewGithubForm)}
           >
             <Plus className="h-4 w-4 mr-1" />
-            Add Token
+            添加令牌
           </Button>
         </div>
 
         <p className="text-sm text-muted-foreground mb-4">
-          Add GitHub Personal Access Tokens to clone private repositories. You can also pass tokens directly in API requests without storing them.
+          添加 GitHub 个人访问令牌以克隆私有仓库。您也可以在 API 请求中直接传递令牌而无需存储。
         </p>
 
         {showNewGithubForm && (
           <div className="mb-4 p-4 border rounded-lg bg-card space-y-3">
             <Input
-              placeholder="Token Name (e.g., Personal Repos)"
+              placeholder="令牌名称（例如：个人仓库）"
               value={newGithubName}
               onChange={(e) => setNewGithubName(e.target.value)}
             />
@@ -304,7 +304,7 @@ function CredentialsSettings() {
             <div className="relative">
               <Input
                 type={showToken['new'] ? 'text' : 'password'}
-                placeholder="GitHub Personal Access Token (ghp_...)"
+                placeholder="GitHub 个人访问令牌 (ghp_...)"
                 value={newGithubToken}
                 onChange={(e) => setNewGithubToken(e.target.value)}
                 className="pr-10"
@@ -319,20 +319,20 @@ function CredentialsSettings() {
             </div>
 
             <Input
-              placeholder="Description (optional)"
+              placeholder="描述（可选）"
               value={newGithubDescription}
               onChange={(e) => setNewGithubDescription(e.target.value)}
             />
 
             <div className="flex gap-2">
-              <Button onClick={createGithubCredential}>Add Token</Button>
+              <Button onClick={createGithubCredential}>添加令牌</Button>
               <Button variant="outline" onClick={() => {
                 setShowNewGithubForm(false);
                 setNewGithubName('');
                 setNewGithubToken('');
                 setNewGithubDescription('');
               }}>
-                Cancel
+                取消
               </Button>
             </div>
 
@@ -342,14 +342,14 @@ function CredentialsSettings() {
               rel="noopener noreferrer"
               className="text-xs text-primary hover:underline block"
             >
-              How to create a GitHub Personal Access Token →
+              如何创建 GitHub 个人访问令牌 →
             </a>
           </div>
         )}
 
         <div className="space-y-2">
           {githubCredentials.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic">No GitHub tokens added yet.</p>
+            <p className="text-sm text-muted-foreground italic">尚未添加任何 GitHub 令牌。</p>
           ) : (
             githubCredentials.map((credential) => (
               <div
@@ -362,7 +362,7 @@ function CredentialsSettings() {
                     <div className="text-xs text-muted-foreground">{credential.description}</div>
                   )}
                   <div className="text-xs text-muted-foreground mt-1">
-                    Added: {new Date(credential.created_at).toLocaleDateString()}
+                    添加于: {new Date(credential.created_at).toLocaleDateString()}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -371,7 +371,7 @@ function CredentialsSettings() {
                     variant={credential.is_active ? 'outline' : 'secondary'}
                     onClick={() => toggleGithubCredential(credential.id, credential.is_active)}
                   >
-                    {credential.is_active ? 'Active' : 'Inactive'}
+                    {credential.is_active ? '已启用' : '已禁用'}
                   </Button>
                   <Button
                     size="sm"

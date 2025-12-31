@@ -648,16 +648,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
           <div className="border-b border-border">
             <div className="flex px-4 md:px-6">
               <button
-                onClick={() => setActiveTab('tools')}
-                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'tools'
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                工具
-              </button>
-              <button
                 onClick={() => setActiveTab('appearance')}
                 className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === 'appearance'
@@ -666,6 +656,16 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                 }`}
               >
                 外观
+              </button>
+              <button
+                onClick={() => setActiveTab('tools')}
+                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'tools'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                工具
               </button>
               <button
                 onClick={() => setActiveTab('git')}
@@ -687,7 +687,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
                 }`}
               >
                 <Key className="w-4 h-4 inline mr-2" />
-                API 和令牌
+                API 密钥
               </button>
             </div>
           </div>
