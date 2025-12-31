@@ -62,8 +62,6 @@ const VirtualKeyboard = ({
   onKeyPressWithEnter, 
   isConnected, 
   isQuickTerminal,
-  inputMode,
-  onToggleInput,
   selectMode,
   onToggleSelect
 }) => {
@@ -74,6 +72,7 @@ const VirtualKeyboard = ({
   // All keys in one array - will auto wrap if needed
   const allKeys = isQuickTerminal ? [
     { label: 'ESC', key: '\x1b' },
+    { label: 'Shift+Tab', key: '\x1b[Z' },
     { label: 'Tab', key: '\t' },
     { label: '↑', key: '\x1b[A' },
     { label: '↓', key: '\x1b[B' },
@@ -86,6 +85,7 @@ const VirtualKeyboard = ({
     { label: 'Clear', key: 'clear', withEnter: true },
   ] : [
     { label: 'ESC', key: '\x1b' },
+    { label: 'Shift+Tab', key: '\x1b[Z' },
     { label: 'Tab', key: '\t' },
     { label: '↑', key: '\x1b[A' },
     { label: '↓', key: '\x1b[B' },
@@ -131,23 +131,6 @@ const VirtualKeyboard = ({
         {allKeys.map(renderKey)}
         {/* 分隔线 */}
         <div className="w-px h-6 bg-gray-600 mx-1" />
-        {/* 输入按钮：聚焦/收起键盘 */}
-        <button
-          type="button"
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            onToggleInput();
-          }}
-          className="vk-btn px-2 py-1.5 rounded text-xs font-medium select-none whitespace-nowrap focus:outline-none"
-          style={{ 
-            minWidth: '40px',
-            WebkitTapHighlightColor: 'transparent',
-            backgroundColor: inputMode ? '#2563eb' : '#374151',
-            color: '#fff',
-          }}
-        >
-          {inputMode ? '收起' : '输入'}
-        </button>
         {/* 选择模式切换 */}
         <button
           type="button"
@@ -645,6 +628,45 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     };
   }, [isInitialized]);
 
+  // 监听 visualViewport resize 事件检测系统键盘收起
+  // 这是更可靠的方式来检测移动端键盘状态变化
+  useEffect(() => {
+    if (!isMobile || !isInitialized) return;
+    
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    
+    // 记录初始视口高度
+    const initialHeight = viewport.height;
+    let lastHeight = initialHeight;
+    
+    const handleViewportResize = () => {
+      const currentHeight = viewport.height;
+      
+      // 如果视口高度增加（接近或恢复到初始高度），说明键盘收起了
+      // 使用阈值判断，因为有些情况下高度可能不完全相等
+      const heightIncreased = currentHeight > lastHeight + 50;
+      const nearInitialHeight = currentHeight >= initialHeight * 0.9;
+      
+      if (heightIncreased && nearInitialHeight && inputMode) {
+        // 键盘收起，同步状态
+        setInputMode(false);
+        // 确保终端失焦
+        if (terminal.current) {
+          terminal.current.blur();
+        }
+      }
+      
+      lastHeight = currentHeight;
+    };
+    
+    viewport.addEventListener('resize', handleViewportResize);
+    
+    return () => {
+      viewport.removeEventListener('resize', handleViewportResize);
+    };
+  }, [isMobile, isInitialized, inputMode]);
+
   const sessionDisplayName = useMemo(() => {
     if (!selectedSession) return null;
     return selectedSession.title || '新会话';
@@ -684,16 +706,43 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     }, 200);
   }, []);
 
+  // 断开重连：先断开再连接
+  const reconnectShell = useCallback(() => {
+    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({
+        type: 'disconnect'
+      }));
+      ws.current.close();
+      ws.current = null;
+    }
+
+    if (terminal.current) {
+      terminal.current.clear();
+      terminal.current.write('\x1b[2J\x1b[H');
+    }
+
+    setIsConnected(false);
+    setIsConnecting(false);
+    setUserDisconnected(false);
+
+    // 延迟后重新连接
+    setTimeout(() => {
+      connectWebSocket();
+      setIsConnecting(true);
+    }, 300);
+  }, [connectWebSocket]);
+
   // Expose shell control methods and state via ref
   useImperativeHandle(ref, () => ({
     connect: connectToShell,
     disconnect: disconnectFromShell,
     restart: restartShell,
+    reconnect: reconnectShell,
     isConnected,
     isConnecting,
     isInitialized,
     isRestarting
-  }), [connectToShell, disconnectFromShell, restartShell, isConnected, isConnecting, isInitialized, isRestarting]);
+  }), [connectToShell, disconnectFromShell, restartShell, reconnectShell, isConnected, isConnecting, isInitialized, isRestarting]);
 
   // Notify parent of state changes
   useEffect(() => {
@@ -1035,8 +1084,6 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
             onKeyPressWithEnter={handleVirtualKeyPressWithEnter} 
             isConnected={isConnected} 
             isQuickTerminal={isQuickTerminal}
-            inputMode={inputMode}
-            onToggleInput={toggleInputMode}
             selectMode={selectMode}
             onToggleSelect={toggleSelectMode}
           />
@@ -1243,8 +1290,6 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
           onKeyPressWithEnter={handleVirtualKeyPressWithEnter} 
           isConnected={isConnected} 
           isQuickTerminal={isQuickTerminal}
-          inputMode={inputMode}
-          onToggleInput={toggleInputMode}
           selectMode={selectMode}
           onToggleSelect={toggleSelectMode}
         />

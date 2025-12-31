@@ -25,7 +25,7 @@ import CursorLogo from './CursorLogo';
 import CodeBuddyLogo from './CodeBuddyLogo';
 import Tooltip from './Tooltip';
 import { api } from '../utils/api';
-import { MoreVertical, Unplug, RotateCcw } from 'lucide-react';
+import { MoreVertical, Unplug, RotateCcw, RefreshCw } from 'lucide-react';
 
 function MainContent({
   selectedProject,
@@ -311,17 +311,30 @@ function MainContent({
                                       rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 
                                       py-1 z-50 min-w-[140px]">
                           {shellState.isConnected ? (
-                            <button
-                              onClick={() => {
-                                shellRef.current?.disconnect();
-                                setShellMenuOpen(false);
-                              }}
-                              className="w-full flex items-center space-x-2 px-4 py-2 text-sm
-                                       text-red-500 hover:bg-gray-100 dark:hover:bg-gray-600 touch-manipulation"
-                            >
-                              <Unplug className="w-4 h-4" />
-                              <span>断开连接</span>
-                            </button>
+                            <>
+                              <button
+                                onClick={() => {
+                                  shellRef.current?.disconnect();
+                                  setShellMenuOpen(false);
+                                }}
+                                className="w-full flex items-center space-x-2 px-4 py-2 text-sm
+                                         text-red-500 hover:bg-gray-100 dark:hover:bg-gray-600 touch-manipulation"
+                              >
+                                <Unplug className="w-4 h-4" />
+                                <span>断开连接</span>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  shellRef.current?.reconnect();
+                                  setShellMenuOpen(false);
+                                }}
+                                className="w-full flex items-center space-x-2 px-4 py-2 text-sm
+                                         text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-600 touch-manipulation"
+                              >
+                                <RefreshCw className="w-4 h-4" />
+                                <span>断开重连</span>
+                              </button>
+                            </>
                           ) : (
                             <button
                               onClick={() => {
@@ -507,17 +520,30 @@ function MainContent({
                                     rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 
                                     py-1 z-50 min-w-[140px]">
                         {shellState.isConnected ? (
-                          <button
-                            onClick={() => {
-                              shellRef.current?.disconnect();
-                              setShellMenuOpen(false);
-                            }}
-                            className="w-full flex items-center space-x-2 px-4 py-2 text-sm
-                                     text-red-500 hover:bg-gray-100 dark:hover:bg-gray-600 touch-manipulation"
-                          >
-                            <Unplug className="w-4 h-4" />
-                            <span>断开连接</span>
-                          </button>
+                          <>
+                            <button
+                              onClick={() => {
+                                shellRef.current?.disconnect();
+                                setShellMenuOpen(false);
+                              }}
+                              className="w-full flex items-center space-x-2 px-4 py-2 text-sm
+                                       text-red-500 hover:bg-gray-100 dark:hover:bg-gray-600 touch-manipulation"
+                            >
+                              <Unplug className="w-4 h-4" />
+                              <span>断开连接</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                shellRef.current?.reconnect();
+                                setShellMenuOpen(false);
+                              }}
+                              className="w-full flex items-center space-x-2 px-4 py-2 text-sm
+                                       text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-600 touch-manipulation"
+                            >
+                              <RefreshCw className="w-4 h-4" />
+                              <span>断开重连</span>
+                            </button>
+                          </>
                         ) : (
                           <button
                             onClick={() => {
