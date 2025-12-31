@@ -935,7 +935,22 @@ router.post('/fetch', async (req, res) => {
       console.log('No upstream configured, using origin as fallback');
     }
 
-    const { stdout } = await execAsync(`git fetch ${remoteName}`, { cwd: projectPath });
+    let stdout;
+    try {
+      const result = await execAsync(`git fetch ${remoteName}`, { cwd: projectPath });
+      stdout = result.stdout;
+    } catch (fetchError) {
+      // Check if it's a ref lock error (e.g., after remote force push)
+      if (fetchError.stderr && fetchError.stderr.includes('unable to update local ref')) {
+        console.log('Ref lock error detected, pruning stale refs and retrying...');
+        // Prune stale remote-tracking refs and retry
+        await execAsync(`git remote prune ${remoteName}`, { cwd: projectPath });
+        const result = await execAsync(`git fetch ${remoteName}`, { cwd: projectPath });
+        stdout = result.stdout;
+      } else {
+        throw fetchError;
+      }
+    }
     
     res.json({ success: true, output: stdout || 'Fetch completed successfully', remoteName });
   } catch (error) {
@@ -946,7 +961,7 @@ router.post('/fetch', async (req, res) => {
         ? 'Unable to connect to remote repository. Check your internet connection.'
         : error.message.includes('fatal: \'origin\' does not appear to be a git repository')
         ? 'No remote repository configured. Add a remote with: git remote add origin <url>'
-        : error.message
+        : error.stderr || error.message
     });
   }
 });
