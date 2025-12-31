@@ -176,7 +176,9 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   const fitAddon = useRef(null);
   const serializeAddon = useRef(null);
   const ws = useRef(null);
+  const historyBuffer = useRef(''); // Buffer for history data before rendering
   const [isConnected, setIsConnected] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false); // Track history loading state
   const [isInitialized, setIsInitialized] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
   const [lastSessionId, setLastSessionId] = useState(null);
@@ -302,6 +304,17 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
             if (terminal.current) {
               terminal.current.write(output);
             }
+          } else if (data.type === 'history-batch') {
+            // Buffer history data, don't render yet
+            historyBuffer.current += data.data;
+            setIsLoadingHistory(true);
+          } else if (data.type === 'history-complete') {
+            // History loading complete, render all at once
+            if (terminal.current && historyBuffer.current) {
+              terminal.current.write(historyBuffer.current);
+            }
+            historyBuffer.current = '';
+            setIsLoadingHistory(false);
           } else if (data.type === 'url_open') {
             window.open(data.url, '_blank');
           }
@@ -423,6 +436,21 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
       setInputMode(true);
     }
   }, [inputMode]);
+
+  // ============================================================
+  // 滚动到顶部/底部
+  // ============================================================
+  const scrollToTop = useCallback(() => {
+    if (terminal.current) {
+      terminal.current.scrollToTop();
+    }
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    if (terminal.current) {
+      terminal.current.scrollToBottom();
+    }
+  }, []);
 
   // 监听终端失焦事件，同步 inputMode 状态
   useEffect(() => {
@@ -721,6 +749,16 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     
     return (
       <div className="h-full w-full bg-gray-900 flex flex-col relative">
+        {/* 加载历史记录提示 */}
+        {isLoadingHistory && (
+          <div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-10">
+            <div className="flex items-center space-x-2 bg-gray-800 bg-opacity-90 px-3 py-1.5 rounded-full text-xs text-gray-300">
+              <div className="w-3 h-3 animate-spin rounded-full border border-gray-400 border-t-transparent"></div>
+              <span>加载历史记录...</span>
+            </div>
+          </div>
+        )}
+        
         {/* xterm 全屏显示 - 选择模式下隐藏 */}
         <div 
           ref={scrollContainerRef}
@@ -735,6 +773,44 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
               touchAction: 'pan-y',
             }} 
           />
+          
+          {/* 快速滚动按钮 - 右侧悬浮 */}
+          {isConnected && !isLoadingHistory && (
+            <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex flex-col gap-2 z-10">
+              <button
+                type="button"
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  scrollToTop();
+                }}
+                className="vk-btn w-8 h-8 rounded-full flex items-center justify-center shadow-lg"
+                style={{ 
+                  backgroundColor: 'rgba(55, 65, 81, 0.85)',
+                  WebkitTapHighlightColor: 'transparent',
+                }}
+              >
+                <svg className="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  scrollToBottom();
+                }}
+                className="vk-btn w-8 h-8 rounded-full flex items-center justify-center shadow-lg"
+                style={{ 
+                  backgroundColor: 'rgba(55, 65, 81, 0.85)',
+                  WebkitTapHighlightColor: 'transparent',
+                }}
+              >
+                <svg className="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+            </div>
+          )}
         </div>
         
         {/* 选择模式：HTML 弹层显示 */}
@@ -956,6 +1032,15 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
                   `在 ${selectedProject.displayName} 中启动 Claude CLI`
                 }
               </p>
+            </div>
+          </div>
+        )}
+
+        {isLoadingHistory && (
+          <div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-10">
+            <div className="flex items-center space-x-2 bg-gray-800 bg-opacity-90 px-3 py-1.5 rounded-full text-xs text-gray-300">
+              <div className="w-3 h-3 animate-spin rounded-full border border-gray-400 border-t-transparent"></div>
+              <span>加载历史记录...</span>
             </div>
           </div>
         )}

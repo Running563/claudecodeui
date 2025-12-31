@@ -1066,23 +1066,32 @@ function handleShellConnection(ws) {
                         shellProcess.resize(data.cols, data.rows);
                     }
 
+                    // Send buffered history as a single batch for efficient rendering
+                    if (existingSession.buffer && existingSession.buffer.length > 0) {
+                        console.log(`📜 Sending ${existingSession.buffer.length} buffered messages as batch`);
+                        
+                        // Combine all buffered data into one string
+                        const combinedHistory = existingSession.buffer.join('');
+                        
+                        // Send as history-batch type (front-end will buffer until history-complete)
+                        ws.send(JSON.stringify({
+                            type: 'history-batch',
+                            data: combinedHistory
+                        }));
+                    }
+                    
                     // Only show reconnection message for non-quick terminals
                     if (!isQuickTerminal) {
                         ws.send(JSON.stringify({
-                            type: 'output',
+                            type: 'history-batch',
                             data: `\x1b[36m[Reconnected to existing session]\x1b[0m\r\n`
                         }));
                     }
-
-                    if (existingSession.buffer && existingSession.buffer.length > 0) {
-                        console.log(`📜 Sending ${existingSession.buffer.length} buffered messages`);
-                        existingSession.buffer.forEach(bufferedData => {
-                            ws.send(JSON.stringify({
-                                type: 'output',
-                                data: bufferedData
-                            }));
-                        });
-                    }
+                    
+                    // Signal that history loading is complete - front-end can now render
+                    ws.send(JSON.stringify({
+                        type: 'history-complete'
+                    }));
 
                     existingSession.ws = ws;
 
