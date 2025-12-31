@@ -1075,6 +1075,7 @@ function AppContent() {
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           isInputFocused={isInputFocused}
+          selectedProject={selectedProject}
         />
       )}
       {/* Quick Settings Panel - Only show on chat tab */}

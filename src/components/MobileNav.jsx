@@ -1,7 +1,7 @@
 import React from 'react';
 import { MessageSquare, Folder, Terminal, GitBranch, Globe, CheckSquare, MonitorPlay } from 'lucide-react';
 
-function MobileNav({ activeTab, setActiveTab, isInputFocused, onOpenTerminals }) {
+function MobileNav({ activeTab, setActiveTab, isInputFocused, onOpenTerminals, selectedProject }) {
   const navItems = [
     {
       id: 'chat',
@@ -11,7 +11,8 @@ function MobileNav({ activeTab, setActiveTab, isInputFocused, onOpenTerminals })
     {
       id: 'shell',
       icon: Terminal,
-      onClick: () => setActiveTab('shell')
+      onClick: () => setActiveTab('shell'),
+      requiresProject: true
     },
     {
       id: 'files',
@@ -38,6 +39,11 @@ function MobileNav({ activeTab, setActiveTab, isInputFocused, onOpenTerminals })
     >
       <div className="flex items-center justify-around py-1">
         {navItems.map((item) => {
+          // Hide items that require a project when no project is selected
+          if (item.requiresProject && !selectedProject) {
+            return null;
+          }
+          
           const Icon = item.icon;
           const isActive = activeTab === item.id;
           
