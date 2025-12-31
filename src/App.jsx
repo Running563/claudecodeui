@@ -49,6 +49,10 @@ function AppContent() {
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [selectedSession, setSelectedSession] = useState(null);
+  
+  // Remember last selected project (especially for mobile)
+  const [lastSelectedProjectId, setLastSelectedProjectId] = useLocalStorage('lastSelectedProjectId', null);
+  const hasRestoredProjectRef = React.useRef(false); // Track if we've already restored the project
   const [activeTab, setActiveTab] = useState('chat'); // 'chat' or 'files'
   const [isMobile, setIsMobile] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -463,6 +467,25 @@ function AppContent() {
   // Expose fetchProjects globally for component access
   window.refreshProjects = fetchProjects;
 
+  // Restore last selected project after projects are loaded (especially for mobile)
+  // Only run once when projects first load and no session is being loaded from URL
+  useEffect(() => {
+    // Skip if already restored or if loading a session from URL
+    if (hasRestoredProjectRef.current || sessionId) {
+      return;
+    }
+    
+    // Wait for projects to load
+    if (projects.length > 0 && lastSelectedProjectId) {
+      const lastProject = projects.find(p => p.id === lastSelectedProjectId);
+      if (lastProject) {
+        console.log('[App] Restoring last selected project:', lastSelectedProjectId);
+        setSelectedProject(lastProject);
+        hasRestoredProjectRef.current = true;
+      }
+    }
+  }, [projects, sessionId, lastSelectedProjectId]);
+
   // Expose openSettings function globally for component access
   window.openSettings = useCallback((tab = 'tools') => {
     setSettingsInitialTab(tab);
@@ -479,6 +502,8 @@ function AppContent() {
         let session = project.sessions?.find(s => s.id === sessionId);
         if (session) {
           setSelectedProject(project);
+          // Save last selected project to localStorage (use hook setter for proper JSON format)
+          setLastSelectedProjectId(project?.id || null);
           // Use session.provider if available, otherwise default to 'claude'
           const provider = session.provider || 'claude';
           setSelectedSession({ ...session, provider, __provider: provider });
@@ -492,6 +517,8 @@ function AppContent() {
         const cbSession = project.codebuddySessions?.find(s => s.id === sessionId);
         if (cbSession) {
           setSelectedProject(project);
+          // Save last selected project to localStorage (use hook setter for proper JSON format)
+          setLastSelectedProjectId(project?.id || null);
           const provider = cbSession.provider || 'codebuddy';
           setSelectedSession({ ...cbSession, provider, __provider: provider });
           if (shouldSwitchTab) {
@@ -503,6 +530,8 @@ function AppContent() {
         const cSession = project.cursorSessions?.find(s => s.id === sessionId);
         if (cSession) {
           setSelectedProject(project);
+          // Save last selected project to localStorage (use hook setter for proper JSON format)
+          setLastSelectedProjectId(project?.id || null);
           const provider = cSession.provider || 'cursor';
           setSelectedSession({ ...cSession, provider, __provider: provider });
           if (shouldSwitchTab) {
@@ -521,6 +550,8 @@ function AppContent() {
   const handleProjectSelect = (project) => {
     setSelectedProject(project);
     setSelectedSession(null);
+    // Save last selected project to localStorage (use hook setter for proper JSON format)
+    setLastSelectedProjectId(project?.id || null);
     navigate('/');
     if (isMobile) {
       setSidebarOpen(false);
@@ -563,6 +594,8 @@ function AppContent() {
   const handleNewSession = (project) => {
     setSelectedProject(project);
     setSelectedSession(null);
+    // Save last selected project to localStorage (use hook setter for proper JSON format)
+    setLastSelectedProjectId(project?.id || null);
     setActiveTab('chat');
     navigate('/');
     if (isMobile) {
@@ -654,6 +687,8 @@ function AppContent() {
     if (selectedProject?.name === projectName) {
       setSelectedProject(null);
       setSelectedSession(null);
+      // Clear last selected project from localStorage (use hook setter)
+      setLastSelectedProjectId(null);
       navigate('/');
     }
     
