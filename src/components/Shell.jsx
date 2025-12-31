@@ -203,11 +203,13 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   const [inputMode, setInputMode] = useState(false);
   const htmlContainerRef = useRef(null);
   
-  // 移动端滚动条覆盖层状态
-  const scrollbarOverlayRef = useRef(null);
-  const [scrollbarDragging, setScrollbarDragging] = useState(false);
-  const scrollbarTouchStartY = useRef(0);
-  const scrollbarStartScrollTop = useRef(0);
+  // 移动端滚动覆盖层状态
+  const scrollTouchStartY = useRef(0);
+  const scrollLastY = useRef(0);
+  const scrollLastTime = useRef(0);
+  const scrollVelocity = useRef(0);
+  const isScrolling = useRef(false);
+  const inertiaAnimationRef = useRef(null);
   
   const isQuickTerminal = selectedSession?.provider === 'quick-terminal' || selectedSession?.__provider === 'quick-terminal';
 
@@ -467,56 +469,108 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   }, []);
 
   // ============================================================
-  // 移动端滚动条覆盖层触摸事件处理
+  // 移动端全屏滚动覆盖层触摸事件处理
+  // 使用 xterm.js 的 scrollLines API 实现滚动，带惯性效果
   // ============================================================
-  const handleScrollbarTouchStart = useCallback((e) => {
+  const handleScrollTouchStart = useCallback((e) => {
     if (!terminal.current) return;
     e.preventDefault();
     e.stopPropagation();
     
+    // 停止之前的惯性动画
+    if (inertiaAnimationRef.current) {
+      cancelAnimationFrame(inertiaAnimationRef.current);
+      inertiaAnimationRef.current = null;
+    }
+    
     const touch = e.touches[0];
-    scrollbarTouchStartY.current = touch.clientY;
-    
-    // 获取当前滚动位置（viewport 的 scrollTop）
-    const viewport = terminalRef.current?.querySelector('.xterm-viewport');
-    scrollbarStartScrollTop.current = viewport?.scrollTop || 0;
-    
-    setScrollbarDragging(true);
+    const now = Date.now();
+    scrollTouchStartY.current = touch.clientY;
+    scrollLastY.current = touch.clientY;
+    scrollLastTime.current = now;
+    scrollVelocity.current = 0;
+    isScrolling.current = true;
   }, []);
 
-  const handleScrollbarTouchMove = useCallback((e) => {
-    if (!scrollbarDragging || !terminal.current) return;
+  const handleScrollTouchMove = useCallback((e) => {
+    if (!isScrolling.current || !terminal.current) return;
     e.preventDefault();
     e.stopPropagation();
     
     const touch = e.touches[0];
-    const deltaY = touch.clientY - scrollbarTouchStartY.current;
+    const currentY = touch.clientY;
+    const now = Date.now();
+    const deltaY = currentY - scrollLastY.current;
+    const deltaTime = now - scrollLastTime.current;
     
-    // 获取 viewport 元素
-    const viewport = terminalRef.current?.querySelector('.xterm-viewport');
-    if (!viewport) return;
+    // 计算速度（像素/毫秒）
+    if (deltaTime > 0) {
+      scrollVelocity.current = deltaY / deltaTime;
+    }
     
-    // 计算滚动条拖动与内容滚动的比例
-    // 滚动条高度约等于容器高度，内容高度 = scrollHeight
-    const containerHeight = viewport.clientHeight;
-    const contentHeight = viewport.scrollHeight;
-    const scrollRatio = contentHeight / containerHeight;
+    // 全屏滑动：向下滑动 = 向上滚动（查看历史），向上滑动 = 向下滚动
+    // 灵敏度：每 6 像素滚动一行
+    const sensitivity = 6;
+    const linesToScroll = Math.round(-deltaY / sensitivity);
     
-    // 根据拖动距离计算新的滚动位置
-    const newScrollTop = scrollbarStartScrollTop.current + (deltaY * scrollRatio);
+    if (linesToScroll !== 0) {
+      terminal.current.scrollLines(linesToScroll);
+    }
     
-    // 限制滚动范围
-    const maxScroll = contentHeight - containerHeight;
-    const clampedScrollTop = Math.max(0, Math.min(maxScroll, newScrollTop));
-    
-    // 设置滚动位置
-    viewport.scrollTop = clampedScrollTop;
-  }, [scrollbarDragging]);
+    // 更新上次位置和时间
+    scrollLastY.current = currentY;
+    scrollLastTime.current = now;
+  }, []);
 
-  const handleScrollbarTouchEnd = useCallback((e) => {
+  const handleScrollTouchEnd = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
-    setScrollbarDragging(false);
+    isScrolling.current = false;
+    
+    // 惯性滚动
+    if (!terminal.current) return;
+    
+    let velocity = scrollVelocity.current; // 像素/毫秒
+    const friction = 0.95; // 摩擦系数
+    const sensitivity = 5;
+    let accumulatedDelta = 0;
+    
+    const animateInertia = () => {
+      if (Math.abs(velocity) < 0.01) {
+        inertiaAnimationRef.current = null;
+        return;
+      }
+      
+      // 每帧滚动的像素
+      const frameDelta = velocity * 16; // 假设 16ms 一帧
+      accumulatedDelta += frameDelta;
+      
+      // 累积足够的像素后滚动一行
+      const linesToScroll = Math.round(-accumulatedDelta / sensitivity);
+      if (linesToScroll !== 0) {
+        terminal.current?.scrollLines(linesToScroll);
+        accumulatedDelta -= linesToScroll * -sensitivity;
+      }
+      
+      // 应用摩擦力
+      velocity *= friction;
+      
+      inertiaAnimationRef.current = requestAnimationFrame(animateInertia);
+    };
+    
+    // 只有速度足够大时才启动惯性
+    if (Math.abs(velocity) > 0.1) {
+      inertiaAnimationRef.current = requestAnimationFrame(animateInertia);
+    }
+  }, []);
+
+  // 清理惯性动画
+  useEffect(() => {
+    return () => {
+      if (inertiaAnimationRef.current) {
+        cancelAnimationFrame(inertiaAnimationRef.current);
+      }
+    };
   }, []);
 
   // 监听终端失焦事件，同步 inputMode 状态
@@ -837,30 +891,28 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
             className="focus:outline-none absolute inset-0"
             style={{ 
               outline: 'none',
-              touchAction: 'pan-y',
+              touchAction: 'none', // 禁用默认触摸行为，由覆盖层处理
             }} 
           />
           
-          {/* 移动端滚动条触摸覆盖层 - 覆盖在 canvas 滚动条位置上 */}
-          {isMobile && isConnected && (
+          {/* 移动端全屏透明滚动层 - 覆盖整个终端区域 */}
+          {isMobile && isConnected && !inputMode && (
             <div
-              ref={scrollbarOverlayRef}
-              className="absolute top-0 right-0 bottom-0 z-20"
+              className="absolute inset-0 z-20"
               style={{
-                width: '20px', // 比 canvas 滚动条宽，更容易触摸
                 touchAction: 'none',
-                backgroundColor: scrollbarDragging ? 'rgba(100, 116, 139, 0.3)' : 'transparent',
+                backgroundColor: 'transparent',
               }}
-              onTouchStart={handleScrollbarTouchStart}
-              onTouchMove={handleScrollbarTouchMove}
-              onTouchEnd={handleScrollbarTouchEnd}
-              onTouchCancel={handleScrollbarTouchEnd}
+              onTouchStart={handleScrollTouchStart}
+              onTouchMove={handleScrollTouchMove}
+              onTouchEnd={handleScrollTouchEnd}
+              onTouchCancel={handleScrollTouchEnd}
             />
           )}
           
           {/* 快速滚动按钮 - 右侧悬浮 */}
           {isConnected && !isLoadingHistory && (
-            <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex flex-col gap-2 z-10">
+            <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex flex-col gap-2 z-30">
               <button
                 type="button"
                 onTouchEnd={(e) => {
