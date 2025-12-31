@@ -203,6 +203,12 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   const [inputMode, setInputMode] = useState(false);
   const htmlContainerRef = useRef(null);
   
+  // 移动端滚动条覆盖层状态
+  const scrollbarOverlayRef = useRef(null);
+  const [scrollbarDragging, setScrollbarDragging] = useState(false);
+  const scrollbarTouchStartY = useRef(0);
+  const scrollbarStartScrollTop = useRef(0);
+  
   const isQuickTerminal = selectedSession?.provider === 'quick-terminal' || selectedSession?.__provider === 'quick-terminal';
 
   const selectedProjectRef = useRef(selectedProject);
@@ -458,6 +464,59 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     if (terminal.current) {
       terminal.current.scrollToBottom();
     }
+  }, []);
+
+  // ============================================================
+  // 移动端滚动条覆盖层触摸事件处理
+  // ============================================================
+  const handleScrollbarTouchStart = useCallback((e) => {
+    if (!terminal.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const touch = e.touches[0];
+    scrollbarTouchStartY.current = touch.clientY;
+    
+    // 获取当前滚动位置（viewport 的 scrollTop）
+    const viewport = terminalRef.current?.querySelector('.xterm-viewport');
+    scrollbarStartScrollTop.current = viewport?.scrollTop || 0;
+    
+    setScrollbarDragging(true);
+  }, []);
+
+  const handleScrollbarTouchMove = useCallback((e) => {
+    if (!scrollbarDragging || !terminal.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const touch = e.touches[0];
+    const deltaY = touch.clientY - scrollbarTouchStartY.current;
+    
+    // 获取 viewport 元素
+    const viewport = terminalRef.current?.querySelector('.xterm-viewport');
+    if (!viewport) return;
+    
+    // 计算滚动条拖动与内容滚动的比例
+    // 滚动条高度约等于容器高度，内容高度 = scrollHeight
+    const containerHeight = viewport.clientHeight;
+    const contentHeight = viewport.scrollHeight;
+    const scrollRatio = contentHeight / containerHeight;
+    
+    // 根据拖动距离计算新的滚动位置
+    const newScrollTop = scrollbarStartScrollTop.current + (deltaY * scrollRatio);
+    
+    // 限制滚动范围
+    const maxScroll = contentHeight - containerHeight;
+    const clampedScrollTop = Math.max(0, Math.min(maxScroll, newScrollTop));
+    
+    // 设置滚动位置
+    viewport.scrollTop = clampedScrollTop;
+  }, [scrollbarDragging]);
+
+  const handleScrollbarTouchEnd = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setScrollbarDragging(false);
   }, []);
 
   // 监听终端失焦事件，同步 inputMode 状态
@@ -781,6 +840,23 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
               touchAction: 'pan-y',
             }} 
           />
+          
+          {/* 移动端滚动条触摸覆盖层 - 覆盖在 canvas 滚动条位置上 */}
+          {isMobile && isConnected && (
+            <div
+              ref={scrollbarOverlayRef}
+              className="absolute top-0 right-0 bottom-0 z-20"
+              style={{
+                width: '20px', // 比 canvas 滚动条宽，更容易触摸
+                touchAction: 'none',
+                backgroundColor: scrollbarDragging ? 'rgba(100, 116, 139, 0.3)' : 'transparent',
+              }}
+              onTouchStart={handleScrollbarTouchStart}
+              onTouchMove={handleScrollbarTouchMove}
+              onTouchEnd={handleScrollbarTouchEnd}
+              onTouchCancel={handleScrollbarTouchEnd}
+            />
+          )}
           
           {/* 快速滚动按钮 - 右侧悬浮 */}
           {isConnected && !isLoadingHistory && (
