@@ -4,8 +4,9 @@ import { ScrollArea } from './ui/scroll-area';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
+import { ConfirmDialog } from './ui/confirm-dialog';
 
-import { FolderOpen, Folder, Plus, MessageSquare, Clock, ChevronDown, ChevronRight, Edit3, Check, X, Trash2, Settings, FolderPlus, RefreshCw, Sparkles, Edit2, Star, Search } from 'lucide-react';
+import { FolderOpen, Folder, Plus, MessageSquare, Clock, ChevronDown, ChevronRight, Edit3, Check, X, Trash2, Settings, FolderPlus, RefreshCw, Sparkles, Edit2, Star, Search, MoreHorizontal } from 'lucide-react';
 import { cn } from '../lib/utils';
 import ClaudeLogo from './ClaudeLogo';
 import CodeBuddyLogo from './CodeBuddyLogo.jsx';
@@ -68,6 +69,15 @@ function Sidebar({
   const [editingSessionName, setEditingSessionName] = useState('');
   const [generatingSummary, setGeneratingSummary] = useState({});
   const [searchFilter, setSearchFilter] = useState('');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(null); // Track which project's menu is open
+  
+  // Confirm dialog state
+  const [confirmDialog, setConfirmDialog] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null
+  });
 
   // Starred projects state - persisted in localStorage
   const [starredProjects, setStarredProjects] = useState(() => {
@@ -292,74 +302,78 @@ function Sidebar({
   };
 
   const deleteSession = async (projectPath, sessionId) => {
-    if (!confirm('确定要删除此会话吗？此操作无法撤消。')) {
-      return;
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: '删除会话',
+      message: '确定要删除此会话吗？此操作无法撤消。',
+      onConfirm: async () => {
+        try {
+          const project = projects.find(p => p.path === projectPath);
+          const projectId = getProjectId(project);
+          console.log('[Sidebar] Deleting session:', { projectPath, projectId, sessionId });
+          const response = await api.deleteSession(projectId, sessionId);
+          console.log('[Sidebar] Delete response:', { ok: response.ok, status: response.status });
 
-    try {
-      const project = projects.find(p => p.path === projectPath);
-      const projectId = getProjectId(project);
-      console.log('[Sidebar] Deleting session:', { projectPath, projectId, sessionId });
-      const response = await api.deleteSession(projectId, sessionId);
-      console.log('[Sidebar] Delete response:', { ok: response.ok, status: response.status });
-
-      if (response.ok) {
-        console.log('[Sidebar] Session deleted successfully, calling callback');
-        
-        // Update local additionalSessions state to remove the deleted session
-        setAdditionalSessions(prev => {
-          const projectSessions = prev[projectPath];
-          if (projectSessions && projectSessions.length > 0) {
-            const filtered = projectSessions.filter(s => s.id !== sessionId);
-            return {
-              ...prev,
-              [projectPath]: filtered
-            };
+          if (response.ok) {
+            console.log('[Sidebar] Session deleted successfully, calling callback');
+            
+            // Update local additionalSessions state to remove the deleted session
+            setAdditionalSessions(prev => {
+              const projectSessions = prev[projectPath];
+              if (projectSessions && projectSessions.length > 0) {
+                const filtered = projectSessions.filter(s => s.id !== sessionId);
+                return {
+                  ...prev,
+                  [projectPath]: filtered
+                };
+              }
+              return prev;
+            });
+            
+            // Call parent callback if provided
+            if (onSessionDelete) {
+              onSessionDelete(sessionId);
+            } else {
+              console.warn('[Sidebar] No onSessionDelete callback provided');
+            }
+          } else {
+            const errorText = await response.text();
+            console.error('[Sidebar] Failed to delete session:', { status: response.status, error: errorText });
           }
-          return prev;
-        });
-        
-        // Call parent callback if provided
-        if (onSessionDelete) {
-          onSessionDelete(sessionId);
-        } else {
-          console.warn('[Sidebar] No onSessionDelete callback provided');
+        } catch (error) {
+          console.error('[Sidebar] Error deleting session:', error);
         }
-      } else {
-        const errorText = await response.text();
-        console.error('[Sidebar] Failed to delete session:', { status: response.status, error: errorText });
-        alert('Failed to delete session. Please try again.');
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }));
       }
-    } catch (error) {
-      console.error('[Sidebar] Error deleting session:', error);
-      alert('Error deleting session. Please try again.');
-    }
+    });
   };
 
   const deleteProject = async (projectPath) => {
-    if (!confirm('确定要删除此空项目吗？此操作无法撤消。')) {
-      return;
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: '删除项目',
+      message: '确定要删除此空项目吗？此操作无法撤消。',
+      onConfirm: async () => {
+        try {
+          const project = projects.find(p => p.path === projectPath);
+          const projectId = getProjectId(project);
+          const response = await api.deleteProject(projectId);
 
-    try {
-      const project = projects.find(p => p.path === projectPath);
-      const projectId = getProjectId(project);
-      const response = await api.deleteProject(projectId);
-
-      if (response.ok) {
-        // Call parent callback if provided
-        if (onProjectDelete) {
-          onProjectDelete(projectPath);
+          if (response.ok) {
+            // Call parent callback if provided
+            if (onProjectDelete) {
+              onProjectDelete(projectPath);
+            }
+          } else {
+            const error = await response.json();
+            console.error('Failed to delete project');
+          }
+        } catch (error) {
+          console.error('Error deleting project:', error);
         }
-      } else {
-        const error = await response.json();
-        console.error('Failed to delete project');
-        alert(error.error || 'Failed to delete project. Please try again.');
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }));
       }
-    } catch (error) {
-      console.error('Error deleting project:', error);
-      alert('Error deleting project. Please try again.');
-    }
+    });
   };
 
   const createNewProject = async () => {
@@ -466,6 +480,18 @@ function Sidebar({
 
   return (
     <>
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText="删除"
+        cancelText="取消"
+        variant="destructive"
+      />
+
       {/* Project Creation Wizard Modal - Rendered via Portal at document root for full-screen on mobile */}
       {showNewProject && ReactDOM.createPortal(
         <ProjectCreationWizard
@@ -698,15 +724,20 @@ function Sidebar({
                     <div className="md:hidden">
                       <div
                         className={cn(
-                          "p-3 mx-3 my-1 rounded-lg bg-card border border-border/50 active:scale-[0.98] transition-all duration-150",
+                          "p-3 mx-3 my-1 rounded-lg bg-card border border-border/50",
                           isSelected && "bg-primary/5 border-primary/20",
                           isStarred && !isSelected && "bg-yellow-50/50 dark:bg-yellow-900/5 border-yellow-200/30 dark:border-yellow-800/30"
                         )}
                         onClick={() => {
+                          // Close any open menu when clicking project
+                          setMobileMenuOpen(null);
                           // On mobile, just toggle the folder - don't select the project
                           toggleProject(project.path);
                         }}
-                        onTouchEnd={handleTouchClick(() => toggleProject(project.path))}
+                        onTouchEnd={handleTouchClick(() => {
+                          setMobileMenuOpen(null);
+                          toggleProject(project.path);
+                        })}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -784,50 +815,83 @@ function Sidebar({
                               </>
                             ) : (
                               <>
-                                {/* Star button */}
-                                <button
-                                  className={cn(
-                                    "w-8 h-8 rounded-lg flex items-center justify-center active:scale-90 transition-all duration-150 border",
-                                    isStarred 
-                                      ? "bg-yellow-500/10 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-800" 
-                                      : "bg-gray-500/10 dark:bg-gray-900/30 border-gray-200 dark:border-gray-800"
-                                  )}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleStarProject(project.path);
-                                  }}
-                                  onTouchEnd={handleTouchClick(() => toggleStarProject(project.path))}
-                                  title={isStarred ? "取消收藏" : "添加到收藏"}
-                                >
-                                  <Star className={cn(
-                                    "w-4 h-4 transition-colors",
-                                    isStarred 
-                                      ? "text-yellow-600 dark:text-yellow-400 fill-current" 
-                                      : "text-gray-600 dark:text-gray-400"
-                                  )} />
-                                </button>
-                                {getAllSessions(project).length === 0 && (
+                                {/* More button with dropdown menu */}
+                                <div className="relative">
                                   <button
-                                    className="w-8 h-8 rounded-lg bg-red-500/10 dark:bg-red-900/30 flex items-center justify-center active:scale-90 border border-red-200 dark:border-red-800"
+                                    className="w-8 h-8 rounded-lg flex items-center justify-center active:scale-90 transition-all duration-150"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      deleteProject(project.path);
+                                      setMobileMenuOpen(mobileMenuOpen === project.path ? null : project.path);
                                     }}
-                                    onTouchEnd={handleTouchClick(() => deleteProject(project.path))}
+                                    onTouchEnd={handleTouchClick(() => {
+                                      setMobileMenuOpen(mobileMenuOpen === project.path ? null : project.path);
+                                    })}
+                                    title="更多操作"
                                   >
-                                    <Trash2 className="w-4 h-4 text-red-600 dark:text-red-400" />
+                                    <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
                                   </button>
-                                )}
-                                <button
-                                  className="w-8 h-8 rounded-lg bg-primary/10 dark:bg-primary/20 flex items-center justify-center active:scale-90 border border-primary/20 dark:border-primary/30"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    startEditing(project);
-                                  }}
-                                  onTouchEnd={handleTouchClick(() => startEditing(project))}
-                                >
-                                  <Edit3 className="w-4 h-4 text-primary" />
-                                </button>
+                                  
+                                  {/* Dropdown menu */}
+                                  {mobileMenuOpen === project.path && (
+                                    <>
+                                      {/* Backdrop to close menu */}
+                                      <div
+                                        className="fixed inset-0 z-40"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setMobileMenuOpen(null);
+                                        }}
+                                      />
+                                      <div className="absolute right-0 top-full mt-1 z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[140px]">
+                                        {/* Star option */}
+                                        <button
+                                          className="w-full px-3 py-2 flex items-center gap-2 text-sm text-foreground active:bg-accent transition-colors"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            toggleStarProject(project.path);
+                                            setMobileMenuOpen(null);
+                                          }}
+                                        >
+                                          <Star className={cn(
+                                            "w-4 h-4",
+                                            isStarred 
+                                              ? "text-yellow-600 dark:text-yellow-400 fill-current" 
+                                              : "text-gray-600 dark:text-gray-400"
+                                          )} />
+                                          <span>{isStarred ? "取消收藏" : "添加收藏"}</span>
+                                        </button>
+                                        
+                                        {/* Edit option */}
+                                        <button
+                                          className="w-full px-3 py-2 flex items-center gap-2 text-sm text-foreground active:bg-accent transition-colors"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            startEditing(project);
+                                            setMobileMenuOpen(null);
+                                          }}
+                                        >
+                                          <Edit3 className="w-4 h-4 text-primary" />
+                                          <span>重命名</span>
+                                        </button>
+                                        
+                                        {/* Delete option (only for empty projects) */}
+                                        {getAllSessions(project).length === 0 && (
+                                          <button
+                                            className="w-full px-3 py-2 flex items-center gap-2 text-sm text-red-600 dark:text-red-400 active:bg-red-50 dark:active:bg-red-900/20 transition-colors"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              deleteProject(project.path);
+                                              setMobileMenuOpen(null);
+                                            }}
+                                          >
+                                            <Trash2 className="w-4 h-4" />
+                                            <span>删除项目</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
                                 <div className="w-6 h-6 rounded-md bg-muted/30 flex items-center justify-center">
                                   {isExpanded ? (
                                     <ChevronDown className="w-3 h-3 text-muted-foreground" />
@@ -992,6 +1056,32 @@ function Sidebar({
                   {/* Sessions List */}
                   {isExpanded && (
                     <div className="ml-3 space-y-1 border-l border-border pl-3">
+                      {/* New Session Button - Mobile (at top) */}
+                      <div key="new-session-mobile" className="md:hidden px-3 pt-1 pb-1">
+                        <button
+                          className="w-full h-8 bg-muted/50 hover:bg-muted text-foreground rounded-md flex items-center justify-center gap-2 font-medium text-xs border border-border/50 border-dashed"
+                          onClick={() => {
+                            handleProjectSelect(project);
+                            onNewSession(project);
+                          }}
+                        >
+                          <Plus className="w-3 h-3 text-muted-foreground" />
+                          新会话
+                        </button>
+                      </div>
+                      
+                      {/* New Session Button - Desktop (at top) */}
+                      <Button
+                        key="new-session-desktop"
+                        variant="ghost"
+                        size="sm"
+                        className="hidden md:flex w-full justify-start gap-2 h-8 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50 border border-dashed border-border/50 transition-colors"
+                        onClick={() => onNewSession(project)}
+                      >
+                        <Plus className="w-3 h-3" />
+                        新会话
+                      </Button>
+
                       {/* Sessions content wrapper */}
                       <div key="sessions-content">
                         {!initialSessionsLoaded.has(project.path) ? (
@@ -1245,31 +1335,6 @@ function Sidebar({
                           )}
                         </Button>
                       )}
-                      
-                      {/* New Session Button */}
-                      <div key="new-session-mobile" className="md:hidden px-3 pb-2">
-                        <button
-                          className="w-full h-8 bg-primary hover:bg-primary/90 text-primary-foreground rounded-md flex items-center justify-center gap-2 font-medium text-xs active:scale-[0.98] transition-all duration-150"
-                          onClick={() => {
-                            handleProjectSelect(project);
-                            onNewSession(project);
-                          }}
-                        >
-                          <Plus className="w-3 h-3" />
-                          新会话
-                        </button>
-                      </div>
-                      
-                      <Button
-                        key="new-session-desktop"
-                        variant="default"
-                        size="sm"
-                        className="hidden md:flex w-full justify-start gap-2 mt-1 h-8 text-xs font-medium bg-primary hover:bg-primary/90 text-primary-foreground transition-colors"
-                        onClick={() => onNewSession(project)}
-                      >
-                        <Plus className="w-3 h-3" />
-                        新会话
-                      </Button>
                     </div>
                   )}
                 </div>

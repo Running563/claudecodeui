@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronLeft, MoreVertical, Trash2, Copy, Eraser, Clock, Infinity, MousePointer2, Hand } from 'lucide-react';
 import Shell from './Shell';
+import { ConfirmDialog } from './ui/confirm-dialog';
 
 function TerminalDetailView({ 
   terminal, 
@@ -15,6 +16,12 @@ function TerminalDetailView({
   const shellRef = useRef(null);
   const terminalIdRef = useRef(terminal?.id);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [confirmDialog, setConfirmDialog] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null
+  });
 
   useEffect(() => {
     const handleResize = () => {
@@ -66,17 +73,21 @@ function TerminalDetailView({
   };
 
   const handleDelete = async () => {
-    if (!confirm('确认删除此终端？如果有进程正在运行，将被终止。')) {
-      return;
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: '删除终端',
+      message: '确认删除此终端？如果有进程正在运行，将被终止。',
+      onConfirm: async () => {
+        // Disconnect shell first
+        if (shellRef.current && shellRef.current.disconnect) {
+          shellRef.current.disconnect();
+        }
 
-    // Disconnect shell first
-    if (shellRef.current && shellRef.current.disconnect) {
-      shellRef.current.disconnect();
-    }
-
-    setMenuOpen(false);
-    await onDelete(terminal.id);
+        setMenuOpen(false);
+        await onDelete(terminal.id);
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+      }
+    });
   };
 
   const handleClone = async () => {
@@ -97,7 +108,18 @@ function TerminalDetailView({
   };
 
   return (
-    <div className="fixed inset-0 bg-white dark:bg-gray-900 z-[100] flex flex-col">
+    <>
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText="删除"
+        cancelText="取消"
+        variant="destructive"
+      />
+      <div className="fixed inset-0 bg-white dark:bg-gray-900 z-[100] flex flex-col">
       {/* Header */}
       <div className="flex-shrink-0 bg-gray-800 border-b border-gray-700 px-4 py-3">
         <div className="flex items-center justify-between">
@@ -217,6 +239,7 @@ function TerminalDetailView({
         />
       </div>
     </div>
+    </>
   );
 }
 

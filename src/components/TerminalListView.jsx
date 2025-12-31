@@ -1,10 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, ChevronRight, MoreVertical, Trash2, Copy, Infinity, Clock } from 'lucide-react';
+import { ConfirmDialog } from './ui/confirm-dialog';
 
 function TerminalListView({ onSelectTerminal, onCreateNew }) {
   const [terminals, setTerminals] = useState([]);
   const [loading, setLoading] = useState(false);
   const [menuOpenId, setMenuOpenId] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null
+  });
 
   useEffect(() => {
     loadTerminals();
@@ -34,25 +41,28 @@ function TerminalListView({ onSelectTerminal, onCreateNew }) {
   const handleDelete = async (terminalId, e) => {
     e.stopPropagation();
     
-    if (!confirm('确认删除此终端？如果有进程正在运行，将被终止。')) {
-      return;
-    }
-
-    try {
-      const token = localStorage.getItem('auth-token');
-      await fetch(`/api/terminals/${terminalId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
+    setConfirmDialog({
+      isOpen: true,
+      title: '删除终端',
+      message: '确认删除此终端？如果有进程正在运行，将被终止。',
+      onConfirm: async () => {
+        try {
+          const token = localStorage.getItem('auth-token');
+          await fetch(`/api/terminals/${terminalId}`, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          
+          setTerminals(terminals.filter(t => t.id !== terminalId));
+          setMenuOpenId(null);
+        } catch (error) {
+          console.error('Delete terminal error:', error);
         }
-      });
-      
-      setTerminals(terminals.filter(t => t.id !== terminalId));
-      setMenuOpenId(null);
-    } catch (error) {
-      console.error('Delete terminal error:', error);
-      alert('删除失败');
-    }
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+      }
+    });
   };
 
   const handleClone = async (terminalId, e) => {
@@ -127,7 +137,18 @@ function TerminalListView({ onSelectTerminal, onCreateNew }) {
   };
 
   return (
-    <div className="h-full flex flex-col bg-background">
+    <>
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText="删除"
+        cancelText="取消"
+        variant="destructive"
+      />
+      <div className="h-full flex flex-col bg-background">
       {/* Header */}
       <div className="flex-shrink-0 border-b border-border bg-card">
         <div className="p-4">
@@ -264,6 +285,7 @@ function TerminalListView({ onSelectTerminal, onCreateNew }) {
         )}
       </div>
     </div>
+    </>
   );
 }
 

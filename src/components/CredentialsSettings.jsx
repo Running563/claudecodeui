@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { ConfirmDialog } from './ui/confirm-dialog';
 import { Key, Plus, Trash2, Eye, EyeOff, Copy, Check, Github, ExternalLink } from 'lucide-react';
 
 import { version } from '../../package.json';
@@ -19,6 +20,12 @@ function CredentialsSettings() {
   const [showToken, setShowToken] = useState({});
   const [copiedKey, setCopiedKey] = useState(null);
   const [newlyCreatedKey, setNewlyCreatedKey] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null
+  });
 
   
 
@@ -68,16 +75,22 @@ function CredentialsSettings() {
   };
 
   const deleteApiKey = async (keyId) => {
-    if (!confirm('确定要删除此 API 密钥吗?')) return;
-
-    try {
-      await authenticatedFetch(`/api/settings/api-keys/${keyId}`, {
-        method: 'DELETE'
-      });
-      fetchData();
-    } catch (error) {
-      console.error('Error deleting API key:', error);
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: '删除 API 密钥',
+      message: '确定要删除此 API 密钥吗？',
+      onConfirm: async () => {
+        try {
+          await authenticatedFetch(`/api/settings/api-keys/${keyId}`, {
+            method: 'DELETE'
+          });
+          fetchData();
+        } catch (error) {
+          console.error('Error deleting API key:', error);
+        }
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+      }
+    });
   };
 
   const toggleApiKey = async (keyId, isActive) => {
@@ -120,16 +133,22 @@ function CredentialsSettings() {
   };
 
   const deleteGithubCredential = async (credentialId) => {
-    if (!confirm('确定要删除此 GitHub 令牌吗?')) return;
-
-    try {
-      await authenticatedFetch(`/api/settings/credentials/${credentialId}`, {
-        method: 'DELETE'
-      });
-      fetchData();
-    } catch (error) {
-      console.error('Error deleting GitHub credential:', error);
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: '删除 GitHub 令牌',
+      message: '确定要删除此 GitHub 令牌吗？',
+      onConfirm: async () => {
+        try {
+          await authenticatedFetch(`/api/settings/credentials/${credentialId}`, {
+            method: 'DELETE'
+          });
+          fetchData();
+        } catch (error) {
+          console.error('Error deleting GitHub credential:', error);
+        }
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+      }
+    });
   };
 
   const toggleGithubCredential = async (credentialId, isActive) => {
@@ -155,7 +174,18 @@ function CredentialsSettings() {
   }
 
   return (
-    <div className="space-y-8">
+    <>
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText="删除"
+        cancelText="取消"
+        variant="destructive"
+      />
+      <div className="space-y-8">
       {/* New API Key Alert */}
       {newlyCreatedKey && (
         <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
@@ -389,6 +419,7 @@ function CredentialsSettings() {
 
       
     </div>
+    </>
   );
 }
 

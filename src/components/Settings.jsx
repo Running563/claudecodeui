@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
+import { ConfirmDialog } from './ui/confirm-dialog';
 import { X, Plus, Settings as SettingsIcon, Shield, AlertTriangle, Moon, Sun, Server, Edit3, Trash2, Globe, Terminal, Zap, FolderOpen, LogIn, Key, GitBranch, Check } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import ClaudeLogo from './ClaudeLogo';
@@ -48,6 +49,14 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [jsonValidationError, setJsonValidationError] = useState('');
   const [toolsProvider, setToolsProvider] = useState('claude'); // 'claude' or 'cursor'
+  
+  // Confirm dialog state
+  const [confirmDialog, setConfirmDialog] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null
+  });
 
   // Code Editor settings
   const [codeEditorTheme, setCodeEditorTheme] = useState(() =>
@@ -553,15 +562,20 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
   };
 
   const handleMcpDelete = async (serverId, scope) => {
-    if (confirm('确定要删除此 MCP 服务器吗？')) {
-      try {
-        await deleteMcpServer(serverId, scope);
-        setSaveStatus('success');
-      } catch (error) {
-        alert(`Error: ${error.message}`);
-        setSaveStatus('error');
+    setConfirmDialog({
+      isOpen: true,
+      title: '删除 MCP 服务器',
+      message: '确定要删除此 MCP 服务器吗？',
+      onConfirm: async () => {
+        try {
+          await deleteMcpServer(serverId, scope);
+          setSaveStatus('success');
+        } catch (error) {
+          setSaveStatus('error');
+        }
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }));
       }
-    }
+    });
   };
 
   const handleMcpTest = async (serverId, scope) => {
@@ -624,7 +638,18 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
   if (!isOpen) return null;
 
   return (
-    <div className="modal-backdrop fixed inset-0 flex items-center justify-center z-[9999] md:p-4 bg-background/95">
+    <>
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText="删除"
+        cancelText="取消"
+        variant="destructive"
+      />
+      <div className="modal-backdrop fixed inset-0 flex items-center justify-center z-[9999] md:p-4 bg-background/95">
       <div className="bg-background border border-border md:rounded-lg shadow-xl w-full md:max-w-4xl h-full md:h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-4 md:p-6 border-b border-border flex-shrink-0">
           <div className="flex items-center gap-3">
@@ -2089,6 +2114,7 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
         onComplete={handleLoginComplete}
       />
     </div>
+    </>
   );
 }
 
