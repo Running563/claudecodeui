@@ -37,6 +37,22 @@ const xtermStyles = `
       -ms-overflow-style: none;
       scrollbar-width: none;
     }
+    /* 移动端 xterm 滚动条样式 - 更宽更明显 */
+    .xterm .xterm-viewport::-webkit-scrollbar {
+      width: 8px;
+    }
+    .xterm .xterm-viewport::-webkit-scrollbar-track {
+      background: rgba(30, 30, 30, 0.5);
+      border-radius: 4px;
+    }
+    .xterm .xterm-viewport::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.8);
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .xterm .xterm-viewport::-webkit-scrollbar-thumb:active {
+      background: rgba(148, 163, 184, 0.9);
+    }
   }
 `;
 
@@ -55,29 +71,26 @@ const VirtualKeyboard = ({
 
   if (!isConnected) return null;
 
-  // Different key layouts for AI session vs quick terminal
-  const keysRow1 = isQuickTerminal ? [
+  // All keys in one array - will auto wrap if needed
+  const allKeys = isQuickTerminal ? [
     { label: 'ESC', key: '\x1b' },
     { label: 'Tab', key: '\t' },
     { label: '↑', key: '\x1b[A' },
     { label: '↓', key: '\x1b[B' },
     { label: '←', key: '\x1b[D' },
     { label: '→', key: '\x1b[C' },
-  ] : [
-    { label: 'ESC', key: '\x1b' },
-    { label: 'Tab', key: '\t' },
-    { label: 'S+Tab', key: '\x1b[Z' },
-    { label: '↑', key: '\x1b[A' },
-    { label: '↓', key: '\x1b[B' },
-  ];
-
-  const keysRow2 = isQuickTerminal ? [
     { label: '⌫', key: '\x7f' },
     { label: 'Enter', key: '\r' },
     { label: 'Ctrl+C', key: '\x03' },
     { label: 'Ctrl+D', key: '\x04' },
     { label: 'Clear', key: 'clear', withEnter: true },
   ] : [
+    { label: 'ESC', key: '\x1b' },
+    { label: 'Tab', key: '\t' },
+    { label: '↑', key: '\x1b[A' },
+    { label: '↓', key: '\x1b[B' },
+    { label: '←', key: '\x1b[D' },
+    { label: '→', key: '\x1b[C' },
     { label: 'Enter', key: '\r' },
     { label: '/clear', key: '/clear', withEnter: true },
     { label: 'Ctrl+C', key: '\x03' },
@@ -99,10 +112,9 @@ const VirtualKeyboard = ({
         }
       }}
       onTouchCancel={() => setPressedKey(null)}
-      className="vk-btn px-2 py-1.5 rounded text-xs font-medium select-none whitespace-nowrap focus:outline-none flex-1"
+      className="vk-btn px-2 py-1.5 rounded text-xs font-medium select-none whitespace-nowrap focus:outline-none"
       style={{ 
-        minWidth: '32px',
-        maxWidth: '56px',
+        minWidth: '36px',
         WebkitTapHighlightColor: 'transparent',
         backgroundColor: pressedKey === k.label ? '#4b5563' : '#374151',
         color: '#fff',
@@ -114,13 +126,9 @@ const VirtualKeyboard = ({
 
   return (
     <div className="flex-shrink-0 bg-gray-800 border-t border-gray-700 px-2 py-1.5">
-      {/* 功能键第一行 */}
-      <div className="flex gap-1 mb-1 justify-center">
-        {keysRow1.map(renderKey)}
-      </div>
-      {/* 功能键第二行 + 控制按钮 */}
-      <div className="flex gap-1 justify-center items-center">
-        {keysRow2.map(renderKey)}
+      {/* 所有按键自动换行 */}
+      <div className="flex flex-wrap gap-1 justify-start items-center">
+        {allKeys.map(renderKey)}
         {/* 分隔线 */}
         <div className="w-px h-6 bg-gray-600 mx-1" />
         {/* 输入按钮：聚焦/收起键盘 */}
