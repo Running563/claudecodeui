@@ -673,7 +673,33 @@ async function getProjects() {
   }
   
   // Convert Map to array
-  const projects = Array.from(projectsMap.values());
+  let projects = Array.from(projectsMap.values());
+  
+  // Merge sessions and codebuddySessions for each project, then sort by lastActivity
+  projects = projects.map(project => {
+    const claudeSessions = (project.sessions || []).map(s => ({ ...s, provider: 'claude' }));
+    const codebuddySessions = (project.codebuddySessions || []).map(s => ({ ...s, provider: 'codebuddy' }));
+    
+    // Merge and sort by lastActivity (newest first)
+    const allSessions = [...claudeSessions, ...codebuddySessions].sort((a, b) => {
+      const dateA = new Date(a.lastActivity || a.updatedAt || a.createdAt || 0);
+      const dateB = new Date(b.lastActivity || b.updatedAt || b.createdAt || 0);
+      return dateB - dateA;
+    });
+    
+    // Take first 5 for initial display
+    const mergedSessions = allSessions.slice(0, 5);
+    const totalSessions = allSessions.length;
+    
+    return {
+      ...project,
+      sessions: mergedSessions,
+      sessionMeta: {
+        hasMore: totalSessions > 5,
+        total: totalSessions
+      }
+    };
+  });
   
   // Add manually configured projects that don't exist as folders yet
   for (const [projectName, projectConfig] of Object.entries(config)) {
@@ -746,7 +772,7 @@ async function getSessions(projectName, limit = 5, offset = 0, projectsBaseDir =
   // Get Claude sessions
   try {
     const claudeResult = await getSessionsFromDir(claudeProjectName, 1000, 0, claudeDir);
-    claudeSessions = (claudeResult.sessions || []).map(s => ({ ...s, __provider: 'claude' }));
+    claudeSessions = (claudeResult.sessions || []).map(s => ({ ...s, provider: 'claude' }));
   } catch (e) {
     // Claude directory doesn't have this project
   }
@@ -754,7 +780,7 @@ async function getSessions(projectName, limit = 5, offset = 0, projectsBaseDir =
   // Get CodeBuddy sessions
   try {
     const codebuddyResult = await getSessionsFromDir(codebuddyProjectName, 1000, 0, codebuddyDir);
-    codebuddySessions = (codebuddyResult.sessions || []).map(s => ({ ...s, __provider: 'codebuddy' }));
+    codebuddySessions = (codebuddyResult.sessions || []).map(s => ({ ...s, provider: 'codebuddy' }));
   } catch (e) {
     // CodeBuddy directory doesn't have this project
   }

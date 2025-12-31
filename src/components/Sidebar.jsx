@@ -70,6 +70,7 @@ function Sidebar({
   const [generatingSummary, setGeneratingSummary] = useState({});
   const [searchFilter, setSearchFilter] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(null); // Track which project's menu is open
+  const [refreshingProject, setRefreshingProject] = useState(null); // Track which project is refreshing
   
   // Confirm dialog state
   const [confirmDialog, setConfirmDialog] = useState({
@@ -461,6 +462,42 @@ function Sidebar({
     }
   };
 
+  // Refresh sessions for a specific project
+  const refreshProjectSessions = async (project) => {
+    if (refreshingProject === project.path) return;
+    
+    setRefreshingProject(project.path);
+    
+    try {
+      const projectId = getProjectId(project);
+      const response = await api.sessions(projectId, 10, 0);
+      
+      if (response.ok) {
+        const result = await response.json();
+        
+        // Store refreshed sessions as additional sessions (replacing any existing)
+        // This will be merged with project.sessions in getAllSessions()
+        // Since we fetched from offset 0, we need to filter out duplicates
+        const existingIds = new Set((project.sessions || []).map(s => s.id));
+        const newSessions = result.sessions.filter(s => !existingIds.has(s.id));
+        
+        setAdditionalSessions(prev => ({
+          ...prev,
+          [project.path]: newSessions
+        }));
+        
+        // Update hasMore metadata
+        if (result.hasMore !== undefined) {
+          project.sessionMeta = { ...project.sessionMeta, hasMore: result.hasMore };
+        }
+      }
+    } catch (error) {
+      console.error('Error refreshing project sessions:', error);
+    } finally {
+      setRefreshingProject(null);
+    }
+  };
+
   // Filter projects based on search input
   const filteredProjects = sortedProjects.filter(project => {
     if (!searchFilter.trim()) return true;
@@ -843,22 +880,21 @@ function Sidebar({
                                         }}
                                       />
                                       <div className="absolute right-0 top-full mt-1 z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[140px]">
-                                        {/* Star option */}
+                                        {/* Refresh sessions option */}
                                         <button
                                           className="w-full px-3 py-2 flex items-center gap-2 text-sm text-foreground active:bg-accent transition-colors"
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            toggleStarProject(project.path);
+                                            refreshProjectSessions(project);
                                             setMobileMenuOpen(null);
                                           }}
+                                          disabled={refreshingProject === project.path}
                                         >
-                                          <Star className={cn(
-                                            "w-4 h-4",
-                                            isStarred 
-                                              ? "text-yellow-600 dark:text-yellow-400 fill-current" 
-                                              : "text-gray-600 dark:text-gray-400"
+                                          <RefreshCw className={cn(
+                                            "w-4 h-4 text-primary",
+                                            refreshingProject === project.path && "animate-spin"
                                           )} />
-                                          <span>{isStarred ? "取消收藏" : "添加收藏"}</span>
+                                          <span>{refreshingProject === project.path ? "刷新中..." : "刷新会话"}</span>
                                         </button>
                                         
                                         {/* Edit option */}

@@ -136,6 +136,98 @@ export function getProjectsWithSessions(sessionLimit = 10) {
   });
 }
 
+// 获取单个项目的会话列表（支持分页）
+export function getSessionsByProjectIdPaginated(projectId, limit = 10, offset = 0) {
+  const db = getDb();
+  
+  const sessions = db.prepare(`
+    SELECT session_id, provider, title, source_file, created_at, updated_at
+    FROM sessions 
+    WHERE project_id = ?
+    ORDER BY updated_at DESC
+    LIMIT ? OFFSET ?
+  `).all(projectId, limit, offset);
+  
+  const { total } = db.prepare(`
+    SELECT COUNT(*) as total FROM sessions WHERE project_id = ?
+  `).get(projectId);
+  
+  return {
+    sessions: sessions.map(s => ({
+      id: s.session_id,
+      provider: s.provider,
+      title: s.title,
+      sourceFile: s.source_file,
+      createdAt: s.created_at,
+      updatedAt: s.updated_at,
+      lastActivity: s.updated_at
+    })),
+    hasMore: offset + limit < total,
+    total,
+    offset,
+    limit
+  };
+}
+
+// 同步单个项目的会话（从文件系统扫描并更新数据库）
+export async function syncProjectSessionsById(projectId) {
+  const project = getProjectById(projectId);
+  if (!project) {
+    throw new Error(`Project not found: ${projectId}`);
+  }
+  
+  const projectPath = project.original_path;
+  // /data/codes/stock-quant -> -data-codes-stock-quant (Claude) / data-codes-stock-quant (CodeBuddy)
+  const claudeProjectName = '-' + projectPath.replace(/^\//, '').replace(/\//g, '-');
+  const codebuddyProjectName = projectPath.replace(/^\//, '').replace(/\//g, '-');
+  
+  const claudeDir = path.join(process.env.HOME, '.claude', 'projects', claudeProjectName);
+  const codebuddyDir = path.join(process.env.HOME, '.codebuddy', 'projects', codebuddyProjectName);
+  
+  // 同步 Claude 会话
+  await syncProjectSessionsFromDir(claudeDir, projectId, 'claude');
+  
+  // 同步 CodeBuddy 会话
+  await syncProjectSessionsFromDir(codebuddyDir, projectId, 'codebuddy');
+}
+
+// 从指定目录同步会话到数据库
+async function syncProjectSessionsFromDir(projectDir, projectId, provider) {
+  try {
+    const files = await fs.readdir(projectDir);
+    const jsonlFiles = files.filter(f => f.endsWith('.jsonl') && !f.startsWith('agent-'));
+    const isCodeBuddy = provider === 'codebuddy';
+    
+    for (const jsonlFile of jsonlFiles) {
+      const sourceFile = path.join(projectDir, jsonlFile);
+      
+      if (isCodeBuddy) {
+        // CodeBuddy: 文件名就是 sessionId
+        const sessionId = path.basename(jsonlFile, '.jsonl');
+        try {
+          const info = await extractSessionInfo(sourceFile);
+          createSession(projectId, sessionId, info.provider, info.title, sourceFile);
+        } catch (e) {
+          // 忽略单个文件错误
+        }
+      } else {
+        // Claude: 需要从文件内容中提取所有 sessionId
+        try {
+          const sessionIds = await extractSessionIdsFromJsonl(sourceFile);
+          for (const sessionId of sessionIds) {
+            const info = await extractSessionInfoForSession(sourceFile, sessionId);
+            createSession(projectId, sessionId, 'claude', info.title, sourceFile);
+          }
+        } catch (e) {
+          // 忽略单个文件错误
+        }
+      }
+    }
+  } catch (e) {
+    // 目录不存在或读取错误，忽略
+  }
+}
+
 // 通过 ID 获取项目
 export function getProjectById(id) {
   const db = getDb();

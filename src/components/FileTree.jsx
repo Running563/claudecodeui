@@ -25,15 +25,18 @@ function FileTree({ selectedProject }) {
     return selectedProject?.path || selectedProject?.originalPath || '';
   }, [selectedProject]);
 
+  // Track project ID to avoid unnecessary refetches
+  const projectId = selectedProject ? getProjectId(selectedProject) : null;
+
   useEffect(() => {
-    if (selectedProject) {
+    if (projectId) {
       // Reset state when project changes
       setExpandedDirs(new Set());
       setIsSearchMode(false);
       setSearchQuery('');
       fetchRootFiles();
     }
-  }, [selectedProject]);
+  }, [projectId]);
 
   // Load view mode preference from localStorage
   useEffect(() => {

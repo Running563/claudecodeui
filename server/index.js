@@ -59,7 +59,7 @@ import mime from 'mime-types';
 import multer from 'multer';
 
 import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
-import { getProjectById, getProjectsWithSessions, deleteSessionBySessionId } from './db.js';
+import { getProjectById, getProjectsWithSessions, getSessionsByProjectIdPaginated, syncProjectSessionsById, deleteSessionBySessionId } from './db.js';
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions } from './claude-sdk.js';
 import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
 // Use SDK-style CodeBuddy integration (similar to Cursor CLI)
@@ -432,7 +432,7 @@ app.use(express.static(path.join(__dirname, '../dist'), {
 
 app.get('/api/projects', authenticateToken, async (req, res) => {
     try {
-        // 直接从数据库查询项目和会话
+        // 从数据库查询项目和会话
         const projects = getProjectsWithSessions(10);
         res.json(projects);
     } catch (error) {
@@ -443,9 +443,14 @@ app.get('/api/projects', authenticateToken, async (req, res) => {
 
 app.get('/api/projects/:projectId/sessions', authenticateToken, async (req, res) => {
     try {
-        const { limit = 5, offset = 0 } = req.query;
-        const { dirName } = resolveProjectInfo(req.params.projectId);
-        const result = await getSessions(dirName, parseInt(limit), parseInt(offset));
+        const { limit = 10, offset = 0 } = req.query;
+        const projectId = parseInt(req.params.projectId, 10);
+        
+        // 先从文件系统同步会话到数据库
+        await syncProjectSessionsById(projectId);
+        
+        // 再从数据库返回
+        const result = getSessionsByProjectIdPaginated(projectId, parseInt(limit), parseInt(offset));
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });

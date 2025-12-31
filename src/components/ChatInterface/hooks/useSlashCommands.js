@@ -23,10 +23,13 @@ export function useSlashCommands({ selectedProject }) {
   const [slashPosition, setSlashPosition] = useState(-1);
   const commandQueryTimerRef = useRef(null);
 
-  // Fetch slash commands on mount and when project changes
+  // Track project id to avoid unnecessary refetches
+  const projectId = selectedProject?.id;
+
+  // Fetch slash commands on mount and when project id changes
   useEffect(() => {
     const fetchCommands = async () => {
-      if (!selectedProject) return;
+      if (!selectedProject?.path) return;
 
       try {
         const response = await authenticatedFetch('/api/commands/list', {
@@ -77,7 +80,7 @@ export function useSlashCommands({ selectedProject }) {
     };
 
     fetchCommands();
-  }, [selectedProject]);
+  }, [projectId]);
 
   // Create Fuse instance for fuzzy search
   const fuse = useMemo(() => {

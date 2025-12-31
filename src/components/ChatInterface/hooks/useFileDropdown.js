@@ -50,13 +50,16 @@ export function useFileDropdown({
   const [selectedFileIndex, setSelectedFileIndex] = useState(-1);
   const [atSymbolPosition, setAtSymbolPosition] = useState(-1);
 
-  // Fetch project files when project changes
+  // Track project ID to avoid unnecessary refetches
+  const projectId = selectedProject ? getProjectId(selectedProject) : null;
+
+  // Fetch project files when project ID changes (not on every selectedProject object change)
   useEffect(() => {
     const fetchProjectFiles = async () => {
-      if (!selectedProject) return;
+      if (!projectId) return;
       
       try {
-        const response = await api.getFiles(getProjectId(selectedProject));
+        const response = await api.getFiles(projectId);
         if (response.ok) {
           const files = await response.json();
           const flatFiles = flattenFileTree(files);
@@ -68,7 +71,7 @@ export function useFileDropdown({
     };
 
     fetchProjectFiles();
-  }, [selectedProject]);
+  }, [projectId]);
 
   // Handle @ symbol detection and file filtering
   useEffect(() => {
