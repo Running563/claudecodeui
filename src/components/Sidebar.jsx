@@ -8,7 +8,6 @@ import { Input } from './ui/input';
 import { FolderOpen, Folder, Plus, MessageSquare, Clock, ChevronDown, ChevronRight, Edit3, Check, X, Trash2, Settings, FolderPlus, RefreshCw, Sparkles, Edit2, Star, Search } from 'lucide-react';
 import { cn } from '../lib/utils';
 import ClaudeLogo from './ClaudeLogo';
-import CursorLogo from './CursorLogo.jsx';
 import CodeBuddyLogo from './CodeBuddyLogo.jsx';
 import ProjectCreationWizard from './ProjectCreationWizard';
 import { api, getProjectId } from '../utils/api';
@@ -1013,9 +1012,8 @@ function Sidebar({
                             <p className="text-xs text-muted-foreground">尚无会话</p>
                           </div>
                         ) : (
-                          getAllSessions(project).map((session) => {
+                          getAllSessions(project).filter(s => s.provider !== 'cursor').map((session) => {
                           // Handle session type by provider field
-                          const isCursorSession = session.provider === 'cursor';
                           const isCodeBuddySession = session.provider === 'codebuddy';
                           
                           // Calculate if session is active (within last 10 minutes)
@@ -1060,8 +1058,6 @@ function Sidebar({
                                   )}>
                                     {isCodeBuddySession ? (
                                       <CodeBuddyLogo className="w-3 h-3" />
-                                    ) : isCursorSession ? (
-                                      <CursorLogo className="w-3 h-3" />
                                     ) : (
                                       <ClaudeLogo className="w-3 h-3" />
                                     )}
@@ -1111,8 +1107,6 @@ function Sidebar({
                                 <div className="flex items-start gap-2 min-w-0 w-full">
                                   {isCodeBuddySession ? (
                                     <CodeBuddyLogo className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                                  ) : isCursorSession ? (
-                                    <CursorLogo className="w-3 h-3 mt-0.5 flex-shrink-0" />
                                   ) : (
                                     <ClaudeLogo className="w-3 h-3 mt-0.5 flex-shrink-0" />
                                   )}
