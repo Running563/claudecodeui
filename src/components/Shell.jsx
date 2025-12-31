@@ -471,11 +471,15 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   // ============================================================
   // 移动端全屏滚动覆盖层触摸事件处理
   // 使用 xterm.js 的 scrollLines API 实现滚动，带惯性效果
+  // 区分点击和滑动：点击穿透到终端，滑动时拦截处理滚动
   // ============================================================
+  const touchStartPos = useRef({ x: 0, y: 0 });
+  const isTap = useRef(true); // 是否是点击（非滑动）
+  const tapThreshold = 10; // 移动超过 10 像素视为滑动
+  
   const handleScrollTouchStart = useCallback((e) => {
     if (!terminal.current) return;
-    e.preventDefault();
-    e.stopPropagation();
+    // 不在这里 preventDefault，让点击事件可以穿透
     
     // 停止之前的惯性动画
     if (inertiaAnimationRef.current) {
@@ -485,33 +489,50 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     
     const touch = e.touches[0];
     const now = Date.now();
+    touchStartPos.current = { x: touch.clientX, y: touch.clientY };
     scrollTouchStartY.current = touch.clientY;
     scrollLastY.current = touch.clientY;
     scrollLastTime.current = now;
     scrollVelocity.current = 0;
-    isScrolling.current = true;
+    isScrolling.current = false; // 先不认为是滚动
+    isTap.current = true; // 假设是点击
   }, []);
 
   const handleScrollTouchMove = useCallback((e) => {
-    if (!isScrolling.current || !terminal.current) return;
-    e.preventDefault();
-    e.stopPropagation();
+    if (!terminal.current) return;
     
     const touch = e.touches[0];
     const currentY = touch.clientY;
+    const currentX = touch.clientX;
+    
+    // 检查是否超过点击阈值，变成滑动
+    const deltaX = Math.abs(currentX - touchStartPos.current.x);
+    const deltaY = Math.abs(currentY - touchStartPos.current.y);
+    
+    if (deltaX > tapThreshold || deltaY > tapThreshold) {
+      isTap.current = false;
+      isScrolling.current = true;
+    }
+    
+    if (!isScrolling.current) return;
+    
+    // 是滑动，阻止默认行为
+    e.preventDefault();
+    e.stopPropagation();
+    
     const now = Date.now();
-    const deltaY = currentY - scrollLastY.current;
+    const moveDeltaY = currentY - scrollLastY.current;
     const deltaTime = now - scrollLastTime.current;
     
     // 计算速度（像素/毫秒）
     if (deltaTime > 0) {
-      scrollVelocity.current = deltaY / deltaTime;
+      scrollVelocity.current = moveDeltaY / deltaTime;
     }
     
     // 全屏滑动：向下滑动 = 向上滚动（查看历史），向上滑动 = 向下滚动
-    // 灵敏度：每 6 像素滚动一行
-    const sensitivity = 6;
-    const linesToScroll = Math.round(-deltaY / sensitivity);
+    // 灵敏度：每 7 像素滚动一行
+    const sensitivity = 7;
+    const linesToScroll = Math.round(-moveDeltaY / sensitivity);
     
     if (linesToScroll !== 0) {
       terminal.current.scrollLines(linesToScroll);
@@ -523,6 +544,14 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   }, []);
 
   const handleScrollTouchEnd = useCallback((e) => {
+    // 如果是点击，让事件穿透到终端
+    if (isTap.current && terminal.current) {
+      // 聚焦终端，弹出键盘
+      terminal.current.focus();
+      setInputMode(true);
+      return;
+    }
+    
     e.preventDefault();
     e.stopPropagation();
     isScrolling.current = false;
@@ -532,7 +561,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     
     let velocity = scrollVelocity.current; // 像素/毫秒
     const friction = 0.95; // 摩擦系数
-    const sensitivity = 5;
+    const sensitivity = 7;
     let accumulatedDelta = 0;
     
     const animateInertia = () => {
@@ -575,21 +604,45 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
   // 监听终端失焦事件，同步 inputMode 状态
   useEffect(() => {
-    if (!terminal.current) return;
+    if (!isInitialized || !terminalRef.current) return;
     
     const handleBlur = () => setInputMode(false);
     const handleFocus = () => setInputMode(true);
     
-    // xterm.js 使用 textarea 接收输入
-    const textarea = terminalRef.current?.querySelector('textarea');
-    if (textarea) {
-      textarea.addEventListener('blur', handleBlur);
-      textarea.addEventListener('focus', handleFocus);
-      return () => {
+    // xterm.js 使用 textarea 接收输入，需要等待它被创建
+    const checkAndAttach = () => {
+      const textarea = terminalRef.current?.querySelector('textarea');
+      if (textarea) {
+        textarea.addEventListener('blur', handleBlur);
+        textarea.addEventListener('focus', handleFocus);
+        return textarea;
+      }
+      return null;
+    };
+    
+    let textarea = checkAndAttach();
+    
+    // 如果 textarea 还不存在，用 MutationObserver 等待
+    let observer;
+    if (!textarea) {
+      observer = new MutationObserver(() => {
+        textarea = checkAndAttach();
+        if (textarea) {
+          observer.disconnect();
+        }
+      });
+      observer.observe(terminalRef.current, { childList: true, subtree: true });
+    }
+    
+    return () => {
+      if (textarea) {
         textarea.removeEventListener('blur', handleBlur);
         textarea.removeEventListener('focus', handleFocus);
-      };
-    }
+      }
+      if (observer) {
+        observer.disconnect();
+      }
+    };
   }, [isInitialized]);
 
   const sessionDisplayName = useMemo(() => {
@@ -896,12 +949,14 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
           />
           
           {/* 移动端全屏透明滚动层 - 覆盖整个终端区域 */}
-          {isMobile && isConnected && !inputMode && (
+          {/* 输入模式下禁用 pointer-events，让触摸事件穿透到终端 */}
+          {isMobile && isConnected && (
             <div
               className="absolute inset-0 z-20"
               style={{
                 touchAction: 'none',
                 backgroundColor: 'transparent',
+                pointerEvents: inputMode ? 'none' : 'auto',
               }}
               onTouchStart={handleScrollTouchStart}
               onTouchMove={handleScrollTouchMove}
