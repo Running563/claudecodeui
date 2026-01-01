@@ -1,6 +1,85 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { decodeHtmlEntities, formatUsageLimitText, hasImageContent, safeLocalStorage } from '../utils';
 
+const normalizeResultSnippet = (value) => {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map(item => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item.text === 'string') return item.text;
+        return JSON.stringify(item);
+      })
+      .join('\n')
+      .trim();
+  }
+  if (typeof value === 'object') {
+    if (typeof value.text === 'string') {
+      return value.text.trim();
+    }
+    return JSON.stringify(value, null, 2);
+  }
+  return String(value).trim();
+};
+
+const extractCodebuddyResultText = (resultData, fallbackText = '') => {
+  const fallback = typeof fallbackText === 'string' ? fallbackText.trim() : '';
+  if (!resultData) {
+    return fallback;
+  }
+
+  const candidates = [];
+  const pushCandidate = (value) => {
+    const text = normalizeResultSnippet(value);
+    if (text) {
+      candidates.push(text);
+    }
+  };
+
+  pushCandidate(resultData.result);
+  pushCandidate(resultData.message);
+  pushCandidate(resultData.output);
+  pushCandidate(resultData.stdout);
+  pushCandidate(resultData.stderr);
+  pushCandidate(resultData.summary);
+  pushCandidate(resultData.details?.raw);
+  pushCandidate(resultData.details?.message);
+  pushCandidate(resultData.details);
+  pushCandidate(resultData.error?.message);
+  pushCandidate(resultData.error?.detail);
+  pushCandidate(resultData.error);
+  pushCandidate(resultData.error_message);
+  pushCandidate(resultData.error_details);
+  pushCandidate(resultData.data?.result);
+  pushCandidate(resultData.data?.message);
+
+  if (Array.isArray(resultData.messages)) {
+    pushCandidate(resultData.messages);
+  }
+
+  const resolved = candidates.find(text => text && text.trim());
+  if (resolved) {
+    return resolved.trim();
+  }
+
+  if (fallback) {
+    return fallback;
+  }
+
+  if (resultData.subtype) {
+    return resultData.is_error
+      ? `CodeBuddy 执行失败（${resultData.subtype}）`
+      : `CodeBuddy 完成：${resultData.subtype}`;
+  }
+
+  return '';
+};
+
 /**
  * Custom hook for handling WebSocket messages in ChatInterface
  * Processes various message types from Claude, Cursor, and CodeBuddy providers
@@ -674,20 +753,26 @@ export function useWebSocketMessages({
         if (isCurrentSession) {
           try {
             const r = latestMessage.data || {};
-            const textResult = typeof r.result === 'string' ? r.result : '';
+            const bufferedChunk = typeof streamBufferRef.current === 'string' ? streamBufferRef.current : '';
             flushStreamBuffer(false);
-            const pendingChunk = streamBufferRef.current;
-            streamBufferRef.current = '';
+            const textResult = extractCodebuddyResultText(r, bufferedChunk);
+            const fallbackMessage = r.is_error
+              ? `CodeBuddy 执行失败（${r.subtype || 'unknown'}）`
+              : 'CodeBuddy 执行完成';
 
             setChatMessages(prev => {
               const updated = [...prev];
               const last = updated[updated.length - 1];
               if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
-                const finalContent = textResult && textResult.trim() ? textResult : (last.content || '') + (pendingChunk || '');
-                last.content = finalContent;
+                last.content = textResult || last.content || fallbackMessage;
                 last.isStreaming = false;
-              } else if (textResult && textResult.trim()) {
+                if (r.is_error) {
+                  last.type = 'error';
+                }
+              } else if (textResult) {
                 updated.push({ type: r.is_error ? 'error' : 'assistant', content: textResult, timestamp: new Date(), isStreaming: false });
+              } else {
+                updated.push({ type: r.is_error ? 'error' : 'system', content: fallbackMessage, timestamp: new Date(), isStreaming: false });
               }
               return updated;
             });

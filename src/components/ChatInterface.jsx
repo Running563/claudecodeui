@@ -79,7 +79,9 @@ function ChatInterface({
   externalMessageUpdate, 
   onToggleQuickSettings,
   // Background task support
-  getProjectTasks
+  getProjectTasks,
+  // Clear chat trigger from mobile header
+  clearChatTrigger
 }) {
   // Refs
   const messagesEndRef = useRef(null);
@@ -464,6 +466,14 @@ function ChatInterface({
   const loadEarlierMessages = useCallback(() => {
     setVisibleMessageCount(prevCount => prevCount + 100);
   }, []);
+
+  // Handle clear chat trigger from mobile header
+  useEffect(() => {
+    if (clearChatTrigger > 0) {
+      setChatMessages([]);
+      setSessionMessages([]);
+    }
+  }, [clearChatTrigger, setChatMessages, setSessionMessages]);
 
   // Don't render if no project is selected
   if (!selectedProject) {

@@ -11,7 +11,7 @@
  * No session protection logic is implemented here - it's purely a props bridge.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ChatInterface from './ChatInterface';
 import FileTree from './FileTree';
 import CodeEditor from './CodeEditor';
@@ -19,13 +19,12 @@ import StandaloneShell from './StandaloneShell';
 import GitPanel from './GitPanel';
 import TerminalListView from './TerminalListView';
 import ErrorBoundary from './ErrorBoundary';
-import { getProjectId } from '../utils/api';
+import { authenticatedFetch, getProjectId, api } from '../utils/api';
 import ClaudeLogo from './ClaudeLogo';
 import CursorLogo from './CursorLogo';
 import CodeBuddyLogo from './CodeBuddyLogo';
 import Tooltip from './Tooltip';
-import { api } from '../utils/api';
-import { MoreVertical, Unplug, RotateCcw, RefreshCw } from 'lucide-react';
+import { MoreVertical, Unplug, RotateCcw, RefreshCw, MessageSquare, Terminal, Trash2 } from 'lucide-react';
 
 function MainContent({
   selectedProject,
@@ -79,6 +78,42 @@ function MainContent({
     sessionDisplayNameShort: null
   });
   const [shellMenuOpen, setShellMenuOpen] = useState(false);
+  // Mobile header more menu state (for chat tab)
+  const [mobileMoreMenuOpen, setMobileMoreMenuOpen] = useState(false);
+  // Trigger to clear chat messages
+  const [clearChatTrigger, setClearChatTrigger] = useState(0);
+
+  // Clear chat handler - calls backend truncate API directly
+  const handleClearChat = useCallback(async () => {
+    if (!selectedProject || !selectedSession?.id) {
+      console.warn('Cannot clear chat: no project or session selected');
+      return;
+    }
+
+    try {
+      // Use epoch time to delete all messages
+      const keepUntilTimestamp = new Date(0).toISOString();
+      
+      const response = await authenticatedFetch(
+        `/api/projects/${getProjectId(selectedProject)}/sessions/${selectedSession.id}/truncate`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keepUntilTimestamp })
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to clear session');
+      }
+
+      // Trigger frontend clear after successful backend call
+      setClearChatTrigger(prev => prev + 1);
+    } catch (error) {
+      console.error('Failed to clear chat:', error);
+    }
+  }, [selectedProject, selectedSession]);
   
   const handleFileOpen = (filePath, diffInfo = null) => {
     // Create a file object that CodeEditor expects
@@ -442,7 +477,8 @@ function MainContent({
               </button>
             )}
             <div className="min-w-0 flex items-center gap-2 flex-1 overflow-x-auto scrollbar-hide">
-              {activeTab === 'chat' && selectedSession && (
+              {/* Provider icon removed from here for mobile - moved to subtitle */}
+              {!isMobile && activeTab === 'chat' && selectedSession && (
                 <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center">
                   {selectedSession.provider === 'codebuddy' ? (
                     <CodeBuddyLogo className="w-4 h-4" />
@@ -454,9 +490,36 @@ function MainContent({
                 </div>
               )}
               <div className="min-w-0 flex-1">
-                {activeTab === 'chat' && selectedSession ? (
+                {(activeTab === 'chat' || activeTab === 'shell') && isMobile ? (
+                  // Mobile: Combined chat/shell header with provider icon in subtitle
                   <div className="min-w-0">
-                    <h2 className="text-sm sm:text-base font-semibold text-gray-900 dark:text-white whitespace-nowrap overflow-x-auto scrollbar-hide">
+                    <h2 className="text-sm sm:text-base font-semibold text-gray-900 dark:text-white truncate">
+                      {activeTab === 'chat' 
+                        ? (selectedSession?.title || '新会话')
+                        : (shellState.sessionDisplayNameShort ? `${shellState.sessionDisplayNameShort}...` : 'Shell')
+                      }
+                    </h2>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate flex items-center gap-1">
+                      {activeTab === 'chat' && selectedSession && (
+                        <>
+                          {selectedSession.provider === 'codebuddy' ? (
+                            <CodeBuddyLogo className="w-3 h-3" />
+                          ) : selectedSession.provider === 'cursor' ? (
+                            <CursorLogo className="w-3 h-3" />
+                          ) : (
+                            <ClaudeLogo className="w-3 h-3" />
+                          )}
+                        </>
+                      )}
+                      {activeTab === 'shell' && (
+                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${shellState.isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+                      )}
+                      <span>{selectedProject?.displayName || 'Home'}</span>
+                    </div>
+                  </div>
+                ) : activeTab === 'chat' && selectedSession ? (
+                  <div className="min-w-0">
+                    <h2 className="text-sm sm:text-base font-semibold text-gray-900 dark:text-white truncate">
                       {selectedSession.title || '新会话'}
                     </h2>
                     <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
@@ -499,19 +562,40 @@ function MainContent({
                 )}
               </div>
             </div>
-            {/* Mobile Shell Controls - 与快捷终端保持一致的样式 */}
-            {isMobile && activeTab === 'shell' && (
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {/* 更多菜单 */}
+            {/* Mobile Chat/Shell Controls */}
+            {isMobile && (activeTab === 'chat' || activeTab === 'shell') && (
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {/* Chat/Shell Toggle Button */}
+                <button
+                  onClick={() => setActiveTab(activeTab === 'chat' ? 'shell' : 'chat')}
+                  className="p-1.5 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded touch-manipulation"
+                  aria-label={activeTab === 'chat' ? '切换到终端' : '切换到聊天'}
+                >
+                  {activeTab === 'chat' ? (
+                    <Terminal className="w-5 h-5" />
+                  ) : (
+                    <MessageSquare className="w-5 h-5" />
+                  )}
+                </button>
+                {/* More Menu */}
                 <div className="relative">
                   <button
-                    onClick={() => setShellMenuOpen(!shellMenuOpen)}
+                    onClick={() => {
+                      if (activeTab === 'shell') {
+                        setShellMenuOpen(!shellMenuOpen);
+                        setMobileMoreMenuOpen(false);
+                      } else {
+                        setMobileMoreMenuOpen(!mobileMoreMenuOpen);
+                        setShellMenuOpen(false);
+                      }
+                    }}
                     className="p-1.5 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded touch-manipulation"
                     aria-label="菜单"
                   >
                     <MoreVertical className="w-5 h-5" />
                   </button>
-                  {shellMenuOpen && (
+                  {/* Shell Menu */}
+                  {shellMenuOpen && activeTab === 'shell' && (
                     <>
                       <div
                         className="fixed inset-0 z-40"
@@ -560,6 +644,30 @@ function MainContent({
                             <span>重启终端</span>
                           </button>
                         )}
+                      </div>
+                    </>
+                  )}
+                  {/* Chat Menu */}
+                  {mobileMoreMenuOpen && activeTab === 'chat' && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setMobileMoreMenuOpen(false)}
+                      />
+                      <div className="absolute right-0 top-full mt-1 bg-white dark:bg-gray-700 
+                                    rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 
+                                    py-1 z-50 min-w-[140px]">
+                        <button
+                          onClick={() => {
+                            handleClearChat();
+                            setMobileMoreMenuOpen(false);
+                          }}
+                          className="w-full flex items-center space-x-2 px-4 py-2 text-sm
+                                   text-red-500 hover:bg-gray-100 dark:hover:bg-gray-600 touch-manipulation"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span>清空会话</span>
+                        </button>
                       </div>
                     </>
                   )}
@@ -707,6 +815,7 @@ function MainContent({
               externalMessageUpdate={externalMessageUpdate}
               onToggleQuickSettings={onToggleQuickSettings}
               getProjectTasks={getProjectTasks}
+              clearChatTrigger={clearChatTrigger}
             />
           </ErrorBoundary>
         </div>

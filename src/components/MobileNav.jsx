@@ -2,17 +2,21 @@ import React from 'react';
 import { MessageSquare, Folder, Terminal, GitBranch, Globe, CheckSquare, MonitorPlay } from 'lucide-react';
 
 function MobileNav({ activeTab, setActiveTab, isInputFocused, onOpenTerminals, selectedProject }) {
+  // chat 和 shell 合并为一个标签，显示当前选中的图标
+  const isChatOrShell = activeTab === 'chat' || activeTab === 'shell';
+  
   const navItems = [
     {
-      id: 'chat',
-      icon: MessageSquare,
-      onClick: () => setActiveTab('chat')
-    },
-    {
-      id: 'shell',
-      icon: Terminal,
-      onClick: () => setActiveTab('shell'),
-      requiresProject: true
+      id: 'chat-shell',
+      // 根据当前 activeTab 显示对应图标
+      icon: activeTab === 'shell' ? Terminal : MessageSquare,
+      onClick: () => {
+        // 如果已经在 chat 或 shell，保持当前状态
+        if (!isChatOrShell) {
+          setActiveTab('chat');
+        }
+      },
+      isActive: isChatOrShell
     },
     {
       id: 'files',
@@ -45,7 +49,7 @@ function MobileNav({ activeTab, setActiveTab, isInputFocused, onOpenTerminals, s
           }
           
           const Icon = item.icon;
-          const isActive = activeTab === item.id;
+          const isActive = item.isActive !== undefined ? item.isActive : activeTab === item.id;
           
           return (
             <button
