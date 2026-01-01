@@ -78,7 +78,7 @@ import mcpUtilsRoutes from './routes/mcp-utils.js';
 import commandsRoutes from './routes/commands.js';
 import settingsRoutes from './routes/settings.js';
 import agentRoutes from './routes/agent.js';
-import projectsRoutes from './routes/projects.js';
+import projectsRoutes, { setPtySessionsMap as setProjectsPtySessionsMap } from './routes/projects.js';
 import cliAuthRoutes from './routes/cli-auth.js';
 import userRoutes from './routes/user.js';
 import terminalsRoutes from './routes/terminals.js';
@@ -217,6 +217,8 @@ const PTY_SESSION_TIMEOUT = 30 * 60 * 1000;
 
 // Set ptySessionsMap reference for terminals.js to use
 setPtySessionsMap(ptySessionsMap);
+// Set ptySessionsMap reference for projects.js to use (for truncate to close PTY sessions)
+setProjectsPtySessionsMap(ptySessionsMap);
 
 // Single WebSocket server that handles both paths
 const wss = new WebSocketServer({

@@ -113,6 +113,11 @@ function MainContent({
         throw new Error(error.error || 'Failed to clear session');
       }
 
+      // Disconnect shell if connected, so next time it will reload fresh session
+      if (shellRef.current?.isConnected) {
+        shellRef.current.disconnect();
+      }
+
       // Trigger frontend clear after successful backend call
       setClearChatTrigger(prev => prev + 1);
     } catch (error) {

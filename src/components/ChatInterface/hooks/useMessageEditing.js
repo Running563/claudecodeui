@@ -84,7 +84,7 @@ export function useMessageEditing({
         keepUntilTimestamp = keepUntilTimestamp.toISOString();
       }
       
-      // Call backend to truncate
+      // Call backend to truncate (backend will also close any active PTY session)
       const response = await authenticatedFetch(
         `/api/projects/${getProjectId(selectedProject)}/sessions/${currentSessionId}/truncate`,
         {
@@ -150,6 +150,7 @@ export function useMessageEditing({
         }
 
         // Truncate backend messages (keep messages up to and including the one before)
+        // Backend will also close any active PTY session
         const response = await authenticatedFetch(
           `/api/projects/${getProjectId(selectedProject)}/sessions/${currentSessionId}/truncate`,
           {

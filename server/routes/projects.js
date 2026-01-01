@@ -6,6 +6,14 @@ import { addProject, getProjectByPath, getProjectById } from '../db.js';
 
 const router = express.Router();
 
+// Reference to ptySessionsMap from index.js (will be set via setPtySessionsMap)
+let ptySessionsMap = null;
+
+// Function to set ptySessionsMap reference (called from index.js)
+export function setPtySessionsMap(map) {
+  ptySessionsMap = map;
+}
+
 /**
  * Truncate session messages up to a specific timestamp
  * PUT /api/projects/:projectId/sessions/:sessionId/truncate
@@ -13,6 +21,7 @@ const router = express.Router();
  * Body: { keepUntilTimestamp: ISO timestamp string }
  * 
  * Deletes all messages after the specified timestamp in the session's JSONL file
+ * Also closes any active PTY session for this session to ensure fresh reload
  */
 router.put('/:projectId/sessions/:sessionId/truncate', async (req, res) => {
   try {
@@ -96,6 +105,24 @@ router.put('/:projectId/sessions/:sessionId/truncate', async (req, res) => {
     // Write back to file
     const newContent = filteredMessages.map(msg => JSON.stringify(msg)).join('\n') + (filteredMessages.length > 0 ? '\n' : '');
     await fs.writeFile(jsonlFile, newContent, 'utf-8');
+
+    // Close any active PTY session for this session to ensure fresh reload
+    // PTY session key format: ${projectPath}_${sessionId}
+    if (ptySessionsMap) {
+      const ptySessionKey = `${projectPath}_${sessionId}`;
+      const ptySession = ptySessionsMap.get(ptySessionKey);
+      if (ptySession) {
+        console.log('🔌 Closing PTY session after truncate:', ptySessionKey);
+        if (ptySession.timeoutId) {
+          clearTimeout(ptySession.timeoutId);
+        }
+        if (ptySession.pty && ptySession.pty.kill) {
+          ptySession.pty.kill();
+        }
+        ptySessionsMap.delete(ptySessionKey);
+        console.log('✅ PTY session closed after truncate:', ptySessionKey);
+      }
+    }
 
     res.json({
       success: true,
