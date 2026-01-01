@@ -767,6 +767,55 @@ function AppContent() {
     }, 5000);
   }, []);
 
+  // Handle session title update from MainContent
+  const handleSessionTitleUpdate = useCallback((sessionId, newTitle) => {
+    if (!sessionId || !newTitle) return;
+    
+    // Update selectedSession if it matches
+    if (selectedSession && selectedSession.id === sessionId) {
+      setSelectedSession(prev => {
+        if (!prev) return prev;
+        return { ...prev, title: newTitle };
+      });
+    }
+    
+    // Update the session in projects list for sidebar display
+    setProjects(prevProjects => {
+      return prevProjects.map(project => {
+        // Update sessions (Claude)
+        const updatedSessions = project.sessions?.map(s => {
+          if (s.id === sessionId) {
+            return { ...s, title: newTitle };
+          }
+          return s;
+        });
+        
+        // Update codebuddySessions
+        const updatedCodebuddySessions = project.codebuddySessions?.map(s => {
+          if (s.id === sessionId) {
+            return { ...s, title: newTitle };
+          }
+          return s;
+        });
+        
+        // Update cursorSessions
+        const updatedCursorSessions = project.cursorSessions?.map(s => {
+          if (s.id === sessionId) {
+            return { ...s, title: newTitle };
+          }
+          return s;
+        });
+        
+        return {
+          ...project,
+          sessions: updatedSessions,
+          codebuddySessions: updatedCodebuddySessions,
+          cursorSessions: updatedCursorSessions
+        };
+      });
+    });
+  }, [selectedSession]);
+
   // replaceTemporarySession: Called when WebSocket provides real session ID for new sessions
   // Removes temporary "new-session-*" identifiers and adds the real session ID
   // This maintains protection continuity during the transition from temporary to real session
@@ -1070,6 +1119,7 @@ function AppContent() {
             onSelectTerminal={handleSelectTerminal}
             onCreateTerminal={handleCreateTerminal}
             getProjectTasks={getProjectTasks}
+            onSessionTitleUpdate={handleSessionTitleUpdate}
           />
         )}
       </div>

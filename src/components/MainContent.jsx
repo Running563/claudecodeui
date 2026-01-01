@@ -24,7 +24,7 @@ import ClaudeLogo from './ClaudeLogo';
 import CursorLogo from './CursorLogo';
 import CodeBuddyLogo from './CodeBuddyLogo';
 import Tooltip from './Tooltip';
-import { MoreVertical, Unplug, RotateCcw, RefreshCw, MessageSquare, Terminal, Trash2 } from 'lucide-react';
+import { MoreVertical, Unplug, RotateCcw, RefreshCw, MessageSquare, Terminal, Trash2, Edit3 } from 'lucide-react';
 
 function MainContent({
   selectedProject,
@@ -60,7 +60,8 @@ function MainContent({
   onSelectTerminal,       // Select a terminal from the list
   onCreateTerminal,       // Create a new terminal
   // Background task support
-  getProjectTasks         // Get tasks for a specific project
+  getProjectTasks,        // Get tasks for a specific project
+  onSessionTitleUpdate    // Update session title in sidebar
 }) {
   const [editingFile, setEditingFile] = useState(null);
   const [editorWidth, setEditorWidth] = useState(600);
@@ -82,6 +83,10 @@ function MainContent({
   const [mobileMoreMenuOpen, setMobileMoreMenuOpen] = useState(false);
   // Trigger to clear chat messages
   const [clearChatTrigger, setClearChatTrigger] = useState(0);
+  // Edit title modal state
+  const [showEditTitleModal, setShowEditTitleModal] = useState(false);
+  const [editTitleValue, setEditTitleValue] = useState('');
+  const editTitleInputRef = useRef(null);
 
   // Clear chat handler - calls backend truncate API directly
   const handleClearChat = useCallback(async () => {
@@ -114,6 +119,57 @@ function MainContent({
       console.error('Failed to clear chat:', error);
     }
   }, [selectedProject, selectedSession]);
+
+  // Start editing title - open modal
+  const handleStartEditTitle = useCallback(() => {
+    if (!selectedSession) return;
+    setEditTitleValue(selectedSession.title || '');
+    setShowEditTitleModal(true);
+    setMobileMoreMenuOpen(false);
+    // Focus input after modal opens
+    setTimeout(() => {
+      editTitleInputRef.current?.focus();
+      editTitleInputRef.current?.select();
+    }, 100);
+  }, [selectedSession]);
+
+  // Save edited title
+  const handleSaveTitle = useCallback(async () => {
+    if (!selectedProject || !selectedSession?.id || !editTitleValue.trim()) {
+      setShowEditTitleModal(false);
+      return;
+    }
+
+    try {
+      const response = await authenticatedFetch(
+        `/api/db/projects/${getProjectId(selectedProject)}/sessions/${selectedSession.id}/title`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: editTitleValue.trim() })
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update title');
+      }
+
+      // Notify parent to update sidebar and selectedSession
+      onSessionTitleUpdate?.(selectedSession.id, editTitleValue.trim());
+      
+      setShowEditTitleModal(false);
+    } catch (error) {
+      console.error('Failed to update title:', error);
+      setShowEditTitleModal(false);
+    }
+  }, [selectedProject, selectedSession, editTitleValue, onSessionTitleUpdate]);
+
+  // Cancel editing title
+  const handleCancelEditTitle = useCallback(() => {
+    setShowEditTitleModal(false);
+    setEditTitleValue('');
+  }, []);
   
   const handleFileOpen = (filePath, diffInfo = null) => {
     // Create a file object that CodeEditor expects
@@ -657,6 +713,16 @@ function MainContent({
                       <div className="absolute right-0 top-full mt-1 bg-white dark:bg-gray-700 
                                     rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 
                                     py-1 z-50 min-w-[140px]">
+                        {selectedSession && (
+                          <button
+                            onClick={handleStartEditTitle}
+                            className="w-full flex items-center space-x-2 px-4 py-2 text-sm
+                                     text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 touch-manipulation"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                            <span>修改标题</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => {
                             handleClearChat();
@@ -919,6 +985,49 @@ function MainContent({
           projectPath={selectedProject?.path}
           isSidebar={false}
         />
+      )}
+
+      {/* Edit Title Modal */}
+      {showEditTitleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={handleCancelEditTitle}>
+          <div 
+            className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-4 w-[90%] max-w-md mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">修改会话标题</h3>
+            <input
+              ref={editTitleInputRef}
+              type="text"
+              value={editTitleValue}
+              onChange={(e) => setEditTitleValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSaveTitle();
+                if (e.key === 'Escape') handleCancelEditTitle();
+              }}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg 
+                       bg-white dark:bg-gray-700 text-gray-900 dark:text-white
+                       focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="输入新标题"
+            />
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                onClick={handleCancelEditTitle}
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 
+                         bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 
+                         rounded-lg transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSaveTitle}
+                className="px-4 py-2 text-sm font-medium text-white 
+                         bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors"
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

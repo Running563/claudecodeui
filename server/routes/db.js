@@ -7,6 +7,7 @@ import {
   deleteProject,
   updateProjectDisplayName,
   getSessionsByProjectId,
+  getSessionBySessionId,
   createSession,
   updateSession,
   deleteSession,
@@ -156,6 +157,35 @@ router.patch('/sessions/:id', authenticateToken, (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('[DB] Update session error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 通过 project_id 和 session_id 更新会话标题
+router.patch('/projects/:projectId/sessions/:sessionId/title', authenticateToken, (req, res) => {
+  try {
+    const { projectId, sessionId } = req.params;
+    const { title } = req.body;
+    
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: 'Title is required' });
+    }
+    
+    // 先通过 project_id 和 session_id 获取会话的数据库 id
+    const session = getSessionBySessionId(parseInt(projectId), sessionId);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    const result = updateSession(session.id, { title: title.trim() });
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Failed to update session' });
+    }
+    
+    res.json({ success: true, title: title.trim() });
+  } catch (error) {
+    console.error('[DB] Update session title error:', error);
     res.status(500).json({ error: error.message });
   }
 });
