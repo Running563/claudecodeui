@@ -2,6 +2,7 @@ import React from 'react';
 import { X } from 'lucide-react';
 import { Button } from './button';
 import { cn } from '../../lib/utils';
+import { useBackClose } from '../../hooks/useBackClose';
 
 /**
  * Reusable confirmation dialog component
@@ -28,6 +29,9 @@ function ConfirmDialog({
   variant = 'destructive',
   loading = false
 }) {
+  // Support closing via browser back button (especially useful on mobile)
+  useBackClose(isOpen, onClose, 'confirm-dialog');
+
   if (!isOpen) return null;
 
   const handleBackdropClick = (e) => {

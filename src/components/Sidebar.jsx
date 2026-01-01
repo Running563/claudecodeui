@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactDOM from 'react-dom';
 import { ScrollArea } from './ui/scroll-area';
 import { Button } from './ui/button';
@@ -12,6 +12,7 @@ import ClaudeLogo from './ClaudeLogo';
 import CodeBuddyLogo from './CodeBuddyLogo.jsx';
 import ProjectCreationWizard from './ProjectCreationWizard';
 import { api, getProjectId } from '../utils/api';
+import { useBackClose } from '../hooks/useBackClose';
 
 // Move formatTimeAgo outside component to avoid recreation on every render
 const formatTimeAgo = (dateString, currentTime) => {

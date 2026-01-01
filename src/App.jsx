@@ -36,6 +36,7 @@ import { WebSocketProvider, useWebSocketContext } from './contexts/WebSocketCont
 import ProtectedRoute from './components/ProtectedRoute';
 
 import useLocalStorage from './hooks/useLocalStorage';
+import { useBackClose } from './hooks/useBackClose';
 import { api, authenticatedFetch } from './utils/api';
 
 
@@ -67,6 +68,10 @@ function AppContent() {
   const [autoScrollToBottom, setAutoScrollToBottom] = useLocalStorage('autoScrollToBottom', true);
   const [sendByCtrlEnter, setSendByCtrlEnter] = useLocalStorage('sendByCtrlEnter', false);
   const [sidebarVisible, setSidebarVisible] = useLocalStorage('sidebarVisible', true);
+  
+  // Support closing sidebar via browser back button on mobile
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  useBackClose(sidebarOpen && isMobile, closeSidebar, 'sidebar');
   
   // Quick Terminals State
   const [showDirectoryPicker, setShowDirectoryPicker] = useState(false);

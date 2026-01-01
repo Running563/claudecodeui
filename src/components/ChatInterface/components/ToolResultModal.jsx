@@ -1,6 +1,7 @@
 import React from 'react';
 import { SyntaxHighlighter, vscDarkPlus } from '../config/syntaxHighlighter';
 import { stripAnsi, calculateDiff } from '../utils';
+import { useBackClose } from '../../../hooks/useBackClose';
 
 /**
  * Render a unified diff view
@@ -107,6 +108,9 @@ const DiffView = ({ oldString, newString }) => {
  * @param {Function} onFileOpen - Callback to open a file
  */
 const ToolResultModal = ({ toolResultModal, onClose, onFileOpen }) => {
+  // Support closing via browser back button (especially useful on mobile)
+  useBackClose(!!toolResultModal, onClose, 'tool-result');
+
   if (!toolResultModal) return null;
 
   const { message, toolName } = toolResultModal;

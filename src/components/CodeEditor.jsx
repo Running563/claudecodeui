@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
@@ -21,8 +21,8 @@ import { dockerFile } from '@codemirror/legacy-modes/mode/dockerfile';
 import { diff } from '@codemirror/legacy-modes/mode/diff';
 import { protobuf } from '@codemirror/legacy-modes/mode/protobuf';
 import { nginx } from '@codemirror/legacy-modes/mode/nginx';
-import { powerShell } from '@codemirror/legacy-modes/mode/powershell';
 import { tags } from '@lezer/highlight';
+import { useBackClose } from '../hooks/useBackClose';
 
 // Custom light theme with syntax highlighting
 const lightTheme = EditorView.theme({
@@ -285,6 +285,17 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
   const mergeViewRef = useRef(null);
   const splitViewContainerRef = useRef(null);
   const scrollPositionRef = useRef({ ratio: 0 }); // Store scroll position ratio for mobile side switching
+
+  // Support closing via browser back button (especially useful on mobile)
+  // Only enable when expanded (fullscreen modal mode) or not in sidebar
+  const handleBackClose = useCallback(() => {
+    if (isExpanded && onToggleExpand) {
+      onToggleExpand(); // Collapse first
+    } else {
+      onClose();
+    }
+  }, [isExpanded, onToggleExpand, onClose]);
+  useBackClose(isExpanded || !isSidebar, handleBackClose, `code-editor-${file.name}`);
 
   // Detect mobile
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);

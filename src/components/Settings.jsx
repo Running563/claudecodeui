@@ -5,6 +5,7 @@ import { Badge } from './ui/badge';
 import { ConfirmDialog } from './ui/confirm-dialog';
 import { X, Plus, Settings as SettingsIcon, Shield, AlertTriangle, Moon, Sun, Server, Edit3, Trash2, Globe, Terminal, Zap, FolderOpen, LogIn, Key, GitBranch, Check } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
+import { useBackClose } from '../hooks/useBackClose';
 import ClaudeLogo from './ClaudeLogo';
 import CodeBuddyLogo from './CodeBuddyLogo';
 import CredentialsSettings from './CredentialsSettings';
@@ -14,6 +15,10 @@ import { authenticatedFetch } from '../utils/api';
 
 function Settings({ isOpen, onClose, projects = [], initialTab = 'tools' }) {
   const { isDarkMode, toggleDarkMode } = useTheme();
+  
+  // Support closing via browser back button (especially useful on mobile)
+  useBackClose(isOpen, onClose, 'settings');
+  
   const [allowedTools, setAllowedTools] = useState([]);
   const [disallowedTools, setDisallowedTools] = useState([]);
   const [newAllowedTool, setNewAllowedTool] = useState('');

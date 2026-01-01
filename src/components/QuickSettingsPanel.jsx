@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Maximize2, 
   Eye, 
@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import DarkModeToggle from './DarkModeToggle';
 import { useTheme } from '../contexts/ThemeContext';
+import { useBackClose } from '../hooks/useBackClose';
 
 const QuickSettingsPanel = ({
   isOpen,
@@ -35,6 +36,12 @@ const QuickSettingsPanel = ({
     return localStorage.getItem('whisperMode') || 'default';
   });
   const { isDarkMode } = useTheme();
+
+  // Support closing via browser back button (especially useful on mobile)
+  const handleClose = useCallback(() => {
+    if (isOpen) onToggle();
+  }, [isOpen, onToggle]);
+  useBackClose(isOpen, handleClose, 'quick-settings');
 
   useEffect(() => {
     setLocalIsOpen(isOpen);

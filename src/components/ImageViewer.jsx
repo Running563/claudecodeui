@@ -2,12 +2,16 @@ import React, { useEffect, useState } from 'react';
 import { Button } from './ui/button';
 import { X } from 'lucide-react';
 import { authenticatedFetch } from '../utils/api';
+import { useBackClose } from '../hooks/useBackClose';
 
 function ImageViewer({ file, onClose }) {
   const imagePath = `/api/projects/${file.projectId}/files/content?path=${encodeURIComponent(file.path)}`;
   const [imageUrl, setImageUrl] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // Support closing via browser back button (especially useful on mobile)
+  useBackClose(true, onClose, 'image-viewer');
 
   useEffect(() => {
     let objectUrl;

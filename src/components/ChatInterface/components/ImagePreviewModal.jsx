@@ -1,4 +1,5 @@
 import React from 'react';
+import { useBackClose } from '../../../hooks/useBackClose';
 
 /**
  * ImagePreviewModal - Modal for displaying full-size image preview
@@ -7,6 +8,9 @@ import React from 'react';
  * @param {Function} onClose - Callback to close the modal
  */
 const ImagePreviewModal = ({ imagePreview, onClose }) => {
+  // Support closing via browser back button (especially useful on mobile)
+  useBackClose(!!imagePreview, onClose, 'image-preview');
+
   if (!imagePreview) return null;
 
   const handleClose = () => {

@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { X, Folder, ChevronRight } from 'lucide-react';
+import { useBackClose } from '../hooks/useBackClose';
 
 function DirectoryPickerModal({ isOpen, onClose, onSelect, currentProject }) {
   const [inputPath, setInputPath] = useState('');
   const [recentDirs, setRecentDirs] = useState([]);
   const [error, setError] = useState('');
   const [validating, setValidating] = useState(false);
+
+  // Support closing via browser back button (especially useful on mobile)
+  useBackClose(isOpen, onClose, 'directory-picker');
 
   useEffect(() => {
     if (isOpen) {

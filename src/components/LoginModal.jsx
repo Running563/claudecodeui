@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import StandaloneShell from './StandaloneShell';
+import { useBackClose } from '../hooks/useBackClose';
 
 /**
  * Reusable login modal component for Claude and Cursor CLI authentication
@@ -20,6 +21,9 @@ function LoginModal({
   onComplete,
   customCommand
 }) {
+  // Support closing via browser back button (especially useful on mobile)
+  useBackClose(isOpen, onClose, 'login-modal');
+
   if (!isOpen) return null;
 
   const getCommand = () => {
