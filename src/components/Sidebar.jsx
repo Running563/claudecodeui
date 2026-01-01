@@ -563,20 +563,14 @@ function Sidebar({
               <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow">
                 <MessageSquare className="w-4 h-4 text-primary-foreground" />
               </div>
-              <div>
-                <h1 className="text-lg font-bold text-foreground">Claude Code UI</h1>
-                <p className="text-sm text-muted-foreground">AI 编码助手界面</p>
-              </div>
+              <h1 className="text-lg font-bold text-foreground">编码助手</h1>
             </a>
           ) : (
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center shadow-sm">
                 <MessageSquare className="w-4 h-4 text-primary-foreground" />
               </div>
-              <div>
-                <h1 className="text-lg font-bold text-foreground">Claude Code UI</h1>
-                <p className="text-sm text-muted-foreground">AI 编码助手界面</p>
-              </div>
+              <h1 className="text-lg font-bold text-foreground">编码助手</h1>
             </div>
           )}
           <div className="flex items-center gap-1">
@@ -616,20 +610,14 @@ function Sidebar({
                 <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
                   <MessageSquare className="w-4 h-4 text-primary-foreground" />
                 </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-foreground">Claude Code UI</h1>
-                  <p className="text-sm text-muted-foreground">项目</p>
-                </div>
+                <h1 className="text-lg font-semibold text-foreground">编码助手</h1>
               </a>
             ) : (
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
                   <MessageSquare className="w-4 h-4 text-primary-foreground" />
                 </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-foreground">Claude Code UI</h1>
-                  <p className="text-sm text-muted-foreground">项目</p>
-                </div>
+                <h1 className="text-lg font-semibold text-foreground">编码助手</h1>
               </div>
             )}
             <div className="flex gap-2">
