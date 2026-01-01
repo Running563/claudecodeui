@@ -61,7 +61,8 @@ ProviderButton.displayName = 'ProviderButton';
 const ProviderSelector = memo(({ 
   provider, 
   setProvider, 
-  textareaRef 
+  textareaRef,
+  selectedProject
 }) => {
   const handleProviderSelect = (newProvider) => {
     setProvider(newProvider);
@@ -72,10 +73,7 @@ const ProviderSelector = memo(({
 
   return (
     <div className="text-center px-6 sm:px-4 py-8">
-      <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">选择您的 AI 助手</h2>
-      <p className="text-gray-600 dark:text-gray-400 mb-8">
-        选择一个提供商来开始新对话
-      </p>
+      <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-10">{selectedProject?.displayName || '选择您的 AI 助手'}</h2>
       
       <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-8">
         {/* Claude Button */}

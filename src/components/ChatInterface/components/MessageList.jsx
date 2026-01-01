@@ -84,6 +84,7 @@ const MessageList = memo(function MessageList({
             cursorModel={cursorModel}
             setCursorModel={setCursorModel}
             textareaRef={textareaRef}
+            selectedProject={selectedProject}
           />
         )}
         {selectedSession && (
