@@ -17,6 +17,11 @@ function TokenUsagePie({ used, total }) {
     return '#ef4444'; // red
   };
 
+  // 格式化 token 数量为 K 单位（无小数）
+  const formatTokens = (tokens) => {
+    return Math.floor(tokens / 1000) + 'K';
+  };
+
   return (
     <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
       <svg width="24" height="24" viewBox="0 0 24 24" className="transform -rotate-90">
@@ -44,7 +49,7 @@ function TokenUsagePie({ used, total }) {
         />
       </svg>
       <span title={`${used.toLocaleString()} / ${total.toLocaleString()} tokens`}>
-        {percentage.toFixed(1)}%
+        {percentage.toFixed(1)}%{used > 0 && ` (${formatTokens(used)})`}
       </span>
     </div>
   );
