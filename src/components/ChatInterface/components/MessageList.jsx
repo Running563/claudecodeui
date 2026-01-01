@@ -115,11 +115,14 @@ const MessageList = memo(function MessageList({
       
       {/* Indicator showing there are more messages to load */}
       {hasMoreMessages && !isLoadingMoreMessages && (
-        <div className="text-center text-gray-500 dark:text-gray-400 text-sm py-2 border-b border-gray-200 dark:border-gray-700">
+        <div 
+          className="flex items-center justify-center text-gray-500 dark:text-gray-400 text-sm py-3 border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+          onClick={loadEarlierMessages}
+        >
           {totalMessages > 0 && (
             <span>
-              Showing {sessionMessages.length} of {totalMessages} messages • 
-              <span className="text-xs">Scroll up to load more</span>
+              {sessionMessages.length} / {totalMessages}  
+              <span className="text-xs ml-1">滚动或点击加载更多</span>
             </span>
           )}
         </div>

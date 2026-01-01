@@ -134,7 +134,8 @@ function ChatInterface({
     handleAutoScroll,
     updateChatMessagesLength,
     isLoadingMoreMessagesRef,
-    pendingScrollRestoreRef
+    pendingScrollRestoreRef,
+    loadMoreMessages
   } = useScrollManagement({
     scrollContainerRef,
     autoScrollToBottom,
@@ -500,7 +501,7 @@ function ChatInterface({
             hasMoreMessages={hasMoreMessages}
             totalMessages={totalMessages}
             visibleMessageCount={visibleMessageCount}
-            loadEarlierMessages={loadEarlierMessages}
+            loadEarlierMessages={hasMoreMessages ? loadMoreMessages : loadEarlierMessages}
             selectedSession={selectedSession}
             currentSessionId={currentSessionId}
             selectedProject={selectedProject}

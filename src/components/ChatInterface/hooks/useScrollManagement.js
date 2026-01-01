@@ -78,6 +78,7 @@ export function useScrollManagement({
         }
       } catch (error) {
         console.error('Error loading more messages:', error);
+      } finally {
         isLoadingMoreMessagesRef.current = false;
       }
     }
@@ -203,7 +204,8 @@ export function useScrollManagement({
     handleAutoScroll,
     updateChatMessagesLength,
     isLoadingMoreMessagesRef,
-    pendingScrollRestoreRef
+    pendingScrollRestoreRef,
+    loadMoreMessages: loadMoreMessagesOnPullDown
   };
 }
 
