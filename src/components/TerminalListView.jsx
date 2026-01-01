@@ -149,14 +149,6 @@ function TerminalListView({ onSelectTerminal, onCreateNew }) {
         variant="destructive"
       />
       <div className="h-full flex flex-col bg-background">
-      {/* Header */}
-      <div className="flex-shrink-0 border-b border-border bg-card">
-        <div className="p-4">
-          <h1 className="text-xl font-semibold text-foreground">终端列表</h1>
-          <p className="text-sm text-muted-foreground mt-1">管理你的终端会话</p>
-        </div>
-      </div>
-
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
         {/* New Terminal Button */}

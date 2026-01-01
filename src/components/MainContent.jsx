@@ -489,6 +489,7 @@ function MainContent({
                     <h2 className="text-sm sm:text-base font-semibold text-gray-900 dark:text-white">
                       {activeTab === 'files' ? '项目文件' :
                        activeTab === 'git' ? '源代码' :
+                       activeTab === 'terminals' ? '终端列表' :
                        '项目'}
                     </h2>
                     <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
