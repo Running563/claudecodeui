@@ -91,7 +91,7 @@ const MessageComponent = memo(({
         /* User message bubble on the right */
         <div className="flex flex-col items-end w-full sm:w-auto sm:max-w-[85%] md:max-w-2xl lg:max-w-3xl xl:max-w-4xl group/usermsg">
           <div className="flex items-end gap-2 w-full justify-end">
-            <div className="bg-blue-600 text-white rounded-2xl rounded-br-md px-3 sm:px-4 py-2 shadow-sm flex-1 sm:flex-initial">
+            <div className="bg-blue-600 text-white rounded-lg px-3 sm:px-4 py-2 shadow-sm flex-1 sm:flex-initial">
               <UserMessageContent message={message} selectedProject={selectedProject} />
             </div>
           </div>
@@ -146,14 +146,21 @@ const MessageComponent = memo(({
               (() => {
                 // Minimize Grep and Glob tools since they happen frequently
                 const isSearchTool = ['Grep', 'Glob'].includes(message.toolName);
+                // Compact display for Edit and Write tools (like Read)
+                const isEditTool = ['Edit', 'Write', 'MultiEdit'].includes(message.toolName);
+                // Compact display for Bash tool
+                const isBashTool = message.toolName === 'Bash';
 
                 if (isSearchTool) {
                   return (
                     <>
-                      <div className="group relative bg-gray-50/50 dark:bg-gray-800/30 border-l-2 border-blue-400 dark:border-blue-500 pl-3 py-2 my-2">
+                      <div 
+                        className="group relative bg-gray-50/50 dark:bg-gray-800/30 border-l-2 border-blue-400 dark:border-blue-500 pl-3 py-2 my-2 cursor-pointer hover:bg-gray-100/50 dark:hover:bg-gray-700/30 transition-colors"
+                        onClick={() => setToolResultModal({ message, toolName: message.toolName })}
+                      >
                         <div className="flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 flex-1 min-w-0">
-                            <svg className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <div className="flex items-start gap-2 text-xs text-gray-600 dark:text-gray-400 flex-1 min-w-0">
+                            <svg className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                             </svg>
                             <span className="font-medium flex-shrink-0">{message.toolName}</span>
@@ -162,7 +169,7 @@ const MessageComponent = memo(({
                               try {
                                 const input = JSON.parse(message.toolInput);
                                 return (
-                                  <span className="font-mono truncate flex-1 min-w-0">
+                                  <span className="font-mono break-all flex-1 min-w-0">
                                     {input.pattern && <span>pattern: <span className="text-blue-600 dark:text-blue-400">{input.pattern}</span></span>}
                                     {input.path && <span className="ml-2">in: {input.path}</span>}
                                   </span>
@@ -172,21 +179,79 @@ const MessageComponent = memo(({
                               }
                             })()}
                           </div>
-                          {message.toolResult && (
-                            <button
-                              onClick={() => setToolResultModal({ message, toolName: message.toolName })}
-                              className="flex-shrink-0 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium transition-colors flex items-center gap-1"
-                            >
-                              <span>results</span>
-                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                              </svg>
-                            </button>
-                          )}
                         </div>
                       </div>
                     </>
                   );
+                }
+
+                // Compact Edit/Write tool display (similar to Read)
+                if (isEditTool) {
+                  try {
+                    const input = JSON.parse(message.toolInput);
+                    const filePath = input.file_path;
+                    if (filePath) {
+                      const filename = filePath.split('/').pop();
+                      const isWrite = message.toolName === 'Write';
+                      
+                      return (
+                        <div className="bg-gray-50/50 dark:bg-gray-800/30 border-l-2 border-blue-400 dark:border-blue-500 pl-3 py-2 my-2">
+                          <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                            <svg className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              {isWrite ? (
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              ) : (
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              )}
+                            </svg>
+                            <span className="font-medium">{isWrite ? 'Write' : 'Edit'}</span>
+                            <button
+                              onClick={() => setToolResultModal({ message, toolName: message.toolName })}
+                              className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-mono transition-colors"
+                            >
+                              {filename}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    }
+                  } catch (e) {
+                    // Fall through to default display
+                  }
+                }
+
+                // Compact Bash tool display
+                if (isBashTool) {
+                  try {
+                    const input = JSON.parse(message.toolInput);
+                    return (
+                      <div className="bg-gray-50/50 dark:bg-gray-800/30 border-l-2 border-gray-400 dark:border-gray-500 pl-3 py-2 my-2">
+                        {/* First line: Bash + description */}
+                        <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 mb-1.5">
+                          <svg className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                          <span className="font-medium">Bash</span>
+                          {input.description && (
+                            <>
+                              <span className="text-gray-400 dark:text-gray-500">•</span>
+                              <span className="text-gray-500 dark:text-gray-400 truncate">{input.description}</span>
+                            </>
+                          )}
+                        </div>
+                        {/* Second line: command */}
+                        <button
+                          onClick={() => setToolResultModal({ message, toolName: message.toolName })}
+                          className="w-full text-left bg-gray-900 dark:bg-gray-950 rounded px-2.5 py-1.5 font-mono text-xs hover:bg-gray-800 dark:hover:bg-gray-900 transition-colors"
+                        >
+                          <span className="text-green-400">$</span>
+                          <span className="text-gray-100 ml-1.5 break-all">{input.command}</span>
+                        </button>
+                      </div>
+                    );
+                  } catch (e) {
+                    // Fall through to default display
+                  }
                 }
 
                 // Full display for other tools
@@ -209,386 +274,11 @@ const MessageComponent = memo(({
                       <span className="font-semibold text-gray-900 dark:text-white text-sm">
                         {message.toolName}
                       </span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
-                        {message.toolId}
-                      </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {message.toolResult && (
-                      <button
-                        onClick={() => setToolResultModal({ message, toolName: message.toolName })}
-                        className="px-3 py-1.5 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 font-medium transition-colors rounded-lg flex items-center gap-1.5 border border-blue-200 dark:border-blue-800"
-                        title="View tool result"
-                      >
-                        <span>results</span>
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                        </svg>
-                      </button>
-                    )}
-                    {onShowSettings && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onShowSettings();
-                        }}
-                        className="p-2 rounded-lg hover:bg-white/60 dark:hover:bg-gray-800/60 transition-all duration-200 group/btn backdrop-blur-sm"
-                        title="Tool Settings"
-                      >
-                        <svg className="w-4 h-4 text-gray-600 dark:text-gray-400 group-hover/btn:text-blue-600 dark:group-hover/btn:text-blue-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
                 </div>
-                {message.toolInput && message.toolName === 'Edit' && (() => {
-                  try {
-                    const input = JSON.parse(message.toolInput);
-                    if (input.file_path && input.old_string && input.new_string) {
-                      return (
-                        <details className="relative mt-3 group/details" open={autoExpandTools}>
-                          <summary className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors duration-200 p-2.5 rounded-lg hover:bg-white/50 dark:hover:bg-gray-800/50">
-                            <svg className="w-4 h-4 transition-transform duration-200 group-open/details:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                            <span className="flex items-center gap-2">
-                              <span>View edit diff for</span>
-                            </span> 
-                            <button
-                              onClick={async (e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                if (!onFileOpen) return;
-
-                                try {
-                                  // Fetch the current file (after the edit)
-                                  const response = await api.readFile(getProjectId(selectedProject), input.file_path);
-                                  const data = await response.json();
-
-                                  if (!response.ok || data.error) {
-                                    console.error('Failed to fetch file:', data.error);
-                                    onFileOpen(input.file_path);
-                                    return;
-                                  }
-
-                                  const currentContent = data.content || '';
-
-                                  // Reverse apply the edit: replace new_string back to old_string to get the file BEFORE the edit
-                                  const oldContent = currentContent.replace(input.new_string, input.old_string);
-
-                                  // Pass the full file before and after the edit
-                                  onFileOpen(input.file_path, {
-                                    old_string: oldContent,
-                                    new_string: currentContent
-                                  });
-                                } catch (error) {
-                                  console.error('Error preparing diff:', error);
-                                  onFileOpen(input.file_path);
-                                }
-                              }}
-                              className="px-2.5 py-1 rounded-md bg-white/60 dark:bg-gray-800/60 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 font-mono text-xs font-medium transition-all duration-200 shadow-sm"
-                            >
-                              {input.file_path.split('/').pop()}
-                            </button>
-                          </summary>
-                          <div className="mt-3 pl-6">
-                            <div className="bg-white dark:bg-gray-900/50 border border-gray-200/60 dark:border-gray-700/60 rounded-lg overflow-hidden shadow-sm">
-                              <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-gray-50 to-gray-100/50 dark:from-gray-800/80 dark:to-gray-800/40 border-b border-gray-200/60 dark:border-gray-700/60 backdrop-blur-sm">
-                                <button
-                                  onClick={async () => {
-                                    if (!onFileOpen) return;
-
-                                    try {
-                                      // Fetch the current file (after the edit)
-                                      const response = await api.readFile(getProjectId(selectedProject), input.file_path);
-                                      const data = await response.json();
-
-                                      if (!response.ok || data.error) {
-                                        console.error('Failed to fetch file:', data.error);
-                                        onFileOpen(input.file_path);
-                                        return;
-                                      }
-
-                                      const currentContent = data.content || '';
-                                      // Reverse apply the edit: replace new_string back to old_string
-                                      const oldContent = currentContent.replace(input.new_string, input.old_string);
-
-                                      // Pass the full file before and after the edit
-                                      onFileOpen(input.file_path, {
-                                        old_string: oldContent,
-                                        new_string: currentContent
-                                      });
-                                    } catch (error) {
-                                      console.error('Error preparing diff:', error);
-                                      onFileOpen(input.file_path);
-                                    }
-                                  }}
-                                  className="text-xs font-mono text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate cursor-pointer font-medium transition-colors"
-                                >
-                                  {input.file_path}
-                                </button>
-                                <span className="text-xs text-gray-500 dark:text-gray-400 font-medium px-2 py-0.5 bg-gray-100 dark:bg-gray-700/50 rounded">
-                                  Diff
-                                </span>
-                              </div>
-                              <div className="text-xs font-mono">
-                                {createDiff(input.old_string, input.new_string).map((diffLine, i) => (
-                                  <div key={i} className="flex">
-                                    <span className={`w-8 text-center border-r ${
-                                      diffLine.type === 'removed' 
-                                        ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800'
-                                        : 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800'
-                                    }`}>
-                                      {diffLine.type === 'removed' ? '-' : '+'}
-                                    </span>
-                                    <span className={`px-2 py-0.5 flex-1 whitespace-pre-wrap ${
-                                      diffLine.type === 'removed'
-                                        ? 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200'
-                                        : 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200'
-                                    }`}>
-                                      {diffLine.content}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                            {showRawParameters && (
-                              <details className="relative mt-3 pl-6 group/raw" open={autoExpandTools}>
-                                <summary className="flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-400 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors duration-200 p-2 rounded-lg hover:bg-white/50 dark:hover:bg-gray-800/50">
-                                  <svg className="w-3 h-3 transition-transform duration-200 group-open/raw:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                  </svg>
-                                  View raw parameters
-                                </summary>
-                                <pre className="mt-2 text-xs bg-gray-50 dark:bg-gray-800/50 border border-gray-200/60 dark:border-gray-700/60 p-3 rounded-lg whitespace-pre-wrap break-words overflow-hidden text-gray-700 dark:text-gray-300 font-mono">
-                                  {message.toolInput}
-                                </pre>
-                              </details>
-                            )}
-                          </div>
-                        </details>
-                      );
-                    }
-                  } catch (e) {
-                    // Fall back to raw display if parsing fails
-                  }
-                  return (
-                    <details className="relative mt-3 group/params" open={autoExpandTools}>
-                      <summary className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors duration-200 p-2.5 rounded-lg hover:bg-white/50 dark:hover:bg-gray-800/50">
-                        <svg className="w-4 h-4 transition-transform duration-200 group-open/params:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                        View input parameters
-                      </summary>
-                      <pre className="mt-3 text-xs bg-gray-50 dark:bg-gray-800/50 border border-gray-200/60 dark:border-gray-700/60 p-3 rounded-lg whitespace-pre-wrap break-words overflow-hidden text-gray-700 dark:text-gray-300 font-mono">
-                        {message.toolInput}
-                      </pre>
-                    </details>
-                  );
-                })()}
-                {message.toolInput && message.toolName !== 'Edit' && (() => {
-                  // Debug log to see what we're dealing with
-                  
-                  // Special handling for Write tool
-                  if (message.toolName === 'Write') {
-                    try {
-                      let input;
-                      // Handle both JSON string and already parsed object
-                      if (typeof message.toolInput === 'string') {
-                        input = JSON.parse(message.toolInput);
-                      } else {
-                        input = message.toolInput;
-                      }
-                      
-                      
-                      if (input.file_path && input.content !== undefined) {
-                        return (
-                          <details className="relative mt-3 group/details" open={autoExpandTools}>
-                            <summary className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors duration-200 p-2.5 rounded-lg hover:bg-white/50 dark:hover:bg-gray-800/50">
-                              <svg className="w-4 h-4 transition-transform duration-200 group-open/details:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                              </svg>
-                              <span className="flex items-center gap-2">
-                                <span className="text-lg leading-none">📄</span>
-                                <span>Creating new file:</span>
-                              </span>
-                              <button
-                                onClick={async (e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  if (!onFileOpen) return;
-
-                                  try {
-                                    // Fetch the written file from disk
-                                    const response = await api.readFile(getProjectId(selectedProject), input.file_path);
-                                    const data = await response.json();
-
-                                    const newContent = (response.ok && !data.error) ? data.content || '' : input.content || '';
-
-                                    // New file: old_string is empty, new_string is the full file
-                                    onFileOpen(input.file_path, {
-                                      old_string: '',
-                                      new_string: newContent
-                                    });
-                                  } catch (error) {
-                                    console.error('Error preparing diff:', error);
-                                    // Fallback to tool input content
-                                    onFileOpen(input.file_path, {
-                                      old_string: '',
-                                      new_string: input.content || ''
-                                    });
-                                  }
-                                }}
-                                className="px-2.5 py-1 rounded-md bg-white/60 dark:bg-gray-800/60 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 font-mono text-xs font-medium transition-all duration-200 shadow-sm"
-                              >
-                                {input.file_path.split('/').pop()}
-                              </button>
-                            </summary>
-                            <div className="mt-3 pl-6">
-                              <div className="bg-white dark:bg-gray-900/50 border border-gray-200/60 dark:border-gray-700/60 rounded-lg overflow-hidden shadow-sm">
-                                <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-gray-50 to-gray-100/50 dark:from-gray-800/80 dark:to-gray-800/40 border-b border-gray-200/60 dark:border-gray-700/60 backdrop-blur-sm">
-                                  <button
-                                    onClick={async () => {
-                                      if (!onFileOpen) return;
-
-                                      try {
-                                        // Fetch the written file from disk
-                                        const response = await api.readFile(getProjectId(selectedProject), input.file_path);
-                                        const data = await response.json();
-
-                                        const newContent = (response.ok && !data.error) ? data.content || '' : input.content || '';
-
-                                        // New file: old_string is empty, new_string is the full file
-                                        onFileOpen(input.file_path, {
-                                          old_string: '',
-                                          new_string: newContent
-                                        });
-                                      } catch (error) {
-                                        console.error('Error preparing diff:', error);
-                                        // Fallback to tool input content
-                                        onFileOpen(input.file_path, {
-                                          old_string: '',
-                                          new_string: input.content || ''
-                                        });
-                                      }
-                                    }}
-                                    className="text-xs font-mono text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 truncate cursor-pointer font-medium transition-colors"
-                                  >
-                                    {input.file_path}
-                                  </button>
-                                  <span className="text-xs text-gray-500 dark:text-gray-400 font-medium px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded">
-                                    New File
-                                  </span>
-                                </div>
-                                <div className="text-xs font-mono">
-                                  {createDiff('', input.content).map((diffLine, i) => (
-                                    <div key={i} className="flex">
-                                      <span className={`w-8 text-center border-r ${
-                                        diffLine.type === 'removed' 
-                                          ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800'
-                                          : 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800'
-                                      }`}>
-                                        {diffLine.type === 'removed' ? '-' : '+'}
-                                      </span>
-                                      <span className={`px-2 py-0.5 flex-1 whitespace-pre-wrap ${
-                                        diffLine.type === 'removed'
-                                          ? 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200'
-                                          : 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200'
-                                      }`}>
-                                        {diffLine.content}
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                              {showRawParameters && (
-                                <details className="relative mt-3 pl-6 group/raw" open={autoExpandTools}>
-                                  <summary className="flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-400 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors duration-200 p-2 rounded-lg hover:bg-white/50 dark:hover:bg-gray-800/50">
-                                    <svg className="w-3 h-3 transition-transform duration-200 group-open/raw:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                    </svg>
-                                    View raw parameters
-                                  </summary>
-                                  <pre className="mt-2 text-xs bg-gray-50 dark:bg-gray-800/50 border border-gray-200/60 dark:border-gray-700/60 p-3 rounded-lg whitespace-pre-wrap break-words overflow-hidden text-gray-700 dark:text-gray-300 font-mono">
-                                    {message.toolInput}
-                                  </pre>
-                                </details>
-                              )}
-                            </div>
-                          </details>
-                        );
-                      }
-                    } catch (e) {
-                      // Fall back to regular display
-                    }
-                  }
-                  
-                  // Special handling for TodoWrite tool
-                  if (message.toolName === 'TodoWrite') {
-                    try {
-                      const input = JSON.parse(message.toolInput);
-                      if (input.todos && Array.isArray(input.todos)) {
-                        return (
-                          <details className="relative mt-3 group/todo" open={autoExpandTools}>
-                            <summary className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors duration-200 p-2.5 rounded-lg hover:bg-white/50 dark:hover:bg-gray-800/50">
-                              <svg className="w-4 h-4 transition-transform duration-200 group-open/todo:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                              </svg>
-                              <span className="flex items-center gap-2">
-                                <span className="text-lg leading-none">✓</span>
-                                <span>Updating Todo List</span>
-                              </span>
-                            </summary>
-                            <div className="mt-3">
-                              <TodoList todos={input.todos} />
-                              {showRawParameters && (
-                                <details className="relative mt-3 group/raw" open={autoExpandTools}>
-                                  <summary className="flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-400 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors duration-200 p-2 rounded-lg hover:bg-white/50 dark:hover:bg-gray-800/50">
-                                    <svg className="w-3 h-3 transition-transform duration-200 group-open/raw:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                    </svg>
-                                    View raw parameters
-                                  </summary>
-                                  <pre className="mt-2 text-xs bg-gray-50 dark:bg-gray-800/50 border border-gray-200/60 dark:border-gray-700/60 p-3 rounded-lg overflow-x-auto text-gray-700 dark:text-gray-300 font-mono">
-                                    {message.toolInput}
-                                  </pre>
-                                </details>
-                              )}
-                            </div>
-                          </details>
-                        );
-                      }
-                    } catch (e) {
-                      // Fall back to regular display
-                    }
-                  }
-                  
-                  // Special handling for Bash tool
-                  if (message.toolName === 'Bash') {
-                    try {
-                      const input = JSON.parse(message.toolInput);
-                      return (
-                        <div className="my-2">
-                          <div className="bg-gray-900 dark:bg-gray-950 rounded-md px-3 py-2 font-mono text-sm">
-                            <span className="text-green-400">$</span>
-                            <span className="text-gray-100 ml-2">{input.command}</span>
-                          </div>
-                          {input.description && (
-                            <div className="mt-1 text-xs text-gray-500 dark:text-gray-400 italic ml-1">
-                              {input.description}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    } catch (e) {
-                      // Fall back to regular display
-                    }
-                  }
-                  
-                  // Special handling for Read tool
+                {message.toolInput && (() => {
+                  // Special handling for Read tool (shouldn't reach here due to earlier check, but keeping as fallback)
                   if (message.toolName === 'Read') {
                     try {
                       const input = JSON.parse(message.toolInput);
