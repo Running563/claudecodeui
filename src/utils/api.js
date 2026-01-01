@@ -107,10 +107,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ path }),
     }),
-  createWorkspace: (workspaceData) =>
-    authenticatedFetch('/api/projects/create-workspace', {
+  // 添加项目（简化版：只需要路径）
+  addProject: (projectPath) =>
+    authenticatedFetch('/api/projects/add', {
       method: 'POST',
-      body: JSON.stringify(workspaceData),
+      body: JSON.stringify({ path: projectPath }),
     }),
   readFile: (projectId, filePath) =>
     authenticatedFetch(`/api/projects/${projectId}/file?filePath=${encodeURIComponent(filePath)}`),
