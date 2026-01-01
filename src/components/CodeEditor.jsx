@@ -10,6 +10,49 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import { EditorView, ViewPlugin, lineNumbers } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { unifiedMergeView, getChunks, MergeView } from '@codemirror/merge';
+import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
+import { tags } from '@lezer/highlight';
+
+// Custom light theme with syntax highlighting
+const lightTheme = EditorView.theme({
+  '&': {
+    backgroundColor: '#ffffff',
+    color: '#24292e',
+  },
+  '.cm-content': {
+    caretColor: '#24292e',
+  },
+  '.cm-gutters': {
+    backgroundColor: '#f6f8fa',
+    color: '#6e7781',
+    border: 'none',
+  },
+});
+
+// Light mode syntax highlighting colors (GitHub-like)
+const lightHighlightStyle = HighlightStyle.define([
+  { tag: tags.keyword, color: '#d73a49' },
+  { tag: tags.comment, color: '#6a737d', fontStyle: 'italic' },
+  { tag: tags.string, color: '#032f62' },
+  { tag: tags.number, color: '#005cc5' },
+  { tag: tags.operator, color: '#d73a49' },
+  { tag: tags.punctuation, color: '#24292e' },
+  { tag: tags.variableName, color: '#e36209' },
+  { tag: tags.function(tags.variableName), color: '#6f42c1' },
+  { tag: tags.definition(tags.variableName), color: '#6f42c1' },
+  { tag: tags.propertyName, color: '#005cc5' },
+  { tag: tags.typeName, color: '#22863a' },
+  { tag: tags.className, color: '#6f42c1' },
+  { tag: tags.tagName, color: '#22863a' },
+  { tag: tags.attributeName, color: '#6f42c1' },
+  { tag: tags.attributeValue, color: '#032f62' },
+  { tag: tags.bool, color: '#005cc5' },
+  { tag: tags.null, color: '#005cc5' },
+  { tag: tags.regexp, color: '#032f62' },
+  { tag: tags.escape, color: '#005cc5' },
+  { tag: tags.heading, color: '#005cc5', fontWeight: 'bold' },
+  { tag: tags.link, color: '#005cc5', textDecoration: 'underline' },
+]);
 
 import { X, Save, Download, Maximize2, Minimize2, Edit2 } from 'lucide-react';
 import { api } from '../utils/api';
@@ -128,7 +171,10 @@ const UnifiedViewToolbar = ({ editorRef, isSidebar, isExpanded, onToggleExpand }
 
 // Get language extension based on file extension (moved outside component for stability)
 const getLanguageExtension = (filename) => {
-  const ext = filename.split('.').pop()?.toLowerCase();
+  // Handle full path - extract just the filename
+  const basename = filename.includes('/') ? filename.split('/').pop() : filename;
+  const ext = basename.split('.').pop()?.toLowerCase();
+  console.log('[CodeEditor] getLanguageExtension:', { filename, basename, ext });
   switch (ext) {
     case 'js':
     case 'jsx':
@@ -139,6 +185,7 @@ const getLanguageExtension = (filename) => {
       return [python()];
     case 'html':
     case 'htm':
+      console.log('[CodeEditor] Returning HTML extension');
       return [html()];
     case 'css':
     case 'scss':
@@ -425,7 +472,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
           lineNumbers(),
           EditorView.editable.of(false),
           ...(wordWrap ? [EditorView.lineWrapping] : []),
-          ...(isDarkMode ? [oneDark] : []),
+          ...(isDarkMode ? [oneDark] : [lightTheme, syntaxHighlighting(lightHighlightStyle, { fallback: true })]),
         ],
       },
       b: {
@@ -434,7 +481,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
           ...getLanguageExtension(file.name),
           lineNumbers(),
           ...(wordWrap ? [EditorView.lineWrapping] : []),
-          ...(isDarkMode ? [oneDark] : []),
+          ...(isDarkMode ? [oneDark] : [lightTheme, syntaxHighlighting(lightHighlightStyle, { fallback: true })]),
           // Read-only control for right side (modified)
           ...(!isEditMode ? [
             EditorState.transactionFilter.of(tr => tr.docChanged ? [] : tr),
@@ -1059,6 +1106,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
                   value={content}
                   onChange={isEditMode ? setContent : undefined}
                   extensions={[
+                    // Language and syntax highlighting MUST come first for diff mode to work
                     ...getLanguageExtension(file.name),
                     // Only show diff-related extensions when diff is enabled and in unified mode
                     ...(file.diffInfo && showDiff && diffViewMode === 'unified' && file.diffInfo.old_string !== undefined
@@ -1067,7 +1115,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
                             original: file.diffInfo.old_string,
                             mergeControls: false,
                             highlightChanges: true,
-                            syntaxHighlightDeletions: false,
+                            syntaxHighlightDeletions: true,
                             gutter: true
                             // NOTE: NO collapseUnchanged - this shows the full file!
                           }),
@@ -1080,8 +1128,13 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
                       EditorState.transactionFilter.of(tr => tr.docChanged ? [] : tr),
                       EditorView.editable.of(false)
                     ] : []),
+                    // Add syntax highlighting for light mode (dark mode uses oneDark which includes highlighting)
+                    ...(!isDarkMode ? [
+                      lightTheme,
+                      syntaxHighlighting(lightHighlightStyle, { fallback: true }),
+                    ] : []),
                   ]}
-                  theme={isDarkMode ? oneDark : undefined}
+                  theme={isDarkMode ? oneDark : 'light'}
                   height="100%"
                   style={{
                     fontSize: `${fontSize}px`,
