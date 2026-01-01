@@ -10,7 +10,18 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import { EditorView, ViewPlugin, lineNumbers } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { unifiedMergeView, getChunks, MergeView } from '@codemirror/merge';
-import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
+import { syntaxHighlighting, HighlightStyle, StreamLanguage } from '@codemirror/language';
+// Legacy modes for additional language support
+import { shell } from '@codemirror/legacy-modes/mode/shell';
+import { yaml } from '@codemirror/legacy-modes/mode/yaml';
+import { go } from '@codemirror/legacy-modes/mode/go';
+import { sql } from '@codemirror/legacy-modes/mode/sql';
+import { xml } from '@codemirror/legacy-modes/mode/xml';
+import { dockerFile } from '@codemirror/legacy-modes/mode/dockerfile';
+import { diff } from '@codemirror/legacy-modes/mode/diff';
+import { protobuf } from '@codemirror/legacy-modes/mode/protobuf';
+import { nginx } from '@codemirror/legacy-modes/mode/nginx';
+import { powerShell } from '@codemirror/legacy-modes/mode/powershell';
 import { tags } from '@lezer/highlight';
 
 // Custom light theme with syntax highlighting
@@ -174,8 +185,18 @@ const getLanguageExtension = (filename) => {
   // Handle full path - extract just the filename
   const basename = filename.includes('/') ? filename.split('/').pop() : filename;
   const ext = basename.split('.').pop()?.toLowerCase();
-  console.log('[CodeEditor] getLanguageExtension:', { filename, basename, ext });
+  
+  // Special handling for files without extension or special names
+  const lowerBasename = basename.toLowerCase();
+  if (lowerBasename === 'dockerfile' || lowerBasename.startsWith('dockerfile.')) {
+    return [StreamLanguage.define(dockerFile)];
+  }
+  if (lowerBasename === 'makefile' || lowerBasename === 'gnumakefile') {
+    return [StreamLanguage.define(shell)];
+  }
+  
   switch (ext) {
+    // Native CodeMirror languages
     case 'js':
     case 'jsx':
     case 'ts':
@@ -185,7 +206,6 @@ const getLanguageExtension = (filename) => {
       return [python()];
     case 'html':
     case 'htm':
-      console.log('[CodeEditor] Returning HTML extension');
       return [html()];
     case 'css':
     case 'scss':
@@ -196,6 +216,36 @@ const getLanguageExtension = (filename) => {
     case 'md':
     case 'markdown':
       return [markdown()];
+    // Legacy modes
+    case 'sh':
+    case 'bash':
+    case 'zsh':
+    case 'bat':
+    case 'cmd':
+      return [StreamLanguage.define(shell)];
+    case 'yaml':
+    case 'yml':
+      return [StreamLanguage.define(yaml)];
+    case 'go':
+      return [StreamLanguage.define(go)];
+    case 'sql':
+      return [StreamLanguage.define(sql)];
+    case 'xml':
+    case 'svg':
+    case 'xsl':
+    case 'xslt':
+      return [StreamLanguage.define(xml)];
+    case 'diff':
+    case 'patch':
+      return [StreamLanguage.define(diff)];
+    case 'proto':
+      return [StreamLanguage.define(protobuf)];
+    case 'conf':
+    case 'nginx':
+      return [StreamLanguage.define(nginx)];
+    case 'ps1':
+    case 'psm1':
+      return [StreamLanguage.define(powerShell)];
     default:
       return [];
   }
