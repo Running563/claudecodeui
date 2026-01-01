@@ -838,18 +838,18 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
           (isFullscreen ? ' md:w-full md:h-full md:rounded-none' : ' md:w-full md:max-w-6xl md:h-[80vh] md:max-h-[80vh]')
         }`}>
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border flex-shrink-0 min-w-0">
-          <div className="flex items-center gap-3 min-w-0 flex-1">
+        <div className="flex items-center justify-between px-2 py-1 border-b border-border flex-shrink-0 min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 min-w-0">
-                <h3 className="font-medium text-gray-900 dark:text-white truncate">{file.name}</h3>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <h3 className="font-medium text-sm text-gray-900 dark:text-white truncate">{file.name}</h3>
                 {isEditMode && (
-                  <span className="text-xs bg-yellow-100 dark:bg-yellow-900 text-yellow-600 dark:text-yellow-300 px-2 py-1 rounded whitespace-nowrap">
+                  <span className="text-[10px] bg-yellow-100 dark:bg-yellow-900 text-yellow-600 dark:text-yellow-300 px-1 py-0.5 rounded whitespace-nowrap">
                     编辑中
                   </span>
                 )}
               </div>
-              <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{file.path}</p>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate leading-tight">{file.path}</p>
             </div>
           </div>
 
@@ -981,9 +981,9 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
               />
               {/* Mobile: bottom toolbar with revert + navigation on left, side toggle on right (2/3 width) */}
               {isMobile && (
-                <div className="flex items-center px-2 py-2 border-t border-border bg-muted">
+                <div className="flex items-center px-2 py-1.5 border-t border-border bg-muted">
                   {/* Left: revert icon + navigation (1/3 width) */}
-                  <div className="flex items-center gap-1 flex-shrink-0">
+                  <div className="flex items-center gap-0.5 flex-shrink-0">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -991,9 +991,9 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
                       }}
                       disabled={chunkCount === 0}
                       title="Revert current change"
-                      className="p-2 rounded bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 disabled:opacity-40 active:bg-orange-200 dark:active:bg-orange-800/40"
+                      className="p-1.5 rounded bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 disabled:opacity-40 active:bg-orange-200 dark:active:bg-orange-800/40"
                     >
-                      <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
                       </svg>
                     </button>
@@ -1003,13 +1003,13 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
                         navigatePrevChunk();
                       }}
                       disabled={chunkCount === 0}
-                      className="p-2 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 disabled:opacity-40 active:bg-gray-300 dark:active:bg-gray-600"
+                      className="p-1.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 disabled:opacity-40 active:bg-gray-300 dark:active:bg-gray-600"
                     >
-                      <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
                       </svg>
                     </button>
-                    <span className="text-xs font-medium text-gray-600 dark:text-gray-400 min-w-[28px] text-center">
+                    <span className="text-[10px] font-medium text-gray-600 dark:text-gray-400 min-w-[24px] text-center">
                       {chunkCount > 0 ? `${currentChunkIndex + 1}/${chunkCount}` : '0'}
                     </span>
                     <button
@@ -1018,21 +1018,21 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
                         navigateNextChunk();
                       }}
                       disabled={chunkCount === 0}
-                      className="p-2 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 disabled:opacity-40 active:bg-gray-300 dark:active:bg-gray-600"
+                      className="p-1.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 disabled:opacity-40 active:bg-gray-300 dark:active:bg-gray-600"
                     >
-                      <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                       </svg>
                     </button>
                   </div>
-                  {/* Right: side toggle buttons (flex-1 to take remaining ~2/3 space) */}
-                  <div className="flex items-center flex-1 ml-2">
+                  {/* Right: side toggle buttons */}
+                  <div className="flex items-center ml-auto">
                     <button
                       onClick={() => {
                         saveScrollPosition();
                         setSplitViewSide('left');
                       }}
-                      className="vk-btn side-toggle-btn-original flex-1 py-2.5 text-sm font-medium rounded-l border transition-colors"
+                      className="vk-btn side-toggle-btn-original px-5 py-1.5 text-xs font-medium rounded-l border transition-colors"
                     >
                       Original
                     </button>
@@ -1041,7 +1041,7 @@ function CodeEditor({ file, onClose, projectPath, isSidebar = false, isExpanded 
                         saveScrollPosition();
                         setSplitViewSide('right');
                       }}
-                      className="vk-btn side-toggle-btn-modified flex-1 py-2.5 text-sm font-medium rounded-r border transition-colors"
+                      className="vk-btn side-toggle-btn-modified px-5 py-1.5 text-xs font-medium rounded-r border transition-colors"
                     >
                       Modified
                     </button>
