@@ -94,6 +94,9 @@ function ChatInterface({
   const [toolResultModal, setToolResultModal] = useState(null);
   const [claudeStatus, setClaudeStatus] = useState(null);
   const [visibleMessageCount, setVisibleMessageCount] = useState(100);
+  // WebSocket message tracking
+  const [wsMessageCount, setWsMessageCount] = useState(0);
+  const [lastMessageTime, setLastMessageTime] = useState(null);
 
   // Session messages management via custom hook
   const {
@@ -420,6 +423,19 @@ function ChatInterface({
     }
   }, [isLoading, currentSessionId, onSessionProcessing]);
 
+  // Track WebSocket messages for progress display
+  useEffect(() => {
+    if (!isLoading) {
+      // Reset counters when not loading
+      setWsMessageCount(0);
+      setLastMessageTime(null);
+    } else if (messages.length > 0) {
+      // Update message count and last message time when loading
+      setWsMessageCount(messages.length);
+      setLastMessageTime(Date.now());
+    }
+  }, [messages.length, isLoading]);
+
   // Update chatMessages when convertedMessages changes
   useEffect(() => {
     if (sessionMessages.length > 0) {
@@ -602,6 +618,9 @@ function ChatInterface({
           handleAbortSession={handleAbortSession}
           provider={provider}
           showThinking={showThinking}
+          // WebSocket message tracking
+          wsMessageCount={wsMessageCount}
+          lastMessageTime={lastMessageTime}
           // Transcript & input handlers from useInputManagement
           handleTranscript={handleTranscript}
           isTextareaExpanded={isTextareaExpanded}

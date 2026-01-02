@@ -1,16 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { cn } from '../lib/utils';
 
-function ClaudeStatus({ status, onAbort, isLoading, provider = 'claude' }) {
+function ClaudeStatus({ status, onAbort, isLoading, provider = 'claude', wsMessageCount = 0, lastMessageTime = null }) {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [animationPhase, setAnimationPhase] = useState(0);
   const [fakeTokens, setFakeTokens] = useState(0);
+  const [timeSinceLastMessage, setTimeSinceLastMessage] = useState(0);
+  const lastMessageTimeRef = useRef(lastMessageTime);
+
+  // Update last message time reference
+  useEffect(() => {
+    if (lastMessageTime) {
+      lastMessageTimeRef.current = lastMessageTime;
+    }
+  }, [lastMessageTime]);
 
   // Update elapsed time every second
   useEffect(() => {
     if (!isLoading) {
       setElapsedTime(0);
       setFakeTokens(0);
+      setTimeSinceLastMessage(0);
       return;
     }
 
@@ -23,6 +33,12 @@ function ClaudeStatus({ status, onAbort, isLoading, provider = 'claude' }) {
       setElapsedTime(elapsed);
       // Simulate token count increasing over time
       setFakeTokens(Math.floor(elapsed * tokenRate));
+      
+      // Calculate time since last WebSocket message
+      if (lastMessageTimeRef.current) {
+        const timeSince = Math.floor((Date.now() - lastMessageTimeRef.current) / 1000);
+        setTimeSinceLastMessage(timeSince);
+      }
     }, 1000);
 
     return () => clearInterval(timer);
@@ -71,13 +87,25 @@ function ClaudeStatus({ status, onAbort, isLoading, provider = 'claude' }) {
 
             {/* Status text - compact for mobile */}
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 sm:gap-2">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                 <span className="font-medium text-xs sm:text-sm truncate">{statusText}...</span>
                 <span className="text-gray-400 text-xs sm:text-sm flex-shrink-0">({elapsedTime}s)</span>
                 {tokens > 0 && (
                   <>
                     <span className="text-gray-500 hidden sm:inline">·</span>
                     <span className="text-gray-300 text-xs sm:text-sm hidden sm:inline flex-shrink-0">⚒ {tokens.toLocaleString()}</span>
+                  </>
+                )}
+                {wsMessageCount > 0 && (
+                  <>
+                    <span className="text-gray-500">·</span>
+                    <span className="text-blue-300 text-xs sm:text-sm flex-shrink-0" title="WebSocket消息数">📨 {wsMessageCount}</span>
+                  </>
+                )}
+                {timeSinceLastMessage > 0 && (
+                  <>
+                    <span className="text-gray-500">·</span>
+                    <span className="text-amber-300 text-xs sm:text-sm flex-shrink-0" title="距最新消息">⏱ {timeSinceLastMessage}s</span>
                   </>
                 )}
                 <span className="text-gray-500 hidden sm:inline">·</span>

@@ -84,6 +84,9 @@ function InputArea({
   handleAbortSession,
   provider,
   showThinking,
+  // WebSocket message tracking
+  wsMessageCount,
+  lastMessageTime,
   // Transcript
   handleTranscript,
   // Textarea state & handlers from useInputManagement
@@ -160,6 +163,8 @@ function InputArea({
           onAbort={handleAbortSession}
           provider={provider}
           showThinking={showThinking}
+          wsMessageCount={wsMessageCount}
+          lastMessageTime={lastMessageTime}
         />
       </div>
 
