@@ -2,42 +2,43 @@
  * InputToolbar - Toolbar component above the chat input
  * 
  * Contains:
- * - Permission mode selector
+ * - Permission mode selector (弱化样式)
  * - Token usage pie chart
  * - Slash commands button
  * - Clear input button
- * - Quick settings button
+ * - Refresh button (直接显示)
  * - Scroll to bottom button
  */
 
 import React, { memo } from 'react';
+import { RefreshCw } from 'lucide-react';
 import TokenUsagePie from '../../TokenUsagePie';
 
 /**
- * Permission mode button styles based on current mode
+ * Permission mode button styles based on current mode (弱化样式)
  */
 const getModeStyles = (mode) => {
   switch (mode) {
     case 'acceptEdits':
-      return 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-300 dark:border-green-600 hover:bg-green-100 dark:hover:bg-green-900/30';
+      return 'bg-green-50/50 dark:bg-green-900/10 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800 hover:bg-green-50 dark:hover:bg-green-900/20';
     case 'bypassPermissions':
-      return 'bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-600 hover:bg-orange-100 dark:hover:bg-orange-900/30';
+      return 'bg-orange-50/50 dark:bg-orange-900/10 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-800 hover:bg-orange-50 dark:hover:bg-orange-900/20';
     case 'plan':
-      return 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30';
+      return 'bg-blue-50/50 dark:bg-blue-900/10 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-900/20';
     default:
-      return 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600';
+      return 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700';
   }
 };
 
 /**
- * Permission mode indicator dot color
+ * Permission mode indicator dot color (弱化颜色)
  */
 const getModeDotColor = (mode) => {
   switch (mode) {
-    case 'acceptEdits': return 'bg-green-500';
-    case 'bypassPermissions': return 'bg-orange-500';
-    case 'plan': return 'bg-blue-500';
-    default: return 'bg-gray-500';
+    case 'acceptEdits': return 'bg-green-400 dark:bg-green-500';
+    case 'bypassPermissions': return 'bg-orange-400 dark:bg-orange-500';
+    case 'plan': return 'bg-blue-400 dark:bg-blue-500';
+    default: return 'bg-gray-400 dark:bg-gray-500';
   }
 };
 
@@ -63,24 +64,24 @@ function InputToolbar({
   textareaRef,
   input,
   handleClearInput,
-  onToggleQuickSettings,
   isUserScrolledUp,
   chatMessages,
-  scrollToBottom
+  scrollToBottom,
+  onRefreshSession
 }) {
   return (
     <div ref={inputContainerRef} className="max-w-4xl mx-auto mb-3">
-      <div className="flex items-center justify-center gap-3">
-        {/* Permission Mode Selector */}
+      <div className="flex items-center justify-center gap-2">
+        {/* Permission Mode Selector (弱化样式) */}
         <button
           type="button"
           onClick={cyclePermissionMode}
-          className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-all duration-200 ${getModeStyles(permissionMode)}`}
+          className={`px-2 py-1 rounded-md text-xs font-normal border transition-all duration-200 ${getModeStyles(permissionMode)}`}
           title="Click to change permission mode (or press Tab in input)"
         >
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${getModeDotColor(permissionMode)}`} />
-            <span>{getModeText(permissionMode)}</span>
+          <div className="flex items-center gap-1.5">
+            <div className={`w-1.5 h-1.5 rounded-full ${getModeDotColor(permissionMode)}`} />
+            <span className="opacity-80">{getModeText(permissionMode)}</span>
           </div>
         </button>
 
@@ -129,18 +130,19 @@ function InputToolbar({
           </button>
         )}
 
-        {/* Quick Settings button */}
-        {onToggleQuickSettings && (
+        {/* Refresh button - 直接显示在工具栏 */}
+        {onRefreshSession && (
           <button
             type="button"
-            onClick={onToggleQuickSettings}
-            className="w-8 h-8 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-full flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:ring-offset-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700"
-            title="Quick Settings"
+            onClick={(e) => {
+              onRefreshSession();
+              // 移除焦点，避免保持激活态
+              e.currentTarget.blur();
+            }}
+            className="w-8 h-8 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
+            title="刷新会话"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
+            <RefreshCw className="w-4 h-4" />
           </button>
         )}
 

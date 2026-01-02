@@ -24,7 +24,7 @@ import ClaudeLogo from './ClaudeLogo';
 import CursorLogo from './CursorLogo';
 import CodeBuddyLogo from './CodeBuddyLogo';
 import Tooltip from './Tooltip';
-import { MoreVertical, Unplug, RotateCcw, RefreshCw, MessageSquare, Terminal, Trash2, Edit3 } from 'lucide-react';
+import { MoreVertical, Unplug, RotateCcw, RefreshCw, MessageSquare, Terminal, Trash2, Edit3, Settings } from 'lucide-react';
 
 function MainContent({
   selectedProject,
@@ -718,6 +718,17 @@ function MainContent({
                       <div className="absolute right-0 top-full mt-1 bg-white dark:bg-gray-700 
                                     rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 
                                     py-1 z-50 min-w-[140px]">
+                        <button
+                          onClick={() => {
+                            onToggleQuickSettings?.();
+                            setMobileMoreMenuOpen(false);
+                          }}
+                          className="w-full flex items-center space-x-2 px-4 py-2 text-sm
+                                   text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 touch-manipulation"
+                        >
+                          <Settings className="w-4 h-4" />
+                          <span>快速设置</span>
+                        </button>
                         {selectedSession && (
                           <button
                             onClick={handleStartEditTitle}

@@ -161,7 +161,8 @@ function ChatInterface({
     canAbortSession,
     setCanAbortSession,
     isLoadingSessionRef,
-    handleAbortSession
+    handleAbortSession,
+    handleRefreshSession
   } = useChatSession({
     selectedProject,
     selectedSession,
@@ -179,7 +180,9 @@ function ChatInterface({
     processingSessions,
     externalMessageUpdate,
     // Background task support
-    getProjectTasks
+    getProjectTasks,
+    // Token usage refresh
+    fetchUpdatedTokenUsage
   });
 
   // Image upload management via custom hook
@@ -608,6 +611,8 @@ function ChatInterface({
           handleTextareaInput={handleTextareaInput}
           handleClearInput={handleClearInput}
           placeholderText={placeholderText}
+          // Refresh session
+          onRefreshSession={handleRefreshSession}
         />
 
         {/* Image Preview Modal */}

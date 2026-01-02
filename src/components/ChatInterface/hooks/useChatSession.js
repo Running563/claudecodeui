@@ -36,7 +36,9 @@ export function useChatSession({
   // External update trigger
   externalMessageUpdate,
   // Background task check
-  getProjectTasks
+  getProjectTasks,
+  // Token usage refresh
+  fetchUpdatedTokenUsage
 }) {
   const [currentSessionId, setCurrentSessionId] = useState(selectedSession?.id || null);
   const [isSystemSessionChange, setIsSystemSessionChange] = useState(false);
@@ -204,6 +206,74 @@ export function useChatSession({
     }
   }, [currentSessionId, canAbortSession, sendMessage, provider]);
 
+  // Refresh session handler - reload messages from server (like re-entering session)
+  const handleRefreshSession = useCallback(async () => {
+    if (!selectedSession || !selectedProject) {
+      console.warn('[useChatSession] Cannot refresh - no session or project selected');
+      return;
+    }
+
+    // Don't refresh if currently processing a message
+    if (isLoading) {
+      console.log('[useChatSession] Skipping refresh - currently loading');
+      return;
+    }
+
+    try {
+      const currentProvider = localStorage.getItem('selected-provider') || 'claude';
+      
+      console.log('[useChatSession] Refreshing session messages...');
+      
+      // Check if user was near bottom before refresh
+      const wasNearBottom = isNearBottom();
+      
+      // Reset pagination
+      resetPagination();
+      
+      if (currentProvider === 'cursor') {
+        const projectPath = selectedProject.path || selectedProject.path;
+        const converted = await loadCursorSessionMessagesWithState(projectPath, selectedSession.id);
+        setSessionMessages([]);
+        setChatMessages(converted);
+      } else {
+        const messages = await loadSessionMessages(getProjectId(selectedProject), selectedSession.id, false);
+        setSessionMessages(messages);
+        console.log(`[useChatSession] Loaded ${messages.length} messages`);
+        // chatMessages will be updated by the useEffect that watches convertedMessages
+      }
+
+      // Check session status
+      if (ws && sendMessage) {
+        sendMessage({
+          type: 'check-session-status',
+          sessionId: selectedSession.id,
+          provider: currentProvider
+        });
+      }
+
+      // Refresh token usage
+      if (fetchUpdatedTokenUsage) {
+        setTimeout(() => {
+          fetchUpdatedTokenUsage();
+        }, 100);
+      }
+
+      // Scroll to bottom after refresh (if auto-scroll is enabled or user was near bottom)
+      if (autoScrollToBottom || wasNearBottom) {
+        console.log('[useChatSession] Scrolling to bottom after refresh');
+        setTimeout(() => {
+          scrollToBottom();
+        }, 200);
+      }
+
+      console.log('[useChatSession] Session refreshed successfully');
+    } catch (error) {
+      console.error('[useChatSession] Error refreshing session:', error);
+    }
+  }, [selectedSession, selectedProject, isLoading, loadSessionMessages, loadCursorSessionMessagesWithState, 
+      setSessionMessages, setChatMessages, resetPagination, ws, sendMessage, fetchUpdatedTokenUsage,
+      autoScrollToBottom, isNearBottom, scrollToBottom]);
+
   return {
     currentSessionId,
     setCurrentSessionId,
@@ -216,7 +286,8 @@ export function useChatSession({
     canAbortSession,
     setCanAbortSession,
     isLoadingSessionRef,
-    handleAbortSession
+    handleAbortSession,
+    handleRefreshSession
   };
 }
 

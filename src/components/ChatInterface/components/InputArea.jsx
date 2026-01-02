@@ -76,8 +76,6 @@ function InputArea({
   scrollToBottom,
   isUserScrolledUp,
   chatMessages,
-  // Quick settings
-  onToggleQuickSettings,
   // Edit mode
   editingMessageIndex,
   handleCancelEdit,
@@ -95,7 +93,9 @@ function InputArea({
   handleTextareaClick,
   handleTextareaInput,
   handleClearInput,
-  placeholderText
+  placeholderText,
+  // Refresh session
+  onRefreshSession
 }) {
   // Select command handler
   const selectCommand = useCallback((command) => {
@@ -174,10 +174,10 @@ function InputArea({
         textareaRef={textareaRef}
         input={input}
         handleClearInput={handleClearInput}
-        onToggleQuickSettings={onToggleQuickSettings}
         isUserScrolledUp={isUserScrolledUp}
         chatMessages={chatMessages}
         scrollToBottom={scrollToBottom}
+        onRefreshSession={onRefreshSession}
       />
       
       <form onSubmit={handleSubmit} className="relative max-w-4xl mx-auto">
