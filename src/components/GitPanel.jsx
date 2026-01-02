@@ -779,6 +779,16 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
   };
 
   const generateCommitMessage = async () => {
+    // Check if there are staged files
+    const stagedCount = (gitStatus?.staged?.modified?.length || 0) + 
+                        (gitStatus?.staged?.added?.length || 0) + 
+                        (gitStatus?.staged?.deleted?.length || 0);
+    
+    if (stagedCount === 0) {
+      alert('No staged files. Please stage files before generating commit message.');
+      return;
+    }
+    
     setIsGeneratingMessage(true);
     try {
       const response = await authenticatedFetch('/api/git/generate-commit-message', {
@@ -786,7 +796,6 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           project: getProjectId(selectedProject),
-          files: Array.from(selectedFiles),
           provider: provider // Pass the current provider (claude or cursor)
         })
       });
@@ -796,9 +805,11 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
         setCommitMessage(data.message);
       } else {
         console.error('Failed to generate commit message:', data.error);
+        alert('Failed to generate commit message: ' + (data.error || 'Unknown error'));
       }
     } catch (error) {
       console.error('Error generating commit message:', error);
+      alert('Error generating commit message: ' + error.message);
     } finally {
       setIsGeneratingMessage(false);
     }
@@ -845,7 +856,12 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
   };
 
   const handleCommit = async () => {
-    if (!commitMessage.trim() || selectedFiles.size === 0) return;
+    // Check if there are staged changes
+    const stagedCount = (gitStatus?.staged?.modified?.length || 0) + 
+                        (gitStatus?.staged?.added?.length || 0) + 
+                        (gitStatus?.staged?.deleted?.length || 0);
+    
+    if (!commitMessage.trim() || stagedCount === 0) return;
 
     setIsCommitting(true);
     try {
@@ -854,8 +870,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           project: getProjectId(selectedProject),
-          message: commitMessage,
-          files: Array.from(selectedFiles)
+          message: commitMessage
         })
       });
 
@@ -868,9 +883,12 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
         fetchRemoteStatus();
       } else {
         console.error('Commit failed:', data.error);
+        // Show error to user
+        alert(data.error + (data.details ? '\n\n' + data.details : ''));
       }
     } catch (error) {
       console.error('Error committing changes:', error);
+      alert('Failed to commit changes: ' + error.message);
     } finally {
       setIsCommitting(false);
     }
@@ -1673,7 +1691,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                         className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
                       >
                         <GitCommit className="w-4 h-4" />
-                        <span>Commit {selectedFiles.size} file{selectedFiles.size !== 1 ? 's' : ''}</span>
+                        <span>Commit {((gitStatus?.staged?.modified?.length || 0) + (gitStatus?.staged?.added?.length || 0) + (gitStatus?.staged?.deleted?.length || 0))} staged file{(((gitStatus?.staged?.modified?.length || 0) + (gitStatus?.staged?.added?.length || 0) + (gitStatus?.staged?.deleted?.length || 0)) !== 1) ? 's' : ''}</span>
                         <ChevronDown className="w-3 h-3" />
                       </button>
                     </div>
@@ -1711,7 +1729,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                       <div className="absolute right-2 top-2 flex gap-1">
                         <button
                           onClick={generateCommitMessage}
-                          disabled={selectedFiles.size === 0 || isGeneratingMessage}
+                          disabled={((gitStatus?.staged?.modified?.length || 0) + (gitStatus?.staged?.added?.length || 0) + (gitStatus?.staged?.deleted?.length || 0)) === 0 || isGeneratingMessage}
                           className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
                           title="Generate commit message"
                         >
@@ -1732,14 +1750,19 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                     </div>
                     <div className="flex items-center justify-between mt-2">
                       <span className="text-xs text-gray-500">
-                        {selectedFiles.size} file{selectedFiles.size !== 1 ? 's' : ''} selected
+                        {((gitStatus?.staged?.modified?.length || 0) + (gitStatus?.staged?.added?.length || 0) + (gitStatus?.staged?.deleted?.length || 0))} staged file{(((gitStatus?.staged?.modified?.length || 0) + (gitStatus?.staged?.added?.length || 0) + (gitStatus?.staged?.deleted?.length || 0)) !== 1) ? 's' : ''}
                       </span>
                       <button
-                        onClick={() => setConfirmAction({ 
-                          type: 'commit', 
-                          message: `Commit ${selectedFiles.size} file${selectedFiles.size !== 1 ? 's' : ''} with message: "${commitMessage.trim()}"?` 
-                        })}
-                        disabled={!commitMessage.trim() || selectedFiles.size === 0 || isCommitting}
+                        onClick={() => {
+                          const stagedCount = (gitStatus?.staged?.modified?.length || 0) + 
+                                            (gitStatus?.staged?.added?.length || 0) + 
+                                            (gitStatus?.staged?.deleted?.length || 0);
+                          setConfirmAction({ 
+                            type: 'commit', 
+                            message: `Commit ${stagedCount} staged file${stagedCount !== 1 ? 's' : ''} with message: "${commitMessage.trim()}"?` 
+                          });
+                        }}
+                        disabled={!commitMessage.trim() || ((gitStatus?.staged?.modified?.length || 0) + (gitStatus?.staged?.added?.length || 0) + (gitStatus?.staged?.deleted?.length || 0)) === 0 || isCommitting}
                         className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1"
                       >
                         <Check className="w-3 h-3" />

@@ -3,10 +3,10 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import { promises as fs } from 'fs';
-import { getProjectById } from '../db.js';
+import { getProjectById, deleteSessionBySessionId } from '../db.js';
 import { queryClaudeSDK } from '../claude-sdk.js';
 import { spawnCursor } from '../cursor-cli.js';
-import { spawnCodeBuddy } from '../codebuddy-sdk.js';
+import { query } from '@tencent-ai/agent-sdk';
 
 const router = express.Router();
 const execAsync = promisify(exec);
@@ -497,10 +497,10 @@ router.post('/unstage-all', async (req, res) => {
 
 // Commit changes
 router.post('/commit', async (req, res) => {
-  const { project, message, files } = req.body;
+  const { project, message } = req.body;
   
-  if (!project || !message || !files || files.length === 0) {
-    return res.status(400).json({ error: 'Project name, commit message, and files are required' });
+  if (!project || !message) {
+    return res.status(400).json({ error: 'Project name and commit message are required' });
   }
 
   try {
@@ -509,17 +509,44 @@ router.post('/commit', async (req, res) => {
     // Validate git repository
     await validateGitRepository(projectPath);
     
-    // Stage selected files
-    for (const file of files) {
-      await execAsync(`git add "${file}"`, { cwd: projectPath });
+    // Check if there are staged changes
+    const { stdout: statusOutput } = await execAsync('git status --porcelain', { cwd: projectPath });
+    let hasStagedChanges = false;
+    
+    statusOutput.split('\n').forEach(line => {
+      if (!line.trim()) return;
+      
+      const indexStatus = line[0];  // First char: staged status
+      
+      // Check if index has changes (M, A, D, R, etc., but not space or ?)
+      if (indexStatus !== ' ' && indexStatus !== '?') {
+        hasStagedChanges = true;
+      }
+    });
+    
+    // If no staged changes, return error
+    if (!hasStagedChanges) {
+      return res.status(400).json({ 
+        error: 'Nothing to commit',
+        details: 'No files are staged for commit. Please stage files first using "git add".'
+      });
     }
     
-    // Commit with message
+    // Commit staged changes
     const { stdout } = await execAsync(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd: projectPath });
     
     res.json({ success: true, output: stdout });
   } catch (error) {
     console.error('Git commit error:', error);
+    
+    // Handle common commit errors
+    if (error.message.includes('nothing to commit')) {
+      return res.status(400).json({ 
+        error: 'Nothing to commit',
+        details: 'No files are staged for commit. Please stage files first using "git add".'
+      });
+    }
+    
     res.status(500).json({ error: error.message });
   }
 });
@@ -807,10 +834,10 @@ router.get('/commit-file-diff', async (req, res) => {
 
 // Generate commit message based on staged changes using AI
 router.post('/generate-commit-message', async (req, res) => {
-  const { project, files, provider = 'claude' } = req.body;
+  const { project, provider = 'claude' } = req.body;
 
-  if (!project || !files || files.length === 0) {
-    return res.status(400).json({ error: 'Project name and files are required' });
+  if (!project) {
+    return res.status(400).json({ error: 'Project name is required' });
   }
 
   // Validate provider
@@ -821,26 +848,43 @@ router.post('/generate-commit-message', async (req, res) => {
   try {
     const projectPath = await getActualProjectPath(project);
 
-    // Get diff for selected files
-    let diffContext = '';
-    for (const file of files) {
-      try {
-        const { stdout } = await execAsync(
-          `git diff HEAD -- "${file}"`,
-          { cwd: projectPath }
-        );
-        if (stdout) {
-          diffContext += `\n--- ${file} ---\n${stdout}`;
-        }
-      } catch (error) {
-        console.error(`Error getting diff for ${file}:`, error);
+    // Get list of staged files from git status
+    const { stdout: statusOutput } = await execAsync('git status --porcelain', { cwd: projectPath });
+    const stagedFiles = [];
+    
+    statusOutput.split('\n').forEach(line => {
+      if (!line.trim()) return;
+      
+      const indexStatus = line[0];  // First char: staged status
+      const file = line.substring(3);
+      
+      // Only files with changes in the index (staged) 
+      if (indexStatus !== ' ' && indexStatus !== '?') {
+        stagedFiles.push(file);
       }
+    });
+
+    if (stagedFiles.length === 0) {
+      return res.status(400).json({ 
+        error: 'No staged files',
+        details: 'Please stage files before generating commit message.' 
+      });
     }
 
-    // If no diff found, might be untracked files
+    // Get diff for staged files (use --cached to get staged changes)
+    let diffContext = '';
+    try {
+      const { stdout } = await execAsync('git diff --cached', { cwd: projectPath });
+      if (stdout) {
+        diffContext = stdout;
+      }
+    } catch (error) {
+      console.error('Error getting staged diff:', error);
+    }
+
+    // If no diff found (might be new repository or only new files), get file contents
     if (!diffContext.trim()) {
-      // Try to get content of untracked files
-      for (const file of files) {
+      for (const file of stagedFiles) {
         try {
           const filePath = path.join(projectPath, file);
           const stats = await fs.stat(filePath);
@@ -857,8 +901,15 @@ router.post('/generate-commit-message', async (req, res) => {
       }
     }
 
+    if (!diffContext.trim()) {
+      return res.status(400).json({ 
+        error: 'No changes to analyze',
+        details: 'Could not retrieve diff for staged files.' 
+      });
+    }
+
     // Generate commit message using AI
-    const message = await generateCommitMessageWithAI(files, diffContext, provider, projectPath);
+    const message = await generateCommitMessageWithAI(stagedFiles, diffContext, provider, projectPath);
 
     res.json({ message });
   } catch (error) {
@@ -876,70 +927,71 @@ router.post('/generate-commit-message', async (req, res) => {
  * @returns {Promise<string>} Generated commit message
  */
 async function generateCommitMessageWithAI(files, diffContext, provider, projectPath) {
-  // Create the prompt
-  const prompt = `Generate a conventional commit message for these changes.
+  // Limit diff size but be more generous (30 files might need more context)
+  const maxDiffSize = 4000; 
+  const truncatedDiff = diffContext.length > maxDiffSize 
+    ? diffContext.substring(0, maxDiffSize) + '\n\n... (diff truncated for brevity) ...'
+    : diffContext;
 
-REQUIREMENTS:
-- Format: type(scope): subject
-- Include body explaining what changed and why
-- Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore
-- Subject under 50 chars, body wrapped at 72 chars
-- Focus on user-facing changes, not implementation details
-- Consider what's being added AND removed
-- Return ONLY the commit message (no markdown, explanations, or code blocks)
+  // Create the prompt - explicitly forbid tool usage
+  const prompt = `你是一个 Git 提交信息生成器。请根据以下变更直接生成一个简短的提交信息。
 
-FILES CHANGED:
+**严格要求**：
+- 格式：type(scope): 简短描述
+- 类型(type)使用英文：feat, fix, docs, style, refactor, perf, test, build, ci, chore
+- 描述使用中文，最多 50 个字，越简洁越好
+- **只返回一行提交信息，不要换行、不要 markdown、不要解释**
+- **禁止使用任何工具（Read/Bash/Edit等）**
+- **禁止读取文件或执行命令**
+- **直接根据下面提供的信息生成结果**
+
+变更的文件：
 ${files.map(f => `- ${f}`).join('\n')}
 
-DIFFS:
-${diffContext.substring(0, 4000)}
+变更内容（已提供完整信息，无需再查看文件）：
+${truncatedDiff}
 
-Generate the commit message:`;
+请直接生成提交信息（只返回一行）：`;
+
+  let capturedSessionId = null;
 
   try {
-    // Create a simple writer that collects the response
     let responseText = '';
+
+    // For Claude and Cursor, create a writer that collects responses
     const writer = {
       send: (data) => {
         try {
           const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-          console.log('🔍 Writer received message type:', parsed.type);
 
-          // Handle different message formats from Claude SDK and Cursor CLI
-          // Claude SDK sends: {type: 'claude-response', data: {message: {content: [...]}}}
+          // Capture session-id
+          if (parsed.type === 'session-created' && parsed.sessionId) {
+            capturedSessionId = parsed.sessionId;
+          }
+
+          // Claude SDK: {type: 'claude-response', data: {message: {content: [...]}}}
           if (parsed.type === 'claude-response' && parsed.data) {
             const message = parsed.data.message || parsed.data;
-            console.log('📦 Claude response message:', JSON.stringify(message, null, 2).substring(0, 500));
             if (message.content && Array.isArray(message.content)) {
-              // Extract text from content array
               for (const item of message.content) {
                 if (item.type === 'text' && item.text) {
-                  console.log('✅ Extracted text chunk:', item.text.substring(0, 100));
                   responseText += item.text;
                 }
               }
             }
           }
-          // Cursor CLI sends: {type: 'cursor-output', output: '...'}
+          // Cursor CLI: {type: 'cursor-output', output: '...'}
           else if (parsed.type === 'cursor-output' && parsed.output) {
-            console.log('✅ Cursor output:', parsed.output.substring(0, 100));
             responseText += parsed.output;
           }
-          // Also handle direct text messages
-          else if (parsed.type === 'text' && parsed.text) {
-            console.log('✅ Direct text:', parsed.text.substring(0, 100));
-            responseText += parsed.text;
-          }
         } catch (e) {
-          // Ignore parse errors
           console.error('Error parsing writer data:', e);
         }
       },
-      setSessionId: () => {}, // No-op for this use case
+      setSessionId: (sessionId) => {
+        capturedSessionId = sessionId;
+      }
     };
-
-    console.log('🚀 Calling AI agent with provider:', provider);
-    console.log('📝 Prompt length:', prompt.length);
 
     // Call the appropriate agent
     if (provider === 'claude') {
@@ -954,24 +1006,78 @@ Generate the commit message:`;
         skipPermissions: true
       }, writer);
     } else if (provider === 'codebuddy') {
-      await spawnCodeBuddy(prompt, {
-        cwd: projectPath,
-        projectPath: projectPath,
-        permissionMode: 'bypassPermissions',
-        skipPermissions: true
-      }, writer);
+      // Use official SDK for faster, non-interactive query
+      const q = query({
+        prompt: prompt,
+        options: {
+          cwd: "",
+          permissionMode: 'bypassPermissions',  // Skip all permissions for speed
+          model: 'deepseek-v3-2-volc-ioa',     // Fixed fast model
+          settingSources: [],                   // Don't load any config files
+          mcpServers: {},                       // Disable MCP servers
+          hooks: {},                            // Disable hooks
+          allowedTools: []  // Disable ALL tools - force text-only response
+        }
+      });
+
+      // Stream results and extract text
+      for await (const message of q) {
+        if (message.type === 'assistant' && message.message?.content) {
+          for (const item of message.message.content) {
+            if (item.type === 'text' && item.text) {
+              responseText += item.text;
+            }
+          }
+        } 
+        // Also try to extract from content_block_delta (streaming format)
+        else if (message.type === 'content_block_delta' && message.delta?.text) {
+          responseText += message.delta.text;
+        }
+        // Handle result message
+        else if (message.type === 'result') {
+          // CodeBuddy SDK puts the final result in the result field
+          if (message.result && typeof message.result === 'string') {
+            responseText = message.result;
+          }
+          
+          // If we have response text, use it even if there was an error
+          if (message.subtype !== 'success' && !responseText) {
+            throw new Error(`CodeBuddy failed: ${message.error || message.subtype || 'No response generated'}`);
+          }
+          break;
+        }
+      }
     }
 
-    console.log('📊 Total response text collected:', responseText.length, 'characters');
-    console.log('📄 Response preview:', responseText.substring(0, 200));
+    // Clean up the session from database (if created)
+    if (capturedSessionId) {
+      try {
+        deleteSessionBySessionId(capturedSessionId);
+      } catch (cleanupError) {
+        console.error('Failed to delete temporary session:', cleanupError);
+      }
+    }
 
     // Clean up the response
     const cleanedMessage = cleanCommitMessage(responseText);
-    console.log('🧹 Cleaned message:', cleanedMessage.substring(0, 200));
 
-    return cleanedMessage || 'chore: update files';
+    if (!cleanedMessage || cleanedMessage.trim().length === 0) {
+      return `chore: update ${files.length} file${files.length !== 1 ? 's' : ''}`;
+    }
+
+    return cleanedMessage;
   } catch (error) {
     console.error('Error generating commit message with AI:', error);
+    
+    // Clean up session even on error
+    if (capturedSessionId) {
+      try {
+        deleteSessionBySessionId(capturedSessionId);
+      } catch (cleanupError) {
+        console.error('Failed to delete temporary session on error:', cleanupError);
+      }
+    }
+    
     // Fallback to simple message
     return `chore: update ${files.length} file${files.length !== 1 ? 's' : ''}`;
   }
