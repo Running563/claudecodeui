@@ -125,6 +125,12 @@ const builtInCommands = [
     description: 'Rewind the conversation to a previous state',
     namespace: 'builtin',
     metadata: { type: 'builtin' }
+  },
+  {
+    name: '/compact',
+    description: 'Compact conversation history to save tokens',
+    namespace: 'builtin',
+    metadata: { type: 'builtin' }
   }
 ];
 
@@ -365,6 +371,16 @@ Custom commands can be created in:
       data: {
         steps,
         message: `Rewinding conversation by ${steps} step${steps > 1 ? 's' : ''}...`
+      }
+    };
+  },
+
+  '/compact': async (args, context) => {
+    return {
+      type: 'builtin',
+      action: 'compact',
+      data: {
+        message: 'Compacting conversation history to save tokens...'
       }
     };
   }

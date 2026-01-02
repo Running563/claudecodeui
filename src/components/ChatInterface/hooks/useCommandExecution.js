@@ -125,6 +125,15 @@ export function useCommandExecution({
         }
         break;
 
+      case 'compact':
+        // Compact conversation history
+        setChatMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `🗜️ ${data.message}\n\nPlease summarize the conversation so far, keeping only the essential context and information needed to continue. Focus on:\n- Key decisions and conclusions\n- Important code changes\n- Unresolved issues\n- Current state of the project`,
+          timestamp: Date.now()
+        }]);
+        break;
+
       default:
         console.warn('Unknown built-in command action:', action);
     }
