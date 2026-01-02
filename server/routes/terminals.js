@@ -88,7 +88,8 @@ router.post('/', (req, res) => {
     }
     
     // Generate unique terminal ID
-    const terminalId = `terminal_${Date.now()}`;
+    // Note: Don't prefix with "terminal_" here since PTY key will add it
+    const terminalId = `quick_${Date.now()}`;
     
     const terminal = {
       id: terminalId,
@@ -165,14 +166,21 @@ router.put('/:id', (req, res) => {
       if (!wasKeepAlive && terminal.keepAlive && ptySessionsMap) {
         // Find the PTY session for this terminal
         // PTY session key format: terminal_{sessionId}_{projectPath}
+        console.log(`🔍 Looking for PTY session with prefix: terminal_${id}_`);
+        console.log(`🔍 Available PTY sessions:`, Array.from(ptySessionsMap.keys()));
+        
         for (const [key, session] of ptySessionsMap.entries()) {
-          if (key.startsWith(`${id}_`)) {
+          // Fix: Must include "terminal_" prefix in match since key format is:
+          // terminal_terminal_1704067200000_/path/to/project
+          if (key.startsWith(`terminal_${id}_`)) {
             // Send commands to disable timeout in the running shell
             // These commands work for bash/zsh
             const disableTimeoutCmd = 'export TMOUT=0; export IGNOREEOF=10\n';
             if (session.pty && session.pty.write) {
               session.pty.write(disableTimeoutCmd);
               console.log(`🔒 Sent keepAlive commands to terminal ${id}`);
+            } else {
+              console.warn(`⚠️ PTY session found but cannot write:`, key);
             }
             break;
           }
@@ -223,7 +231,7 @@ router.post('/:id/clone', (req, res) => {
     }
     
     // Create new terminal with same working directory
-    const newTerminalId = `terminal_${Date.now()}`;
+    const newTerminalId = `quick_${Date.now()}`;
     const newTerminal = {
       id: newTerminalId,
       workingDir: terminal.workingDir,

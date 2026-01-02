@@ -1250,8 +1250,10 @@ function handleShellConnection(ws) {
                         timeoutId: null,
                         projectPath,
                         sessionId,
-                        isKeepAlive
+                        isKeepAlive  // This flag determines if session keeps alive indefinitely
                     });
+                    
+                    console.log('💾 Saved PTY session:', ptySessionKey, 'isKeepAlive:', isKeepAlive);
 
                     // Handle data output
                     shellProcess.onData((data) => {
@@ -1401,29 +1403,36 @@ function handleShellConnection(ws) {
             if (session) {
                 session.ws = null;
 
-                // Check if this is a quick terminal with keepAlive enabled
-                // Quick terminal session keys are formatted as: terminal_{sessionId}_{projectPath}
-                // where sessionId itself is like "terminal_1234567890"
-                // So the full key looks like: terminal_terminal_1234567890_/path/to/project
-                const isQuickTerminalSession = ptySessionKey.startsWith('terminal_');
-                let shouldKeepAlive = false;
+                // Priority 1: Check session.isKeepAlive (set during init)
+                let shouldKeepAlive = session.isKeepAlive || false;
                 
-                if (isQuickTerminalSession) {
-                    // Extract the full sessionId (terminal_XXXXX) from the key
+                // Priority 2: Check if this is a quick terminal with keepAlive enabled
+                // (in case keepAlive was toggled after session creation)
+                const isQuickTerminalSession = ptySessionKey.startsWith('terminal_');
+                
+                if (isQuickTerminalSession && !shouldKeepAlive) {
+                    // Extract the sessionId from the key
                     // Key format: terminal_{sessionId}_{projectPath}
-                    // sessionId format: terminal_1234567890
-                    // So we need to match: terminal_(terminal_\d+)_
-                    const match = ptySessionKey.match(/^terminal_(terminal_\d+)_/);
+                    // sessionId format: quick_1704067200000 (after fix)
+                    // So we need to match: terminal_(quick_\d+)_
+                    const match = ptySessionKey.match(/^terminal_(quick_\d+)_/);
                     if (match) {
                         const terminalId = match[1];
                         const terminal = quickTerminals.get(terminalId);
                         console.log('🔍 Looking up terminal:', terminalId, 'found:', !!terminal, 'keepAlive:', terminal?.keepAlive);
+                        console.log('🔍 PTY session key:', ptySessionKey);
+                        console.log('🔍 Available terminals:', Array.from(quickTerminals.keys()));
+                        console.log('🔍 Session.isKeepAlive:', session.isKeepAlive);
                         if (terminal && terminal.keepAlive) {
                             shouldKeepAlive = true;
                             console.log('🔒 PTY session will be kept alive indefinitely (keepAlive enabled):', ptySessionKey);
                         }
+                    } else {
+                        console.warn('⚠️ Failed to extract terminal ID from PTY key:', ptySessionKey);
                     }
                 }
+                
+                console.log('🔍 Final shouldKeepAlive decision:', shouldKeepAlive);
 
                 if (shouldKeepAlive) {
                     // No timeout - keep alive indefinitely
