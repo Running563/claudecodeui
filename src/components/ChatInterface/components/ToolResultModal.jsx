@@ -2,6 +2,7 @@ import React from 'react';
 import { SyntaxHighlighter, vscDarkPlus } from '../config/syntaxHighlighter';
 import { stripAnsi, calculateDiff } from '../utils';
 import { useBackClose } from '../../../hooks/useBackClose';
+import Markdown from './Markdown';
 
 /**
  * Render a unified diff view
@@ -290,6 +291,41 @@ const ToolResultModal = ({ toolResultModal, onClose, onFileOpen }) => {
               <span className="text-gray-500 dark:text-gray-400">Signal: </span>
               <span className="text-gray-800 dark:text-gray-200">{signal || '(none)'}</span>
             </div>
+          </div>
+        </div>
+      );
+    }
+
+    // WebFetch/WebSearch tool with structured output
+    if (toolName === 'WebFetch' || toolName === 'WebSearch') {
+      let webInput = null;
+      try {
+        webInput = JSON.parse(message.toolInput);
+      } catch (e) {
+        // ignore
+      }
+      
+      // Get result content
+      const resultContent = stripAnsi(String(toolData?.content || content || ''));
+      
+      return (
+        <div className="space-y-4">
+          {/* Input Parameters */}
+          {webInput && (
+            <div className="pb-3 border-b border-gray-200 dark:border-gray-700">
+              <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Input Parameters</div>
+              <pre className="text-xs font-mono text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded p-3 overflow-x-auto whitespace-pre-wrap break-words border border-gray-200 dark:border-gray-700">
+                {JSON.stringify(webInput, null, 2)}
+              </pre>
+            </div>
+          )}
+          
+          {/* Result Content */}
+          <div>
+            <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">Result ({resultContent.length} chars)</div>
+            <Markdown className="prose prose-sm max-w-none dark:prose-invert prose-pre:bg-gray-100 dark:prose-pre:bg-gray-800 prose-pre:text-gray-800 dark:prose-pre:text-gray-200">
+              {resultContent}
+            </Markdown>
           </div>
         </div>
       );

@@ -150,6 +150,8 @@ const MessageComponent = memo(({
                 const isEditTool = ['Edit', 'Write', 'MultiEdit'].includes(message.toolName);
                 // Compact display for Bash tool
                 const isBashTool = message.toolName === 'Bash';
+                // Compact display for WebFetch and WebSearch tools
+                const isWebTool = ['WebFetch', 'WebSearch'].includes(message.toolName);
 
                 if (isSearchTool) {
                   return (
@@ -227,7 +229,7 @@ const MessageComponent = memo(({
                     return (
                       <div className="bg-gray-50/50 dark:bg-gray-800/30 border-l-2 border-gray-400 dark:border-gray-500 pl-3 py-2 my-2">
                         {/* First line: Bash + description */}
-                        <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 mb-1.5">
+                        <div className="flex items-start gap-2 text-xs text-gray-600 dark:text-gray-400 mb-1.5">
                           <svg className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                           </svg>
@@ -247,6 +249,45 @@ const MessageComponent = memo(({
                           <span className="text-green-400">$</span>
                           <span className="text-gray-100 ml-1.5 break-all">{input.command}</span>
                         </button>
+                      </div>
+                    );
+                  } catch (e) {
+                    // Fall through to default display
+                  }
+                }
+
+                // Compact WebFetch/WebSearch tool display
+                if (isWebTool) {
+                  try {
+                    const input = JSON.parse(message.toolInput);
+                    const isWebFetch = message.toolName === 'WebFetch';
+                    const displayText = isWebFetch ? input.url : input.searchTerm || input.query;
+                    const description = isWebFetch ? input.fetchInfo || input.prompt : input.explanation;
+                    
+                    return (
+                      <div className="bg-gray-50/50 dark:bg-gray-800/30 border-l-2 border-cyan-400 dark:border-cyan-500 pl-3 py-2 my-2">
+                        {/* First line: Tool name + URL/SearchTerm */}
+                        <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 mb-1.5">
+                          <svg className="w-3.5 h-3.5 text-cyan-500 dark:text-cyan-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            {isWebFetch ? (
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                            ) : (
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            )}
+                          </svg>
+                          <span className="font-medium">{message.toolName}</span>
+                          <span className="text-gray-400 dark:text-gray-500">•</span>
+                          <span className="text-gray-600 dark:text-gray-400 font-mono truncate">{displayText}</span>
+                        </div>
+                        {/* Second line: Description */}
+                        {description && (
+                          <button
+                            onClick={() => setToolResultModal({ message, toolName: message.toolName })}
+                            className="w-full text-left text-xs text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors pl-5"
+                          >
+                            {description}
+                          </button>
+                        )}
                       </div>
                     );
                   } catch (e) {
