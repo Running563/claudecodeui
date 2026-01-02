@@ -224,9 +224,6 @@ export function useChatSession({
       
       console.log('[useChatSession] Refreshing session messages...');
       
-      // Check if user was near bottom before refresh
-      const wasNearBottom = isNearBottom();
-      
       // Reset pagination
       resetPagination();
       
@@ -258,21 +255,18 @@ export function useChatSession({
         }, 100);
       }
 
-      // Scroll to bottom after refresh (if auto-scroll is enabled or user was near bottom)
-      if (autoScrollToBottom || wasNearBottom) {
-        console.log('[useChatSession] Scrolling to bottom after refresh');
-        setTimeout(() => {
-          scrollToBottom();
-        }, 200);
-      }
+      // Always scroll to bottom after manual refresh
+      console.log('[useChatSession] Scrolling to bottom after refresh');
+      setTimeout(() => {
+        scrollToBottom();
+      }, 200);
 
       console.log('[useChatSession] Session refreshed successfully');
     } catch (error) {
       console.error('[useChatSession] Error refreshing session:', error);
     }
   }, [selectedSession, selectedProject, isLoading, loadSessionMessages, loadCursorSessionMessagesWithState, 
-      setSessionMessages, setChatMessages, resetPagination, ws, sendMessage, fetchUpdatedTokenUsage,
-      autoScrollToBottom, isNearBottom, scrollToBottom]);
+      setSessionMessages, setChatMessages, resetPagination, ws, sendMessage, fetchUpdatedTokenUsage, scrollToBottom]);
 
   return {
     currentSessionId,
