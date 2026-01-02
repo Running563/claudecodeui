@@ -498,7 +498,8 @@ function MainContent({
         </div>
         {/* Content - Shell or Terminals */}
         <div className="flex-1 min-h-0 overflow-hidden">
-          {activeTab === 'shell' && (
+          {/* Keep Shell mounted but hidden to preserve connection */}
+          <div style={{ display: activeTab === 'shell' ? 'flex' : 'none', height: '100%', flexDirection: 'column' }}>
             <StandaloneShell
               ref={shellRef}
               project={null}
@@ -507,7 +508,7 @@ function MainContent({
               minimal={true}
               onShellStateChange={setShellState}
             />
-          )}
+          </div>
           {activeTab === 'terminals' && (
             <TerminalListView
               onSelectTerminal={onSelectTerminal}
@@ -906,18 +907,17 @@ function MainContent({
             <FileTree selectedProject={selectedProject} />
           </div>
         )}
-        {activeTab === 'shell' && (
-          <div className="h-full w-full overflow-hidden">
-            <StandaloneShell
-              ref={shellRef}
-              project={selectedProject}
-              session={selectedSession}
-              showHeader={false}
-              minimal={true}
-              onShellStateChange={setShellState}
-            />
-          </div>
-        )}
+        {/* Keep Shell mounted but hidden to preserve connection and state */}
+        <div style={{ display: activeTab === 'shell' ? 'flex' : 'none', height: '100%', width: '100%', overflow: 'hidden' }}>
+          <StandaloneShell
+            ref={shellRef}
+            project={selectedProject}
+            session={selectedSession}
+            showHeader={false}
+            minimal={true}
+            onShellStateChange={setShellState}
+          />
+        </div>
         {activeTab === 'git' && (
           <div className="h-full overflow-hidden">
             <GitPanel selectedProject={selectedProject} isMobile={isMobile} onFileOpen={handleFileOpen} />
