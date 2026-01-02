@@ -14,6 +14,7 @@ import Markdown from './Markdown';
 import UserMessageContent from './UserMessageContent';
 import InlineImagePreview from './InlineImagePreview';
 import TodoList from '../../TodoList';
+import Toast from '../../Toast';
 import { 
   stripAnsi, 
   formatUsageLimitText,
@@ -53,6 +54,7 @@ const MessageComponent = memo(({
                     (prevMessage.type === 'error'));
   const messageRef = useRef(null);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showToast, setShowToast] = useState(false);
   
   useEffect(() => {
     if (!autoExpandTools || !messageRef.current || !message.isToolUse) return;
@@ -96,6 +98,26 @@ const MessageComponent = memo(({
             </div>
           </div>
           <div className="flex items-center justify-end gap-3 mt-1.5 px-1">
+            {/* Copy button */}
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const textContent = typeof message.content === 'string' 
+                  ? message.content 
+                  : message.content?.text || JSON.stringify(message.content);
+                navigator.clipboard.writeText(textContent).then(() => {
+                  setShowToast(true);
+                });
+              }}
+              className="text-gray-400 dark:text-gray-500"
+              title="Copy message"
+              aria-label="Copy message"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+            </button>
             {/* Edit button */}
             {onEditMessage && (
               <button
@@ -1184,11 +1206,41 @@ const MessageComponent = memo(({
               </div>
             )}
             
-            <div className={`text-xs text-gray-500 dark:text-gray-400 mt-1 ${isGrouped ? 'opacity-0 group-hover:opacity-100' : ''}`}>
-              {new Date(message.timestamp).toLocaleTimeString()}
+            <div className={`flex items-center gap-3 mt-1 ${isGrouped ? 'opacity-0 group-hover:opacity-100' : ''}`}>
+              {/* Copy button */}
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const textContent = typeof message.content === 'string' 
+                    ? message.content 
+                    : message.content?.text || JSON.stringify(message.content);
+                  navigator.clipboard.writeText(textContent).then(() => {
+                    setShowToast(true);
+                  });
+                }}
+                className="text-gray-400 dark:text-gray-500"
+                title="Copy message"
+                aria-label="Copy message"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              </button>
+              {/* Time */}
+              <div className="text-xs text-gray-500 dark:text-gray-400">
+                {new Date(message.timestamp).toLocaleTimeString()}
+              </div>
             </div>
           </div>
         </div>
+      )}
+      {/* Toast notification */}
+      {showToast && (
+        <Toast 
+          message="已复制到剪贴板" 
+          onClose={() => setShowToast(false)} 
+        />
       )}
     </div>
   );

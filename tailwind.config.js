@@ -58,6 +58,15 @@ export default {
         'safe-area-inset-bottom': 'env(safe-area-inset-bottom)',
         'mobile-nav': 'var(--mobile-nav-total)',
       },
+      animation: {
+        'slide-down': 'slide-down 0.3s ease-out',
+      },
+      keyframes: {
+        'slide-down': {
+          '0%': { transform: 'translate(-50%, -100%)', opacity: '0' },
+          '100%': { transform: 'translate(-50%, 0)', opacity: '1' },
+        },
+      },
     },
   },
   plugins: [require('@tailwindcss/typography')],
