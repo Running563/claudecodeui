@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { GitBranch, GitCommit, Plus, Minus, RefreshCw, Check, X, ChevronDown, ChevronRight, Info, History, FileText, Mic, MicOff, Sparkles, Download, RotateCcw, Trash2, AlertTriangle, Upload, CloudDownload, GitPullRequest, List, FolderTree, Folder } from 'lucide-react';
+import { GitBranch, GitCommit, Plus, Minus, RefreshCw, Check, X, ChevronDown, ChevronRight, Info, History, FileText, Mic, MicOff, Sparkles, Download, RotateCcw, Trash2, AlertTriangle, Upload, CloudDownload, GitPullRequest, List, FolderTree } from 'lucide-react';
 import { MicButton } from './MicButton.jsx';
 import { authenticatedFetch, getProjectId } from '../utils/api';
 import DiffViewer from './DiffViewer.jsx';
@@ -36,7 +36,8 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
   const [confirmAction, setConfirmAction] = useState(null); // { type: 'discard|commit|pull|push|sync', file?: string, message?: string }
   const [isCreatingInitialCommit, setIsCreatingInitialCommit] = useState(false);
   const [viewMode, setViewMode] = useState('flat'); // 'flat' or 'tree'
-  const [expandedDirs, setExpandedDirs] = useState(new Set());
+  const [expandedStagedDirs, setExpandedStagedDirs] = useState(new Set());
+  const [expandedUnstagedDirs, setExpandedUnstagedDirs] = useState(new Set());
   // Stash related states
   const [stashList, setStashList] = useState([]);
   const [isLoadingStash, setIsLoadingStash] = useState(false);
@@ -1073,13 +1074,6 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
     return (
       <div key={`${filePath}-${isStaged ? 'staged' : 'unstaged'}`} className="border-b border-gray-200 dark:border-gray-700 last:border-0">
         <div className={`flex items-center hover:bg-gray-50 dark:hover:bg-gray-800 ${isMobile ? 'px-2 py-1.5' : 'px-3 py-2'}`}>
-          <input
-            type="checkbox"
-            checked={isSelected}
-            onChange={() => toggleFileSelected(filePath)}
-            onClick={(e) => e.stopPropagation()}
-            className={`rounded border-gray-300 dark:border-gray-600 text-blue-600 dark:text-blue-500 focus:ring-blue-500 dark:focus:ring-blue-400 dark:bg-gray-800 dark:checked:bg-blue-600 ${isMobile ? 'mr-1.5' : 'mr-2'}`}
-          />
           <span
             className={`flex-1 truncate ${isMobile ? 'text-xs' : 'text-sm'} cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 hover:underline`}
             onClick={(e) => {
@@ -1205,8 +1199,23 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
     return tree;
   };
 
+  // Get all directory paths from file list
+  const getAllDirPaths = (files) => {
+    const dirPaths = new Set();
+    files.forEach(filePath => {
+      const parts = filePath.split('/');
+      // Add all parent directory paths
+      for (let i = 1; i < parts.length; i++) {
+        const dirPath = parts.slice(0, i).join('/');
+        dirPaths.add(dirPath);
+      }
+    });
+    return dirPaths;
+  };
+
   // Toggle directory expansion
-  const toggleDirExpanded = (dirPath) => {
+  const toggleDirExpanded = (dirPath, isStaged) => {
+    const setExpandedDirs = isStaged ? setExpandedStagedDirs : setExpandedUnstagedDirs;
     setExpandedDirs(prev => {
       const newSet = new Set(prev);
       if (newSet.has(dirPath)) {
@@ -1240,18 +1249,11 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
       const stats = gitStatus?.fileStats?.[node.path];
       
       return (
-        <div key={`${node.path}-${isStaged ? 'staged' : 'unstaged'}`} className="border-b border-gray-200 dark:border-gray-700 last:border-0">
+        <div key={`${node.path}-${isStaged ? 'staged' : 'unstaged'}`} className="border-b border-gray-200 dark:border-gray-700">
           <div 
             className={`flex items-center hover:bg-gray-50 dark:hover:bg-gray-800 ${isMobile ? 'px-2 py-1.5' : 'px-3 py-2'}`}
             style={{ paddingLeft: `${(depth * 16) + (isMobile ? 8 : 12)}px` }}
           >
-            <input
-              type="checkbox"
-              checked={isSelected}
-              onChange={() => toggleFileSelected(node.path)}
-              onClick={(e) => e.stopPropagation()}
-              className={`rounded border-gray-300 dark:border-gray-600 text-blue-600 dark:text-blue-500 focus:ring-blue-500 dark:focus:ring-blue-400 dark:bg-gray-800 dark:checked:bg-blue-600 ${isMobile ? 'mr-1.5' : 'mr-2'}`}
-            />
             <span
               className={`flex-1 truncate ${isMobile ? 'text-xs' : 'text-sm'} cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 hover:underline`}
               onClick={(e) => {
@@ -1346,80 +1348,55 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
       );
     } else {
       // Directory
+      const expandedDirs = isStaged ? expandedStagedDirs : expandedUnstagedDirs;
       const isExpanded = expandedDirs.has(path);
       const filesInDir = getFilesInDir(node.children, path);
       const allSelected = filesInDir.every(f => selectedFiles.has(f));
       const someSelected = filesInDir.some(f => selectedFiles.has(f));
       
       return (
-        <div key={`dir-${path}-${isStaged ? 'staged' : 'unstaged'}`}>
-          <div 
-            className={`flex items-center hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer ${isMobile ? 'px-2 py-1.5' : 'px-3 py-2'}`}
-            style={{ paddingLeft: `${(depth * 16) + (isMobile ? 8 : 12)}px` }}
-            onClick={() => toggleDirExpanded(path)}
-          >
-            <input
-              type="checkbox"
-              checked={allSelected}
-              ref={el => {
-                if (el) el.indeterminate = someSelected && !allSelected;
-              }}
-              onChange={(e) => {
-                e.stopPropagation();
-                if (allSelected) {
-                  // Deselect all files in this directory
-                  setSelectedFiles(prev => {
-                    const newSet = new Set(prev);
-                    filesInDir.forEach(f => newSet.delete(f));
-                    return newSet;
-                  });
-                } else {
-                  // Select all files in this directory
-                  setSelectedFiles(prev => {
-                    const newSet = new Set(prev);
-                    filesInDir.forEach(f => newSet.add(f));
-                    return newSet;
-                  });
-                }
-              }}
-              onClick={(e) => e.stopPropagation()}
-              className={`rounded border-gray-300 dark:border-gray-600 text-blue-600 dark:text-blue-500 focus:ring-blue-500 dark:focus:ring-blue-400 dark:bg-gray-800 dark:checked:bg-blue-600 ${isMobile ? 'mr-1.5' : 'mr-2'}`}
-            />
-            <ChevronRight className={`w-3 h-3 mr-1 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-            <Folder className={`w-4 h-4 mr-1.5 ${isExpanded ? 'text-blue-500' : 'text-gray-400'}`} />
-            <span className={`flex-1 truncate ${isMobile ? 'text-xs' : 'text-sm'} font-medium`}>
-              {name}
-            </span>
-            <span className="text-xs text-gray-400 mr-2">
-              {filesInDir.length}
-            </span>
-            {!isStaged && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleStageFiles(filesInDir);
-                }}
-                className="p-1 hover:bg-green-100 dark:hover:bg-green-900/30 rounded text-green-600 dark:text-green-400"
-                title="Stage all files in directory"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            )}
-            {isStaged && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleUnstageFiles(filesInDir);
-                }}
-                className="p-1 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 rounded text-yellow-600 dark:text-yellow-400"
-                title="Unstage all files in directory"
-              >
-                <Minus className="w-4 h-4" />
-              </button>
-            )}
+        <React.Fragment key={`dir-${path}-${isStaged ? 'staged' : 'unstaged'}`}>
+          <div className="border-b border-gray-200 dark:border-gray-700">
+            <div 
+              className={`flex items-center hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer ${isMobile ? 'px-2 py-1.5' : 'px-3 py-2'}`}
+              style={{ paddingLeft: `${(depth * 16) + (isMobile ? 8 : 12)}px` }}
+              onClick={() => toggleDirExpanded(path, isStaged)}
+            >
+              <ChevronRight className={`w-3 h-3 mr-1.5 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+              <span className={`flex-1 truncate ${isMobile ? 'text-xs' : 'text-sm'} font-medium text-gray-700 dark:text-gray-300`}>
+                {name}
+              </span>
+              <span className="text-xs text-gray-400 mr-2">
+                {filesInDir.length}
+              </span>
+              {!isStaged && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleStageFiles(filesInDir);
+                  }}
+                  className="p-1 hover:bg-green-100 dark:hover:bg-green-900/30 rounded text-green-600 dark:text-green-400"
+                  title="Stage all files in directory"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              )}
+              {isStaged && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleUnstageFiles(filesInDir);
+                  }}
+                  className="p-1 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 rounded text-yellow-600 dark:text-yellow-400"
+                  title="Unstage all files in directory"
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </div>
           {isExpanded && (
-            <div>
+            <>
               {Object.entries(node.children)
                 .sort(([, a], [, b]) => {
                   // Directories first, then files
@@ -1430,9 +1407,9 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                 .map(([childName, childNode]) => 
                   renderTreeItem(childName, childNode, `${path}/${childName}`, depth + 1, isStaged)
                 )}
-            </div>
+            </>
           )}
-        </div>
+        </React.Fragment>
       );
     }
   };
@@ -1629,7 +1606,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
       ) : (
         <>
           {/* Tab Navigation - Only show when git is available and no files expanded */}
-          <div className={`flex border-b border-gray-200 dark:border-gray-700 transition-all duration-300 ease-in-out ${
+          <div className={`flex items-center border-b border-gray-200 dark:border-gray-700 transition-all duration-300 ease-in-out ${
             expandedFiles.size === 0 
               ? 'max-h-16 opacity-100 translate-y-0' 
               : 'max-h-0 opacity-0 -translate-y-2 overflow-hidden'
@@ -1673,6 +1650,44 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                 <span>History</span>
               </div>
             </button>
+            
+            {/* View mode toggle - moved here */}
+            {activeView === 'changes' && (
+              <>
+                <span className="text-gray-300 dark:text-gray-600 ml-auto mr-2">|</span>
+                <button
+                  onClick={() => {
+                    const newMode = viewMode === 'flat' ? 'tree' : 'flat';
+                    setViewMode(newMode);
+                    
+                    // Auto-expand all directories when switching to tree view
+                    if (newMode === 'tree' && gitStatus) {
+                      // Get all staged files
+                      const stagedFiles = [
+                        ...(gitStatus?.staged?.modified || []),
+                        ...(gitStatus?.staged?.added || []),
+                        ...(gitStatus?.staged?.deleted || [])
+                      ];
+                      const stagedDirs = getAllDirPaths(stagedFiles);
+                      setExpandedStagedDirs(stagedDirs);
+                      
+                      // Get all unstaged files
+                      const unstagedFiles = [
+                        ...(gitStatus?.unstaged?.modified || []),
+                        ...(gitStatus?.unstaged?.deleted || []),
+                        ...(gitStatus?.untracked || [])
+                      ];
+                      const unstagedDirs = getAllDirPaths(unstagedFiles);
+                      setExpandedUnstagedDirs(unstagedDirs);
+                    }
+                  }}
+                  className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded text-gray-500 dark:text-gray-400 mr-3"
+                  title={viewMode === 'flat' ? 'Switch to tree view' : 'Switch to flat view'}
+                >
+                  {viewMode === 'flat' ? <FolderTree className="w-4 h-4" /> : <List className="w-4 h-4" />}
+                </button>
+              </>
+            )}
           </div>
 
           {/* Changes View */}
@@ -1777,47 +1792,6 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
           )}
 
           {/* File Selection Controls - Only show in changes view and when git is working */}
-          {activeView === 'changes' && gitStatus && !gitStatus.error && (
-            <div className={`border-b border-gray-200 dark:border-gray-700 flex items-center justify-between ${isMobile ? 'px-3 py-1.5' : 'px-4 py-2'}`}>
-              <span className={`text-gray-600 dark:text-gray-400 ${isMobile ? 'text-xs' : 'text-xs'}`}>
-                {selectedFiles.size} of {(gitStatus?.staged?.modified?.length || 0) + (gitStatus?.staged?.added?.length || 0) + (gitStatus?.staged?.deleted?.length || 0) + (gitStatus?.unstaged?.modified?.length || 0) + (gitStatus?.unstaged?.deleted?.length || 0) + (gitStatus?.untracked?.length || 0)} {isMobile ? '' : 'files'}
-              </span>
-              <div className={`flex items-center ${isMobile ? 'gap-1' : 'gap-2'}`}>
-                {/* View mode toggle */}
-                <button
-                  onClick={() => setViewMode(viewMode === 'flat' ? 'tree' : 'flat')}
-                  className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded text-gray-500 dark:text-gray-400"
-                  title={viewMode === 'flat' ? 'Switch to tree view' : 'Switch to flat view'}
-                >
-                  {viewMode === 'flat' ? <FolderTree className="w-4 h-4" /> : <List className="w-4 h-4" />}
-                </button>
-                <span className="text-gray-300 dark:text-gray-600">|</span>
-                <button
-                  onClick={() => {
-                    const allFiles = new Set([
-                      ...(gitStatus?.staged?.modified || []),
-                      ...(gitStatus?.staged?.added || []),
-                      ...(gitStatus?.staged?.deleted || []),
-                      ...(gitStatus?.unstaged?.modified || []),
-                      ...(gitStatus?.unstaged?.deleted || []),
-                      ...(gitStatus?.untracked || [])
-                    ]);
-                    setSelectedFiles(allFiles);
-                  }}
-                  className={`text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 ${isMobile ? 'text-xs' : 'text-xs'}`}
-                >
-                  {isMobile ? 'All' : 'Select All'}
-                </button>
-                <span className="text-gray-300 dark:text-gray-600">|</span>
-                <button
-                  onClick={() => setSelectedFiles(new Set())}
-                  className={`text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 ${isMobile ? 'text-xs' : 'text-xs'}`}
-                >
-                  {isMobile ? 'None' : 'Deselect All'}
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* Status Legend Toggle - Hide on mobile by default */}
           {!gitStatus?.error && !isMobile && (

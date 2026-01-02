@@ -1012,7 +1012,7 @@ ${truncatedDiff}
         options: {
           cwd: "",
           permissionMode: 'bypassPermissions',  // Skip all permissions for speed
-          model: 'deepseek-v3-2-volc-ioa',     // Fixed fast model
+          model: 'claude-haiku-4.5',     // Fixed fast model
           settingSources: [],                   // Don't load any config files
           mcpServers: {},                       // Disable MCP servers
           hooks: {},                            // Disable hooks
