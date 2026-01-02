@@ -304,9 +304,7 @@ function InputArea({
 
           {/* Hint text - Desktop only */}
           <div className={`absolute bottom-1 left-12 right-14 sm:right-40 text-xs text-gray-400 dark:text-gray-500 pointer-events-none hidden sm:block transition-opacity duration-200 ${input.trim() ? 'opacity-0' : 'opacity-100'}`}>
-            {sendByCtrlEnter
-              ? "Ctrl+Enter 发送 • Shift+Enter 换行 • Tab 切换模式 • / 斜杠命令"
-              : "Enter 发送 • Shift+Enter 换行 • Tab 切换模式 • / 斜杠命令"}
+            Cmd+Enter 发送 • Enter 换行 • Tab 切换模式 • / 斜杠命令
           </div>
         </div>
       </form>

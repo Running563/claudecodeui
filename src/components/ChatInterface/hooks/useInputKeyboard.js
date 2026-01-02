@@ -107,7 +107,7 @@ export function useInputKeyboard({
       return;
     }
     
-    // Handle Enter key: Ctrl+Enter (Cmd+Enter on Mac) sends, Shift+Enter creates new line
+    // Handle Enter key: Cmd+Enter (Ctrl+Enter) sends, plain Enter creates new line
     if (e.key === 'Enter') {
       // If we're in composition, don't send message
       if (e.nativeEvent.isComposing) {
@@ -118,20 +118,14 @@ export function useInputKeyboard({
         // Ctrl+Enter or Cmd+Enter: Send message
         e.preventDefault();
         handleSubmit(e);
-      } else if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
-        // Plain Enter: Send message only if not in IME composition
-        if (!sendByCtrlEnter) {
-          e.preventDefault();
-          handleSubmit(e);
-        }
       }
-      // Shift+Enter: Allow default behavior (new line)
+      // Plain Enter or Shift+Enter: Allow default behavior (new line)
     }
   }, [
     showCommandMenu, filteredCommands, selectedCommandIndex, setSelectedCommandIndex,
     showFileDropdown, filteredFiles, selectedFileIndex, setSelectedFileIndex,
     selectFile, selectCommand, closeCommandMenu, closeFileDropdown,
-    cyclePermissionMode, handleSubmit, sendByCtrlEnter
+    cyclePermissionMode, handleSubmit
   ]);
 
   return { handleKeyDown };
