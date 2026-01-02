@@ -201,6 +201,18 @@ async function syncProjectSessionsFromDir(projectDir, projectId, provider) {
     for (const jsonlFile of jsonlFiles) {
       const sourceFile = path.join(projectDir, jsonlFile);
       
+      // 检查文件大小，跳过空文件
+      try {
+        const stat = await fs.stat(sourceFile);
+        if (stat.size === 0) {
+          console.log(`[Sync] Skipping empty file: ${sourceFile}`);
+          continue;
+        }
+      } catch (e) {
+        // 文件不存在或无法访问，跳过
+        continue;
+      }
+      
       if (isCodeBuddy) {
         // CodeBuddy: 文件名就是 sessionId
         const sessionId = path.basename(jsonlFile, '.jsonl');
@@ -632,6 +644,18 @@ export async function syncProjects() {
       
       for (const jsonlFile of jsonlFiles) {
         const sourceFile = path.join(projectDir, jsonlFile);
+        
+        // 检查文件大小，跳过空文件
+        try {
+          const stat = await fs.stat(sourceFile);
+          if (stat.size === 0) {
+            console.log(`[Sync] Skipping empty file: ${sourceFile}`);
+            continue;
+          }
+        } catch (e) {
+          // 文件不存在或无法访问，跳过
+          continue;
+        }
         
         if (isCodeBuddy) {
           // CodeBuddy: 文件名就是 sessionId
