@@ -296,11 +296,11 @@ const ToolResultModal = ({ toolResultModal, onClose, onFileOpen }) => {
       );
     }
 
-    // WebFetch/WebSearch tool with structured output
-    if (toolName === 'WebFetch' || toolName === 'WebSearch') {
-      let webInput = null;
+    // WebFetch/WebSearch/Task tool with structured output
+    if (toolName === 'WebFetch' || toolName === 'WebSearch' || toolName === 'Task') {
+      let toolInput = null;
       try {
-        webInput = JSON.parse(message.toolInput);
+        toolInput = JSON.parse(message.toolInput);
       } catch (e) {
         // ignore
       }
@@ -311,11 +311,11 @@ const ToolResultModal = ({ toolResultModal, onClose, onFileOpen }) => {
       return (
         <div className="space-y-4">
           {/* Input Parameters */}
-          {webInput && (
+          {toolInput && (
             <div className="pb-3 border-b border-gray-200 dark:border-gray-700">
               <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Input Parameters</div>
               <pre className="text-xs font-mono text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded p-3 overflow-x-auto whitespace-pre-wrap break-words border border-gray-200 dark:border-gray-700">
-                {JSON.stringify(webInput, null, 2)}
+                {JSON.stringify(toolInput, null, 2)}
               </pre>
             </div>
           )}
@@ -522,7 +522,7 @@ const ToolResultModal = ({ toolResultModal, onClose, onFileOpen }) => {
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-0 md:p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-0 md:p-4"
       onClick={onClose}
     >
       <div 

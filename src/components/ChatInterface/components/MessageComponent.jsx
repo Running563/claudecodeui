@@ -295,6 +295,41 @@ const MessageComponent = memo(({
                   }
                 }
 
+                // Compact Task tool display (subagent launcher)
+                const isTaskTool = message.toolName === 'Task';
+                if (isTaskTool) {
+                  try {
+                    const input = JSON.parse(message.toolInput);
+                    const subagentType = input.subagent_type || input.subagent_name || 'Unknown';
+                    const description = input.description || '';
+                    
+                    return (
+                      <div className="bg-purple-50/50 dark:bg-purple-900/20 border-l-2 border-purple-400 dark:border-purple-500 pl-3 py-2 my-2">
+                        {/* First line: Task + subagent type */}
+                        <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 mb-1.5">
+                          <svg className="w-3.5 h-3.5 text-purple-500 dark:text-purple-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                          </svg>
+                          <span className="font-medium">{message.toolName}</span>
+                          <span className="text-gray-400 dark:text-gray-500">•</span>
+                          <span className="text-purple-600 dark:text-purple-400 font-medium">{subagentType}</span>
+                        </div>
+                        {/* Second line: Description */}
+                        {description && (
+                          <button
+                            onClick={() => setToolResultModal({ message, toolName: message.toolName })}
+                            className="w-full text-left text-xs text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors pl-5"
+                          >
+                            {description}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  } catch (e) {
+                    // Fall through to default display
+                  }
+                }
+
                 // Full display for other tools
                 return (
               <div className="group relative bg-gradient-to-br from-blue-50/50 to-indigo-50/50 dark:from-blue-950/20 dark:to-indigo-950/20 border border-blue-100/30 dark:border-blue-800/30 rounded-lg p-3 mb-2">
