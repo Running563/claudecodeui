@@ -1,88 +1,9 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { decodeHtmlEntities, formatUsageLimitText, hasImageContent, safeLocalStorage } from '../utils';
-
-const normalizeResultSnippet = (value) => {
-  if (value === null || value === undefined) {
-    return '';
-  }
-  if (typeof value === 'string') {
-    return value.trim();
-  }
-  if (Array.isArray(value)) {
-    return value
-      .map(item => {
-        if (typeof item === 'string') return item;
-        if (item && typeof item.text === 'string') return item.text;
-        return JSON.stringify(item);
-      })
-      .join('\n')
-      .trim();
-  }
-  if (typeof value === 'object') {
-    if (typeof value.text === 'string') {
-      return value.text.trim();
-    }
-    return JSON.stringify(value, null, 2);
-  }
-  return String(value).trim();
-};
-
-const extractCodebuddyResultText = (resultData, fallbackText = '') => {
-  const fallback = typeof fallbackText === 'string' ? fallbackText.trim() : '';
-  if (!resultData) {
-    return fallback;
-  }
-
-  const candidates = [];
-  const pushCandidate = (value) => {
-    const text = normalizeResultSnippet(value);
-    if (text) {
-      candidates.push(text);
-    }
-  };
-
-  pushCandidate(resultData.result);
-  pushCandidate(resultData.message);
-  pushCandidate(resultData.output);
-  pushCandidate(resultData.stdout);
-  pushCandidate(resultData.stderr);
-  pushCandidate(resultData.summary);
-  pushCandidate(resultData.details?.raw);
-  pushCandidate(resultData.details?.message);
-  pushCandidate(resultData.details);
-  pushCandidate(resultData.error?.message);
-  pushCandidate(resultData.error?.detail);
-  pushCandidate(resultData.error);
-  pushCandidate(resultData.error_message);
-  pushCandidate(resultData.error_details);
-  pushCandidate(resultData.data?.result);
-  pushCandidate(resultData.data?.message);
-
-  if (Array.isArray(resultData.messages)) {
-    pushCandidate(resultData.messages);
-  }
-
-  const resolved = candidates.find(text => text && text.trim());
-  if (resolved) {
-    return resolved.trim();
-  }
-
-  if (fallback) {
-    return fallback;
-  }
-
-  if (resultData.subtype) {
-    return resultData.is_error
-      ? `CodeBuddy 执行失败（${resultData.subtype}）`
-      : `CodeBuddy 完成：${resultData.subtype}`;
-  }
-
-  return '';
-};
+import { decodeHtmlEntities, formatUsageLimitText, hasImageContent } from '../utils';
 
 /**
  * Custom hook for handling WebSocket messages in ChatInterface
- * Processes various message types from Claude, Cursor, and CodeBuddy providers
+ * Processes unified session-* message types from all providers (Claude, Cursor, CodeBuddy)
  */
 export function useWebSocketMessages({
   messages,
@@ -342,50 +263,6 @@ export function useWebSocketMessages({
     }
   }, [setIsSystemSessionChange, onNavigateToSession]);
 
-  // Handle session completion (common logic for all providers)
-  const handleSessionCompletion = useCallback((completedSessionId, providerName, latestMessage, isResult = false) => {
-    // Update UI state if this is the current session
-    if (completedSessionId === currentSessionId || !currentSessionId) {
-      setIsLoading(false);
-      setCanAbortSession(false);
-      setClaudeStatus(null);
-      
-      // Fetch updated token usage after message completes
-      if (!isResult || providerName === 'claude') {
-        fetchUpdatedTokenUsage();
-      }
-    }
-
-    // Always mark the completed session as inactive and not processing
-    if (completedSessionId) {
-      if (onSessionCompleted) {
-        onSessionCompleted(completedSessionId, providerName);
-      }
-      if (onSessionInactive) {
-        onSessionInactive(completedSessionId);
-      }
-      if (onSessionNotProcessing) {
-        onSessionNotProcessing(completedSessionId);
-      }
-    }
-  }, [currentSessionId, setIsLoading, setCanAbortSession, setClaudeStatus, fetchUpdatedTokenUsage, onSessionCompleted, onSessionInactive, onSessionNotProcessing]);
-
-  // Handle new session navigation
-  const handleNewSessionNavigation = useCallback((sessionId) => {
-    const pendingSessionId = sessionStorage.getItem('pendingSessionId');
-    if (sessionId && !currentSessionId && sessionId === pendingSessionId) {
-      setCurrentSessionId(sessionId);
-      sessionStorage.removeItem('pendingSessionId');
-      setIsSystemSessionChange(true);
-      
-      if (onNavigateToSession) {
-        onNavigateToSession(sessionId);
-      }
-      return true;
-    }
-    return false;
-  }, [currentSessionId, setCurrentSessionId, setIsSystemSessionChange, onNavigateToSession]);
-
   // Main message handler effect
   useEffect(() => {
     if (messages.length === 0) return;
@@ -410,7 +287,7 @@ export function useWebSocketMessages({
 
     // Filter messages by session ID to prevent cross-session interference
     // Include system init messages that may set up new sessions
-    const globalMessageTypes = ['projects_updated', 'session-created', 'claude-complete', 'codebuddy-system', 'cursor-system', 'session-status', 'codebuddy-complete', 'codebuddy-result'];
+    const globalMessageTypes = ['projects_updated', 'session-created', 'session-complete', 'session-status'];
     const isGlobalMessage = globalMessageTypes.includes(latestMessage.type);
 
     if (!isGlobalMessage && latestMessage.sessionId && currentSessionId && latestMessage.sessionId !== currentSessionId) {
@@ -430,7 +307,7 @@ export function useWebSocketMessages({
         // Token budget now fetched via API after message completion
         break;
 
-      case 'claude-response': {
+      case 'session-response': {
         const messageData = latestMessage.data.message || latestMessage.data;
         
         // Handle Cursor/CodeBuddy streaming format
@@ -540,7 +417,7 @@ export function useWebSocketMessages({
         break;
       }
         
-      case 'claude-output': {
+      case 'session-output': {
         const cleaned = String(latestMessage.data || '');
         if (cleaned.trim()) {
           bufferStreamContent(cleaned, true);
@@ -548,7 +425,7 @@ export function useWebSocketMessages({
         break;
       }
       
-      case 'claude-interactive-prompt':
+      case 'session-prompt':
         setChatMessages(prev => [...prev, {
           type: 'assistant',
           content: latestMessage.data,
@@ -557,158 +434,22 @@ export function useWebSocketMessages({
         }]);
         break;
 
-      case 'claude-error':
+      // 统一处理所有 provider 的错误消息
+      case 'session-error': {
         // Stop loading state on error
         setIsLoading(false);
         setCanAbortSession(false);
         setClaudeStatus(null);
         
-        setChatMessages(prev => [...prev, {
-          type: 'error',
-          content: `Error: ${latestMessage.error}`,
-          timestamp: new Date()
-        }]);
-        
-        // Mark session as inactive on error
-        const claudeErrorSessionId = latestMessage.sessionId || currentSessionId;
-        if (claudeErrorSessionId) {
-          if (onSessionInactive) {
-            onSessionInactive(claudeErrorSessionId);
-          }
-          if (onSessionNotProcessing) {
-            onSessionNotProcessing(claudeErrorSessionId);
-          }
-        }
-        break;
-        
-      case 'cursor-system': {
-        try {
-          const cdata = latestMessage.data;
-          if (cdata && cdata.type === 'system' && cdata.subtype === 'init' && cdata.session_id) {
-            if (currentSessionId && cdata.session_id !== currentSessionId) {
-              handleSessionDuplication(cdata.session_id);
-              return;
-            }
-            if (!currentSessionId) {
-              handleNewSessionInit(cdata.session_id);
-              return;
-            }
-          }
-        } catch (e) {
-          // Silently ignore cursor-system errors
-        }
-        break;
-      }
-        
-      case 'cursor-user':
-        // Don't add user messages as they're already shown from input
-        break;
-        
-      case 'cursor-tool-use':
-        setChatMessages(prev => [...prev, {
-          type: 'assistant',
-          content: `Using tool: ${latestMessage.tool} ${latestMessage.input ? `with ${latestMessage.input}` : ''}`,
-          timestamp: new Date(),
-          isToolUse: true,
-          toolName: latestMessage.tool,
-          toolInput: latestMessage.input
-        }]);
-        break;
-      
-      case 'cursor-error':
-        setChatMessages(prev => [...prev, {
-          type: 'error',
-          content: `Cursor error: ${latestMessage.error || 'Unknown error'}`,
-          timestamp: new Date()
-        }]);
-        break;
-        
-      case 'cursor-result': {
-        const cursorCompletedSessionId = latestMessage.sessionId || currentSessionId;
-        handleSessionCompletion(cursorCompletedSessionId, 'cursor', latestMessage, true);
-
-        if (cursorCompletedSessionId === currentSessionId) {
-          try {
-            const r = latestMessage.data || {};
-            const textResult = typeof r.result === 'string' ? r.result : '';
-            flushStreamBuffer(false);
-            const pendingChunk = streamBufferRef.current;
-            streamBufferRef.current = '';
-
-            setChatMessages(prev => {
-              const updated = [...prev];
-              const last = updated[updated.length - 1];
-              if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
-                const finalContent = textResult && textResult.trim() ? textResult : (last.content || '') + (pendingChunk || '');
-                last.content = finalContent;
-                last.isStreaming = false;
-              } else if (textResult && textResult.trim()) {
-                updated.push({ type: r.is_error ? 'error' : 'assistant', content: textResult, timestamp: new Date(), isStreaming: false });
-              }
-              return updated;
-            });
-          } catch (e) {
-            // Silently ignore cursor-result errors
-          }
-        }
-
-        handleNewSessionNavigation(cursorCompletedSessionId);
-        break;
-      }
-
-      case 'cursor-output': {
-        try {
-          const raw = String(latestMessage.data ?? '');
-          const cleaned = raw.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '').trim();
-          if (cleaned) {
-            bufferStreamContent(cleaned, true);
-          }
-        } catch (e) {
-          // Silently ignore cursor-output errors
-        }
-        break;
-      }
-        
-      case 'codebuddy-system': {
-        try {
-          const cbdata = latestMessage.data;
-          if (cbdata && cbdata.type === 'system' && cbdata.subtype === 'init' && cbdata.session_id) {
-            if (currentSessionId && cbdata.session_id !== currentSessionId) {
-              handleSessionDuplication(cbdata.session_id);
-              return;
-            }
-            if (!currentSessionId) {
-              handleNewSessionInit(cbdata.session_id);
-              return;
-            }
-            if (cbdata.session_id === currentSessionId) {
-              return;
-            }
-          }
-        } catch (e) {
-          // Silently ignore codebuddy-system errors
-        }
-        break;
-      }
-
-      case 'codebuddy-user':
-        break;
-
-      case 'codebuddy-error': {
-        const errorMessage = latestMessage.userMessage || latestMessage.error || 'Unknown error';
-        const errorDetails = latestMessage.details?.raw || latestMessage.error;
-        const errorType = latestMessage.errorType || 'unknown';
-        
-        // Stop loading state on error
-        setIsLoading(false);
-        setCanAbortSession(false);
-        setClaudeStatus(null);
+        const errorMessage = latestMessage.error || 'Unknown error';
+        const errorDetails = latestMessage.details;
+        const errorType = latestMessage.errorType;
         
         setChatMessages(prev => [...prev, {
           type: 'error',
-          content: `CodeBuddy error: ${errorMessage}`,
+          content: `Error: ${errorMessage}`,
           errorType: errorType,
-          errorDetails: errorDetails !== errorMessage ? errorDetails : null,
+          errorDetails: errorDetails,
           timestamp: new Date()
         }]);
         
@@ -724,87 +465,18 @@ export function useWebSocketMessages({
         }
         
         if (errorDetails) {
-          console.error('CodeBuddy error details:', { type: errorType, details: errorDetails });
+          console.error('Error details:', { type: errorType, details: errorDetails });
         }
         break;
       }
         
-      case 'codebuddy-result': {
-        const codebuddyCompletedSessionId = latestMessage.sessionId || currentSessionId;
-        // Check if this is for current session OR if we're in a new session flow (currentSessionId not yet set)
-        const isCurrentSession = codebuddyCompletedSessionId === currentSessionId || 
-          (!currentSessionId && codebuddyCompletedSessionId);
-
-        if (isCurrentSession) {
-          setIsLoading(false);
-          setCanAbortSession(false);
-          setClaudeStatus(null);
-        }
-
-        if (codebuddyCompletedSessionId) {
-          if (onSessionInactive) {
-            onSessionInactive(codebuddyCompletedSessionId);
-          }
-          if (onSessionNotProcessing) {
-            onSessionNotProcessing(codebuddyCompletedSessionId);
-          }
-        }
-
-        if (isCurrentSession) {
-          try {
-            const r = latestMessage.data || {};
-            const bufferedChunk = typeof streamBufferRef.current === 'string' ? streamBufferRef.current : '';
-            flushStreamBuffer(false);
-            const textResult = extractCodebuddyResultText(r, bufferedChunk);
-            const fallbackMessage = r.is_error
-              ? `CodeBuddy 执行失败（${r.subtype || 'unknown'}）`
-              : 'CodeBuddy 执行完成';
-
-            setChatMessages(prev => {
-              const updated = [...prev];
-              const last = updated[updated.length - 1];
-              if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
-                last.content = textResult || last.content || fallbackMessage;
-                last.isStreaming = false;
-                if (r.is_error) {
-                  last.type = 'error';
-                }
-              } else if (textResult) {
-                updated.push({ type: r.is_error ? 'error' : 'assistant', content: textResult, timestamp: new Date(), isStreaming: false });
-              } else {
-                updated.push({ type: r.is_error ? 'error' : 'system', content: fallbackMessage, timestamp: new Date(), isStreaming: false });
-              }
-              return updated;
-            });
-          } catch (e) {
-            // Silently ignore codebuddy-result errors
-          }
-        }
-
-        handleNewSessionNavigation(codebuddyCompletedSessionId);
-        break;
-      }
-
-      case 'codebuddy-output': {
-        try {
-          const cbraw = String(latestMessage.data ?? '');
-          const cbcleaned = cbraw
-            .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
-            .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
-            .trim();
-          if (cbcleaned) {
-            bufferStreamContent(cbcleaned, true);
-          }
-        } catch (e) {
-          // Silently ignore codebuddy-output errors
-        }
-        break;
-      }
-
-      case 'codebuddy-complete': {
-        const cbCompletedSessionId = latestMessage.sessionId || currentSessionId;
-
-        if (cbCompletedSessionId === currentSessionId || !currentSessionId) {
+      // 统一处理所有 provider 的完成消息
+      case 'session-complete': {
+        const completedSessionId = latestMessage.sessionId || currentSessionId || sessionStorage.getItem('pendingSessionId');
+        const providerName = latestMessage.provider || 'claude';
+        
+        // 处理当前会话的 UI 状态
+        if (completedSessionId === currentSessionId || !currentSessionId) {
           setIsLoading(false);
           setCanAbortSession(false);
           setClaudeStatus(null);
@@ -849,42 +521,32 @@ export function useWebSocketMessages({
           }
         }
 
-        if (cbCompletedSessionId) {
+        // 标记会话完成
+        if (completedSessionId) {
           if (onSessionCompleted) {
-            onSessionCompleted(cbCompletedSessionId, 'codebuddy');
+            onSessionCompleted(completedSessionId, providerName);
           }
           if (onSessionInactive) {
-            onSessionInactive(cbCompletedSessionId);
+            onSessionInactive(completedSessionId);
           }
           if (onSessionNotProcessing) {
-            onSessionNotProcessing(cbCompletedSessionId);
+            onSessionNotProcessing(completedSessionId);
           }
         }
-
-        // Handle new session navigation (fallback)
-        if (latestMessage.isNewSession && cbCompletedSessionId && !currentSessionId) {
-          const pendingCbSessionId = sessionStorage.getItem('pendingSessionId');
-          
-          if (cbCompletedSessionId === pendingCbSessionId) {
-            setCurrentSessionId(cbCompletedSessionId);
+        
+        // Handle new session navigation
+        const pendingSessionId = sessionStorage.getItem('pendingSessionId');
+        if (latestMessage.isNewSession && completedSessionId && !currentSessionId) {
+          if (completedSessionId === pendingSessionId) {
+            setCurrentSessionId(completedSessionId);
             sessionStorage.removeItem('pendingSessionId');
             setIsSystemSessionChange(true);
             
             if (onNavigateToSession) {
-              onNavigateToSession(cbCompletedSessionId);
+              onNavigateToSession(completedSessionId);
             }
           }
-        }
-        break;
-      }
-        
-      case 'claude-complete': {
-        const completedSessionId = latestMessage.sessionId || currentSessionId || sessionStorage.getItem('pendingSessionId');
-        handleSessionCompletion(completedSessionId, 'claude', latestMessage);
-        
-        // Handle new session
-        const pendingSessionId = sessionStorage.getItem('pendingSessionId');
-        if (pendingSessionId && !currentSessionId && latestMessage.exitCode === 0) {
+        } else if (pendingSessionId && !currentSessionId && latestMessage.exitCode === 0) {
           setCurrentSessionId(pendingSessionId);
           sessionStorage.removeItem('pendingSessionId');
           setIsSystemSessionChange(true);
@@ -946,7 +608,7 @@ export function useWebSocketMessages({
         break;
       }
 
-      case 'claude-status': {
+      case 'assistant-status': {
         const statusData = latestMessage.data;
         if (statusData) {
           let statusInfo = {
@@ -992,7 +654,7 @@ export function useWebSocketMessages({
         break;
       }
     }
-  }, [messages, currentSessionId, selectedSession, selectedProject, setChatMessages, setIsLoading, setCanAbortSession, setClaudeStatus, setCurrentSessionId, setIsSystemSessionChange, fetchUpdatedTokenUsage, onSessionInactive, onSessionProcessing, onSessionNotProcessing, onSessionCompleted, onReplaceTemporarySession, onNavigateToSession, handleSessionCreated, handleSessionResumeFailed, handleContentBlockStart, handleToolResult, handleContentBlockDelta, flushStreamBuffer, bufferStreamContent, handleSessionDuplication, handleNewSessionInit, handleSessionCompletion, handleNewSessionNavigation]);
+  }, [messages, currentSessionId, selectedSession, setChatMessages, setIsLoading, setCanAbortSession, setClaudeStatus, setCurrentSessionId, setIsSystemSessionChange, fetchUpdatedTokenUsage, onSessionInactive, onSessionProcessing, onSessionNotProcessing, onSessionCompleted, onReplaceTemporarySession, onNavigateToSession, handleSessionCreated, handleSessionResumeFailed, handleContentBlockStart, handleToolResult, handleContentBlockDelta, flushStreamBuffer, bufferStreamContent, handleSessionDuplication, handleNewSessionInit]);
 
   return {
     streamBufferRef,

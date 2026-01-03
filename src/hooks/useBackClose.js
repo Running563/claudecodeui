@@ -3,6 +3,20 @@ import { useEffect, useRef } from 'react';
 // Global flag to prevent popstate handler from firing when we programmatically go back
 let isGoingBack = false;
 
+// Global flag to skip history.back() when closing - set this before closing a modal
+// when you're about to navigate to a new URL
+let skipHistoryBack = false;
+
+/**
+ * Skip the next history.back() call when a modal closes
+ * Call this before closing a modal when you're about to navigate to a new URL
+ */
+export function skipNextHistoryBack() {
+  skipHistoryBack = true;
+  // Reset after a tick in case it's not consumed
+  setTimeout(() => { skipHistoryBack = false; }, 100);
+}
+
 /**
  * Hook to close modal/dialog when browser back button is pressed (especially useful on mobile)
  * Uses history.pushState to add a state entry when modal opens, and listens for popstate to close
@@ -24,6 +38,11 @@ export function useBackClose(isOpen, onClose, id) {
       // When modal closes via UI (not back button), clean up the history state
       if (pushedState.current) {
         pushedState.current = false;
+        // Skip history.back() if we're about to navigate (e.g., selecting a session)
+        if (skipHistoryBack) {
+          skipHistoryBack = false;
+          return;
+        }
         isGoingBack = true;
         window.history.back();
         // Reset flag after a tick

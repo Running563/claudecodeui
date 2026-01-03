@@ -73,13 +73,15 @@ export function useChatSession({
         if (sessionChanged) {
           resetPagination();
           resetTokenBudget();
+          // 切换会话时，先强制重置状态为非进行中，然后再查询确认
           setIsLoading(false);
+          setCanAbortSession(false);
 
           if (ws && sendMessage) {
+            // 统一消息：不再传 provider，后端会检查所有 provider
             sendMessage({
               type: 'check-session-status',
-              sessionId: selectedSession.id,
-              provider: currentProvider
+              sessionId: selectedSession.id
             });
           }
         } else if (currentSessionId === null) {
@@ -88,8 +90,7 @@ export function useChatSession({
           if (ws && sendMessage) {
             sendMessage({
               type: 'check-session-status',
-              sessionId: selectedSession.id,
-              provider: currentProvider
+              sessionId: selectedSession.id
             });
           }
         }

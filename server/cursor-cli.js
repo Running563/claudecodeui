@@ -113,25 +113,17 @@ async function spawnCursor(command, options = {}, ws) {
                       type: 'session-created',
                       sessionId: capturedSessionId,
                       model: response.model,
-                      cwd: response.cwd
+                      cwd: response.cwd,
+                      provider: 'cursor'
                     }));
                   }
                 }
-                
-                // Send system info to frontend
-                ws.send(JSON.stringify({
-                  type: 'cursor-system',
-                  data: response
-                }));
+                // No need to send cursor-system separately, session-created is sufficient
               }
               break;
               
             case 'user':
-              // Forward user message
-              ws.send(JSON.stringify({
-                type: 'cursor-user',
-                data: response
-              }));
+              // User messages not needed by frontend (already shown from input)
               break;
               
             case 'assistant':
@@ -140,9 +132,9 @@ async function spawnCursor(command, options = {}, ws) {
                 const textContent = response.message.content[0].text;
                 messageBuffer += textContent;
                 
-                // Send as Claude-compatible format for frontend
+                // Send as session-response format for frontend
                 ws.send(JSON.stringify({
-                  type: 'claude-response',
+                  type: 'session-response',
                   data: {
                     type: 'content_block_delta',
                     delta: {
@@ -155,53 +147,44 @@ async function spawnCursor(command, options = {}, ws) {
               break;
               
             case 'result':
-              // Session complete
+              // Session complete - send content_block_stop if we have buffered content
               console.log('Cursor session result:', response);
-              
-              // Send final message if we have buffered content
               if (messageBuffer) {
                 ws.send(JSON.stringify({
-                  type: 'claude-response',
-                  data: {
-                    type: 'content_block_stop'
-                  }
+                  type: 'session-response',
+                  data: { type: 'content_block_stop' }
                 }));
               }
-              
-              // Send completion event
-              ws.send(JSON.stringify({
-                type: 'cursor-result',
-                sessionId: capturedSessionId || sessionId,
-                data: response,
-                success: response.subtype === 'success'
-              }));
+              // session-complete will be sent on process close
               break;
               
             case 'thinking':
-              // Cursor sends thinking messages (often empty) - only forward if there's actual content
+              // Forward thinking content as text delta if there's actual content
               if (response.text && response.text.trim()) {
                 ws.send(JSON.stringify({
-                  type: 'cursor-thinking',
-                  data: response
+                  type: 'session-response',
+                  data: {
+                    type: 'content_block_delta',
+                    delta: { type: 'thinking_delta', text: response.text }
+                  }
                 }));
               }
-              // Silently ignore empty thinking messages (heartbeats)
               break;
               
             default:
-              // Forward any other message types
-              ws.send(JSON.stringify({
-                type: 'cursor-response',
-                data: response
-              }));
+              // Ignore other message types (no need for cursor-response)
+              console.log('📦 Unhandled Cursor message type:', response.type);
           }
         } catch (parseError) {
-          console.log('📄 Non-JSON response:', line);
-          // If not JSON, send as raw text
-          ws.send(JSON.stringify({
-            type: 'cursor-output',
-            data: line
-          }));
+          // Non-JSON output - send as session-output
+          if (line.trim()) {
+            console.log('📄 Non-JSON response:', line);
+            ws.send(JSON.stringify({
+              type: 'session-output',
+              data: line,
+              provider: 'cursor'
+            }));
+          }
         }
       }
     });
@@ -209,9 +192,11 @@ async function spawnCursor(command, options = {}, ws) {
     // Handle stderr
     cursorProcess.stderr.on('data', (data) => {
       console.error('Cursor CLI stderr:', data.toString());
+      // 统一使用 session-error 消息类型
       ws.send(JSON.stringify({
-        type: 'cursor-error',
-        error: data.toString()
+        type: 'session-error',
+        error: data.toString(),
+        provider: 'cursor'
       }));
     });
     
@@ -224,10 +209,11 @@ async function spawnCursor(command, options = {}, ws) {
       activeCursorProcesses.delete(finalSessionId);
 
       ws.send(JSON.stringify({
-        type: 'claude-complete',
+        type: 'session-complete',
         sessionId: finalSessionId,
         exitCode: code,
-        isNewSession: !sessionId && !!command // Flag to indicate this was a new session
+        isNewSession: !sessionId && !!command,
+        provider: 'cursor'
       }));
       
       if (code === 0) {
@@ -245,9 +231,11 @@ async function spawnCursor(command, options = {}, ws) {
       const finalSessionId = capturedSessionId || sessionId || processKey;
       activeCursorProcesses.delete(finalSessionId);
       
+      // 统一使用 session-error 消息类型
       ws.send(JSON.stringify({
-        type: 'cursor-error',
-        error: error.message
+        type: 'session-error',
+        error: error.message,
+        provider: 'cursor'
       }));
       
       reject(error);

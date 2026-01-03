@@ -36,7 +36,7 @@ import { WebSocketProvider, useWebSocketContext } from './contexts/WebSocketCont
 import ProtectedRoute from './components/ProtectedRoute';
 
 import useLocalStorage from './hooks/useLocalStorage';
-import { useBackClose } from './hooks/useBackClose';
+import { useBackClose, skipNextHistoryBack } from './hooks/useBackClose';
 import { api, authenticatedFetch } from './utils/api';
 
 
@@ -53,6 +53,8 @@ function AppContent() {
   
   // Remember last selected project (especially for mobile)
   const [lastSelectedProjectId, setLastSelectedProjectId] = useLocalStorage('lastSelectedProjectId', null);
+  // Remember last selected session to restore on app restart
+  const [lastSelectedSessionId, setLastSelectedSessionId] = useLocalStorage('lastSelectedSessionId', null);
   const hasRestoredProjectRef = React.useRef(false); // Track if we've already restored the project
   const [activeTab, setActiveTab] = useState('chat'); // 'chat' or 'files'
   const [isMobile, setIsMobile] = useState(false);
@@ -472,7 +474,7 @@ function AppContent() {
   // Expose fetchProjects globally for component access
   window.refreshProjects = fetchProjects;
 
-  // Restore last selected project after projects are loaded (especially for mobile)
+  // Restore last selected session/project after projects are loaded
   // Only run once when projects first load and no session is being loaded from URL
   useEffect(() => {
     // Skip if already restored or if loading a session from URL
@@ -481,15 +483,38 @@ function AppContent() {
     }
     
     // Wait for projects to load
-    if (projects.length > 0 && lastSelectedProjectId) {
-      const lastProject = projects.find(p => p.id === lastSelectedProjectId);
-      if (lastProject) {
-        console.log('[App] Restoring last selected project:', lastSelectedProjectId);
-        setSelectedProject(lastProject);
-        hasRestoredProjectRef.current = true;
+    if (projects.length > 0) {
+      // First try to restore last session
+      if (lastSelectedSessionId) {
+        // Find the session across all projects
+        for (const project of projects) {
+          const session = project.sessions?.find(s => s.id === lastSelectedSessionId) ||
+                         project.codebuddySessions?.find(s => s.id === lastSelectedSessionId) ||
+                         project.cursorSessions?.find(s => s.id === lastSelectedSessionId);
+          if (session) {
+            console.log('[App] Restoring last selected session:', lastSelectedSessionId);
+            hasRestoredProjectRef.current = true;
+            // Navigate to the session URL - the URL-based loading effect will handle the rest
+            navigate(`/session/${lastSelectedSessionId}`);
+            return;
+          }
+        }
+        // Session not found, clear it
+        console.log('[App] Last session not found, clearing:', lastSelectedSessionId);
+        setLastSelectedSessionId(null);
+      }
+      
+      // Fall back to restoring just the project
+      if (lastSelectedProjectId) {
+        const lastProject = projects.find(p => p.id === lastSelectedProjectId);
+        if (lastProject) {
+          console.log('[App] Restoring last selected project:', lastSelectedProjectId);
+          setSelectedProject(lastProject);
+          hasRestoredProjectRef.current = true;
+        }
       }
     }
-  }, [projects, sessionId, lastSelectedProjectId]);
+  }, [projects, sessionId, lastSelectedProjectId, lastSelectedSessionId, navigate]);
 
   // Expose openSettings function globally for component access
   window.openSettings = useCallback((tab = 'tools') => {
@@ -500,6 +525,10 @@ function AppContent() {
   // Handle URL-based session loading
   useEffect(() => {
     if (sessionId && projects.length > 0) {
+      // Skip if already viewing this session - prevents unnecessary state updates
+      if (selectedSession?.id === sessionId) {
+        return;
+      }
       // Only switch tabs on initial load, not on every project update
       const shouldSwitchTab = !selectedSession || selectedSession.id !== sessionId;
       // Find the session across all projects
@@ -550,7 +579,7 @@ function AppContent() {
       // Just navigate to it and it will be found when the sidebar refreshes
       // Don't redirect to home, let the session load naturally
     }
-  }, [sessionId, projects, navigate]);
+  }, [sessionId, projects]);
 
   const handleProjectSelect = (project) => {
     setSelectedProject(project);
@@ -559,6 +588,7 @@ function AppContent() {
     setLastSelectedProjectId(project?.id || null);
     navigate('/');
     if (isMobile) {
+      skipNextHistoryBack();
       setSidebarOpen(false);
     }
   };
@@ -568,6 +598,8 @@ function AppContent() {
     clearMessages();
     
     setSelectedSession(session);
+    // Save last selected session to localStorage for restoration on app restart
+    setLastSelectedSessionId(session.id);
     // Only switch to chat tab when user explicitly selects a session
     // This prevents tab switching during automatic updates
     if (activeTab !== 'git' && activeTab !== 'preview') {
@@ -582,6 +614,10 @@ function AppContent() {
       sessionStorage.setItem('cursorSessionId', session.id);
     }
 
+    // Navigate first, then close sidebar
+    // Skip history.back() when closing sidebar to prevent URL from reverting
+    navigate(`/session/${session.id}`);
+
     // Only close sidebar on mobile if switching to a different project
     if (isMobile) {
       const sessionProjectName = session.__projectName;
@@ -590,10 +626,10 @@ function AppContent() {
       // Close sidebar if clicking a session from a different project
       // Keep it open if clicking a session from the same project
       if (sessionProjectName !== currentProjectName) {
+        skipNextHistoryBack();
         setSidebarOpen(false);
       }
     }
-    navigate(`/session/${session.id}`);
   };
 
   const handleNewSession = (project) => {
@@ -601,9 +637,12 @@ function AppContent() {
     setSelectedSession(null);
     // Save last selected project to localStorage (use hook setter for proper JSON format)
     setLastSelectedProjectId(project?.id || null);
+    // Clear last session since we're starting a new one
+    setLastSelectedSessionId(null);
     setActiveTab('chat');
     navigate('/');
     if (isMobile) {
+      skipNextHistoryBack();
       setSidebarOpen(false);
     }
   };
@@ -613,6 +652,11 @@ function AppContent() {
     if (selectedSession?.id === sessionId) {
       setSelectedSession(null);
       navigate('/');
+    }
+    
+    // Clear last selected session if it was deleted
+    if (lastSelectedSessionId === sessionId) {
+      setLastSelectedSessionId(null);
     }
     
     // Update projects state locally - filter all session types

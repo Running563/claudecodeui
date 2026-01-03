@@ -382,11 +382,8 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                   }
                 }
                 
-                // Send system info to frontend
-                safeSend(JSON.stringify({
-                  type: 'codebuddy-system',
-                  data: response
-                }));
+                // Send system info to frontend (session-created already sent above)
+                // No need for separate codebuddy-system message
               }
               break;
               
@@ -405,7 +402,7 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                     }
                     
                     safeSend(JSON.stringify({
-                      type: 'claude-response',
+                      type: 'session-response',
                       data: {
                         type: 'tool_result',
                         tool_use_id: contentBlock.tool_use_id,
@@ -425,7 +422,7 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                     messageBuffer += contentBlock.text;
                     
                     safeSend(JSON.stringify({
-                      type: 'claude-response',
+                      type: 'session-response',
                       data: {
                         type: 'content_block_delta',
                         delta: {
@@ -436,7 +433,7 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                     }));
                   } else if (contentBlock.type === 'tool_use') {
                     safeSend(JSON.stringify({
-                      type: 'claude-response',
+                      type: 'session-response',
                       data: {
                         type: 'content_block_start',
                         content_block: {
@@ -448,14 +445,14 @@ async function spawnCodeBuddy(command, options = {}, ws) {
                       }
                     }));
                     safeSend(JSON.stringify({
-                      type: 'claude-response',
+                      type: 'session-response',
                       data: {
                         type: 'content_block_stop'
                       }
                     }));
                   } else if (contentBlock.type === 'tool_result') {
                     safeSend(JSON.stringify({
-                      type: 'claude-response',
+                      type: 'session-response',
                       data: {
                         type: 'tool_result',
                         tool_use_id: contentBlock.tool_use_id,
@@ -470,20 +467,11 @@ async function spawnCodeBuddy(command, options = {}, ws) {
             case 'result':
               if (messageBuffer) {
                 safeSend(JSON.stringify({
-                  type: 'claude-response',
-                  data: {
-                    type: 'content_block_stop'
-                  }
+                  type: 'session-response',
+                  data: { type: 'content_block_stop' }
                 }));
               }
-              
-              safeSend(JSON.stringify({
-                type: 'codebuddy-result',
-                sessionId: capturedSessionId || sessionId,
-                data: response,
-                success: response.subtype === 'success'
-              }));
-              
+              // session-complete will be sent on process close
               activeCodeBuddyProcesses.delete(capturedSessionId || processKey);
               break;
             
@@ -491,7 +479,7 @@ async function spawnCodeBuddy(command, options = {}, ws) {
             case 'content_block_delta':
             case 'content_block_stop':
               safeSend(JSON.stringify({
-                type: 'claude-response',
+                type: 'session-response',
                 data: response
               }));
               break;
@@ -550,15 +538,13 @@ async function spawnCodeBuddy(command, options = {}, ws) {
       
       const classifiedError = classifyError(rawError);
       
+      // 统一使用 session-error 消息类型
       safeSend(JSON.stringify({
-        type: 'codebuddy-error',
-        error: rawError,
+        type: 'session-error',
+        error: classifiedError.userMessage || rawError,
         errorType: classifiedError.type,
-        userMessage: classifiedError.userMessage,
-        details: {
-          raw: classifiedError.rawMessage,
-          classified: classifiedError.type !== 'unknown'
-        }
+        details: classifiedError.rawMessage,
+        provider: 'codebuddy'
       }));
     });
     
@@ -569,11 +555,13 @@ async function spawnCodeBuddy(command, options = {}, ws) {
       // Mark background task as completed
       completeTask(capturedSessionId || tempTaskId);
       
+      // 统一使用 session-complete 消息类型，前端不需要区分 provider
       safeSend(JSON.stringify({
-        type: 'codebuddy-complete',
+        type: 'session-complete',
         sessionId: capturedSessionId || sessionId,
         exitCode: code,
-        isNewSession: isNewSession
+        isNewSession: isNewSession,
+        provider: 'codebuddy'
       }));
       
       resolve({ 
@@ -591,9 +579,11 @@ async function spawnCodeBuddy(command, options = {}, ws) {
       // Mark background task as completed (with error)
       completeTask(capturedSessionId || tempTaskId);
       
+      // 统一使用 session-error 消息类型
       safeSend(JSON.stringify({
-        type: 'codebuddy-error',
-        error: error.message
+        type: 'session-error',
+        error: error.message,
+        provider: 'codebuddy'
       }));
       
       reject(error);

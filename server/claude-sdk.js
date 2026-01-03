@@ -155,8 +155,7 @@ function getAllSessions() {
  */
 function transformMessage(sdkMessage) {
   // SDK messages are already in a format compatible with the frontend
-  // The CLI sends them wrapped in {type: 'claude-response', data: message}
-  // We'll do the same here to maintain compatibility
+  // Wrapped in {type: 'assistant-response', data: message}
   return sdkMessage;
 }
 
@@ -507,7 +506,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       // Transform and send message (ignore if client disconnected)
       const transformedMessage = transformMessage(message);
       safeSend(JSON.stringify({
-        type: 'claude-response',
+        type: 'session-response',
         data: transformedMessage
       }));
 
@@ -533,12 +532,13 @@ async function queryClaudeSDK(command, options = {}, ws) {
     completeTask(capturedSessionId || tempTaskId);
 
     // Send completion event
-    console.log('✅ Streaming complete, sending claude-complete event');
+    console.log('✅ Streaming complete, sending session-complete event');
     safeSend(JSON.stringify({
-      type: 'claude-complete',
+      type: 'session-complete',
       sessionId: capturedSessionId,
       exitCode: 0,
-      isNewSession: !sessionId && !!command
+      isNewSession: !sessionId && !!command,
+      provider: 'claude'
     }));
 
   } catch (error) {
@@ -554,8 +554,9 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     // Send error
     safeSend(JSON.stringify({
-      type: 'claude-error',
-      error: error.message
+      type: 'session-error',
+      error: error.message,
+      provider: 'claude'
     }));
 
     throw error;

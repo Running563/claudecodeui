@@ -958,24 +958,18 @@ function handleChatConnection(ws) {
                     success
                 }));
             } else if (data.type === 'check-session-status') {
-                // Check if a specific session is currently processing
-                const provider = data.provider || 'claude';
+                // Check if a specific session is currently processing (check ALL providers)
                 const sessionId = data.sessionId;
-                let isActive;
-
-                if (provider === 'cursor') {
-                    isActive = isCursorSessionActive(sessionId);
-                } else if (provider === 'codebuddy') {
-                    isActive = isCodeBuddySessionActive(sessionId);
-                } else {
-                    // Use Claude Agents SDK - also check background tasks
-                    isActive = isClaudeSDKSessionActive(sessionId) || isTaskRunning(sessionId);
-                }
+                
+                // 统一检查所有 provider，前端不需要关心具体是哪个
+                const isActive = isClaudeSDKSessionActive(sessionId) || 
+                                 isCursorSessionActive(sessionId) || 
+                                 isCodeBuddySessionActive(sessionId) || 
+                                 isTaskRunning(sessionId);
 
                 ws.send(JSON.stringify({
                     type: 'session-status',
                     sessionId,
-                    provider,
                     isProcessing: isActive
                 }));
             } else if (data.type === 'get-active-sessions') {

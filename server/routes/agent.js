@@ -509,8 +509,8 @@ class ResponseCollector {
       if (typeof msg === 'string') {
         try {
           const parsed = JSON.parse(msg);
-          // Only include claude-response messages with assistant type
-          if (parsed.type === 'claude-response' && parsed.data && parsed.data.type === 'assistant') {
+          // Only include session-response messages with assistant type
+          if (parsed.type === 'session-response' && parsed.data && parsed.data.type === 'assistant') {
             assistantMessages.push(parsed.data);
           }
         } catch (e) {
@@ -543,8 +543,8 @@ class ResponseCollector {
         }
       }
 
-      // Extract usage from claude-response messages
-      if (data && data.type === 'claude-response' && data.data) {
+      // Extract usage from session-response messages
+      if (data && data.type === 'session-response' && data.data) {
         const msgData = data.data;
         if (msgData.message && msgData.message.usage) {
           const usage = msgData.message.usage;

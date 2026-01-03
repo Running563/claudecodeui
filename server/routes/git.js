@@ -969,8 +969,8 @@ ${truncatedDiff}
             capturedSessionId = parsed.sessionId;
           }
 
-          // Claude SDK: {type: 'claude-response', data: {message: {content: [...]}}}
-          if (parsed.type === 'claude-response' && parsed.data) {
+          // Claude SDK: {type: 'session-response', data: {message: {content: [...]}}}
+          if (parsed.type === 'session-response' && parsed.data) {
             const message = parsed.data.message || parsed.data;
             if (message.content && Array.isArray(message.content)) {
               for (const item of message.content) {
