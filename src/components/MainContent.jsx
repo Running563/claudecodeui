@@ -498,7 +498,7 @@ function MainContent({
         </div>
         {/* Content - Shell or Terminals */}
         <div className="flex-1 min-h-0 overflow-hidden">
-          {/* Keep Shell mounted but hidden to preserve connection */}
+          {/* Keep Shell mounted but hidden to preserve terminal state */}
           <div style={{ display: activeTab === 'shell' ? 'flex' : 'none', height: '100%', flexDirection: 'column' }}>
             <StandaloneShell
               ref={shellRef}
@@ -506,6 +506,7 @@ function MainContent({
               session={null}
               showHeader={false}
               minimal={true}
+              isActive={activeTab === 'shell'}
               onShellStateChange={setShellState}
             />
           </div>
@@ -907,7 +908,7 @@ function MainContent({
             <FileTree selectedProject={selectedProject} />
           </div>
         )}
-        {/* Keep Shell mounted but hidden to preserve connection and state */}
+        {/* Keep Shell mounted but hidden to preserve terminal state */}
         <div style={{ display: activeTab === 'shell' ? 'flex' : 'none', height: '100%', width: '100%', overflow: 'hidden' }}>
           <StandaloneShell
             ref={shellRef}
@@ -915,6 +916,7 @@ function MainContent({
             session={selectedSession}
             showHeader={false}
             minimal={true}
+            isActive={activeTab === 'shell'}
             onShellStateChange={setShellState}
           />
         </div>

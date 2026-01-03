@@ -1,4 +1,4 @@
-import React, { useState, useCallback, forwardRef } from 'react';
+import React, { useState, useCallback, useEffect, forwardRef } from 'react';
 import Shell from './Shell.jsx';
 
 /**
@@ -10,6 +10,7 @@ import Shell from './Shell.jsx';
  * @param {string} command - Initial command to run (optional)
  * @param {boolean} isPlainShell - Use plain shell mode vs Claude CLI (default: auto-detect)
  * @param {boolean} autoConnect - Whether to auto-connect when mounted (default: true)
+ * @param {boolean} isActive - Whether this shell tab is currently active (triggers first connection)
  * @param {function} onComplete - Callback when process completes (receives exitCode)
  * @param {function} onClose - Callback for close button (optional)
  * @param {string} title - Custom header title (optional)
@@ -25,6 +26,7 @@ const StandaloneShell = forwardRef(function StandaloneShell({
   command = null,
   isPlainShell = null,
   autoConnect = true,
+  isActive = true,
   onComplete = null,
   onClose = null,
   title = null,
@@ -35,6 +37,10 @@ const StandaloneShell = forwardRef(function StandaloneShell({
   onShellStateChange = null
 }, ref) {
   const [isCompleted, setIsCompleted] = useState(false);
+  // Track if we've ever been activated for current session - resets when session changes
+  const [hasBeenActivated, setHasBeenActivated] = useState(isActive);
+  // Track session id to detect session changes
+  const [lastSessionId, setLastSessionId] = useState(session?.id);
 
   const shouldUsePlainShell = isPlainShell !== null ? isPlainShell : (command !== null);
 
@@ -44,6 +50,25 @@ const StandaloneShell = forwardRef(function StandaloneShell({
       onComplete(exitCode);
     }
   }, [onComplete]);
+
+  // Reset hasBeenActivated when session changes - requires user to click shell tab again
+  useEffect(() => {
+    const currentSessionId = session?.id;
+    if (currentSessionId !== lastSessionId) {
+      setLastSessionId(currentSessionId);
+      setHasBeenActivated(false);
+    }
+  }, [session?.id, lastSessionId]);
+
+  // Track first activation - only connect on first activation, never disconnect on tab switch
+  useEffect(() => {
+    if (isActive && !hasBeenActivated) {
+      setHasBeenActivated(true);
+    }
+  }, [isActive, hasBeenActivated]);
+
+  // Compute effective autoConnect: only auto-connect after first activation
+  const effectiveAutoConnect = hasBeenActivated && (minimal ? true : autoConnect);
 
   // Shell can work without a project - will use home directory as default
 
@@ -84,7 +109,7 @@ const StandaloneShell = forwardRef(function StandaloneShell({
           isPlainShell={shouldUsePlainShell}
           onProcessComplete={handleProcessComplete}
           minimal={minimal}
-          autoConnect={minimal ? true : autoConnect}
+          autoConnect={effectiveAutoConnect}
           onShellStateChange={onShellStateChange}
         />
       </div>
