@@ -669,6 +669,103 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     };
   }, [isMobile, isInitialized, inputMode]);
 
+  // Prevent Canvas from being released when app goes to background (mobile)
+  // By periodically refreshing a small area, we keep the Canvas context alive
+  useEffect(() => {
+    if (!isMobile || !isInitialized || !terminal.current) return;
+    
+    let keepAliveInterval = null;
+    
+    const startKeepAlive = () => {
+      // When page is hidden, periodically touch the canvas to prevent release
+      // Refresh just the cursor line to minimize CPU usage
+      if (!keepAliveInterval) {
+        keepAliveInterval = setInterval(() => {
+          if (terminal.current && document.visibilityState === 'hidden') {
+            // Minimal refresh - just touch the canvas context
+            try {
+              const cursorY = terminal.current.buffer.active.cursorY;
+              terminal.current.refresh(cursorY, cursorY);
+            } catch (e) {
+              // Ignore errors
+            }
+          }
+        }, 5000); // Every 5 seconds
+      }
+    };
+    
+    const stopKeepAlive = () => {
+      if (keepAliveInterval) {
+        clearInterval(keepAliveInterval);
+        keepAliveInterval = null;
+      }
+    };
+    
+    const handleVisibilityForKeepAlive = () => {
+      if (document.visibilityState === 'hidden') {
+        startKeepAlive();
+      } else {
+        stopKeepAlive();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityForKeepAlive);
+    
+    return () => {
+      stopKeepAlive();
+      document.removeEventListener('visibilitychange', handleVisibilityForKeepAlive);
+    };
+  }, [isMobile, isInitialized]);
+
+  // Handle page visibility change - refresh terminal when returning from background
+  // This fixes xterm.js rendering issues on mobile when app returns from background
+  useEffect(() => {
+    if (!isInitialized || !terminal.current) return;
+    
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && terminal.current) {
+        // Force terminal refresh when page becomes visible
+        // Use multiple requestAnimationFrame to ensure rendering pipeline is ready
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (terminal.current) {
+              // Clear selection to force redraw
+              terminal.current.clearSelection();
+              
+              // Trigger a refresh by calling refresh on all rows
+              terminal.current.refresh(0, terminal.current.rows - 1);
+              
+              // Also re-fit the terminal in case dimensions changed
+              if (fitAddon.current) {
+                try {
+                  fitAddon.current.fit();
+                } catch (e) {
+                  console.warn('[Shell] Error fitting terminal on visibility change:', e);
+                }
+              }
+              
+              // Scroll to bottom to ensure latest content is visible
+              terminal.current.scrollToBottom();
+            }
+          });
+        });
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Also handle iOS-specific resume event
+    window.addEventListener('resume', handleVisibilityChange);
+    // Handle page show event (for bfcache scenarios)
+    window.addEventListener('pageshow', handleVisibilityChange);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('resume', handleVisibilityChange);
+      window.removeEventListener('pageshow', handleVisibilityChange);
+    };
+  }, [isInitialized]);
+
   const sessionDisplayName = useMemo(() => {
     if (!selectedSession) return null;
     return selectedSession.title || '新会话';

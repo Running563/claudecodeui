@@ -56,7 +56,21 @@ function AppContent() {
   // Remember last selected session to restore on app restart
   const [lastSelectedSessionId, setLastSelectedSessionId] = useLocalStorage('lastSelectedSessionId', null);
   const hasRestoredProjectRef = React.useRef(false); // Track if we've already restored the project
-  const [activeTab, setActiveTab] = useState('chat'); // 'chat' or 'files'
+  // Remember preferred view mode (chat or shell) when selecting sessions
+  const [preferredSessionView, setPreferredSessionView] = useLocalStorage('preferredSessionView', 'chat');
+  const [activeTab, setActiveTab] = useState(() => {
+    // Initialize activeTab from localStorage if available
+    try {
+      const saved = window.localStorage.getItem('preferredSessionView');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed === 'chat' || parsed === 'shell') {
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    return 'chat';
+  }); // 'chat', 'shell', 'files', 'git', 'terminals'
   const [isMobile, setIsMobile] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
@@ -541,9 +555,9 @@ function AppContent() {
           // Use session.provider if available, otherwise default to 'claude'
           const provider = session.provider || 'claude';
           setSelectedSession({ ...session, provider, __provider: provider });
-          // Only switch to chat tab if we're loading a different session
+          // Only switch tab if we're loading a different session, use preferred view
           if (shouldSwitchTab) {
-            setActiveTab('chat');
+            setActiveTab(preferredSessionView);
           }
           return;
         }
@@ -556,7 +570,7 @@ function AppContent() {
           const provider = cbSession.provider || 'codebuddy';
           setSelectedSession({ ...cbSession, provider, __provider: provider });
           if (shouldSwitchTab) {
-            setActiveTab('chat');
+            setActiveTab(preferredSessionView);
           }
           return;
         }
@@ -569,7 +583,7 @@ function AppContent() {
           const provider = cSession.provider || 'cursor';
           setSelectedSession({ ...cSession, provider, __provider: provider });
           if (shouldSwitchTab) {
-            setActiveTab('chat');
+            setActiveTab(preferredSessionView);
           }
           return;
         }
@@ -579,7 +593,7 @@ function AppContent() {
       // Just navigate to it and it will be found when the sidebar refreshes
       // Don't redirect to home, let the session load naturally
     }
-  }, [sessionId, projects]);
+  }, [sessionId, projects, preferredSessionView]);
 
   const handleProjectSelect = (project) => {
     setSelectedProject(project);
@@ -600,10 +614,10 @@ function AppContent() {
     setSelectedSession(session);
     // Save last selected session to localStorage for restoration on app restart
     setLastSelectedSessionId(session.id);
-    // Only switch to chat tab when user explicitly selects a session
-    // This prevents tab switching during automatic updates
-    if (activeTab !== 'git' && activeTab !== 'preview') {
-      setActiveTab('chat');
+    // Restore user's preferred view (chat or shell) when selecting a session
+    // But don't override if user is on git/preview tabs
+    if (activeTab !== 'git' && activeTab !== 'preview' && activeTab !== 'terminals') {
+      setActiveTab(preferredSessionView);
     }
 
     // For Cursor sessions, we need to set the session ID differently
@@ -960,6 +974,15 @@ function AppContent() {
     setActiveTab('terminals');
   }, []);
 
+  // Wrapper for setActiveTab that also saves chat/shell preference
+  const handleSetActiveTab = useCallback((tab) => {
+    setActiveTab(tab);
+    // Save preference when user switches between chat and shell
+    if (tab === 'chat' || tab === 'shell') {
+      setPreferredSessionView(tab);
+    }
+  }, [setPreferredSessionView]);
+
   const handleUpdateTerminal = useCallback((updatedTerminal) => {
     setSelectedTerminal(updatedTerminal);
   }, []);
@@ -1135,7 +1158,7 @@ function AppContent() {
             selectedProject={selectedProject}
             selectedSession={selectedSession}
             activeTab={activeTab}
-            setActiveTab={setActiveTab}
+            setActiveTab={handleSetActiveTab}
             ws={ws}
             sendMessage={sendMessage}
             messages={messages}
@@ -1172,9 +1195,10 @@ function AppContent() {
       {isMobile && (
         <MobileNav
           activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          setActiveTab={handleSetActiveTab}
           isInputFocused={isInputFocused}
           selectedProject={selectedProject}
+          preferredSessionView={preferredSessionView}
         />
       )}
       {/* Quick Settings Panel - Only show on chat tab */}

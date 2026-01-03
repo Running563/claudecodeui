@@ -1,19 +1,22 @@
 import React from 'react';
 import { MessageSquare, Folder, Terminal, GitBranch, Globe, CheckSquare, MonitorPlay } from 'lucide-react';
 
-function MobileNav({ activeTab, setActiveTab, isInputFocused, onOpenTerminals, selectedProject }) {
+function MobileNav({ activeTab, setActiveTab, isInputFocused, onOpenTerminals, selectedProject, preferredSessionView }) {
   // chat 和 shell 合并为一个标签，显示当前选中的图标
   const isChatOrShell = activeTab === 'chat' || activeTab === 'shell';
   
   const navItems = [
     {
       id: 'chat-shell',
-      // 根据当前 activeTab 显示对应图标
-      icon: activeTab === 'shell' ? Terminal : MessageSquare,
+      // 根据当前 activeTab 或用户偏好显示对应图标
+      icon: isChatOrShell 
+        ? (activeTab === 'shell' ? Terminal : MessageSquare)
+        : (preferredSessionView === 'shell' ? Terminal : MessageSquare),
       onClick: () => {
         // 如果已经在 chat 或 shell，保持当前状态
         if (!isChatOrShell) {
-          setActiveTab('chat');
+          // 使用用户保存的偏好视图
+          setActiveTab(preferredSessionView || 'chat');
         }
       },
       isActive: isChatOrShell
