@@ -330,17 +330,8 @@ function ChatInterface({
     executeCommand,
     setHandleSubmitRef
   } = useCommandExecution({
-    selectedProject,
-    currentSessionId,
-    provider,
-    cursorModel,
-    tokenBudget,
-    setChatMessages,
-    setSessionMessages,
     setInput,
-    resetCommandMenu,
-    onFileOpen,
-    onShowSettings
+    resetCommandMenu
   });
 
   // Memoized diff calculation to prevent recalculating on every render

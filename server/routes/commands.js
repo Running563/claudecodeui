@@ -131,7 +131,7 @@ const builtInCommands = [
     description: 'Compact conversation history to save tokens',
     namespace: 'builtin',
     metadata: { type: 'builtin' }
-  }
+  },
 ];
 
 /**
@@ -375,15 +375,6 @@ Custom commands can be created in:
     };
   },
 
-  '/compact': async (args, context) => {
-    return {
-      type: 'builtin',
-      action: 'compact',
-      data: {
-        message: 'Compacting conversation history to save tokens...'
-      }
-    };
-  }
 };
 
 /**
