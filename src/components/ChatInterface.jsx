@@ -517,7 +517,6 @@ function ChatInterface({
             sessionMessages={sessionMessages}
             isLoadingSessionMessages={isLoadingSessionMessages}
             isLoadingMoreMessages={isLoadingMoreMessages}
-            isLoading={isLoading}
             hasMoreMessages={hasMoreMessages}
             totalMessages={totalMessages}
             visibleMessageCount={visibleMessageCount}

@@ -1,9 +1,6 @@
 import React, { memo } from 'react';
 import MessageComponent from './MessageComponent';
 import ProviderSelector from './ProviderSelector';
-import ClaudeLogo from '../../ClaudeLogo.jsx';
-import CursorLogo from '../../CursorLogo.jsx';
-import CodeBuddyLogo from '../../CodeBuddyLogo.jsx';
 
 /**
  * MessageList - Renders the chat message list with loading states
@@ -13,7 +10,6 @@ import CodeBuddyLogo from '../../CodeBuddyLogo.jsx';
  * - Loading states (initial load, loading more)
  * - Pagination indicators
  * - Message rendering with MessageComponent
- * - Typing indicator
  */
 const MessageList = memo(function MessageList({
   // Message data
@@ -24,7 +20,6 @@ const MessageList = memo(function MessageList({
   // Loading states
   isLoadingSessionMessages,
   isLoadingMoreMessages,
-  isLoading,
   
   // Pagination
   hasMoreMessages,
@@ -166,36 +161,6 @@ const MessageList = memo(function MessageList({
           />
         );
       })}
-
-      {/* Typing indicator */}
-      {isLoading && (
-        <div className="chat-message assistant">
-          <div className="w-full">
-            <div className="flex items-center space-x-3 mb-2">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm flex-shrink-0 p-1 bg-transparent">
-                {currentProvider === 'cursor' ? (
-                  <CursorLogo className="w-full h-full" />
-                ) : currentProvider === 'codebuddy' ? (
-                  <CodeBuddyLogo className="w-full h-full" />
-                ) : (
-                  <ClaudeLogo className="w-full h-full" />
-                )}
-              </div>
-              <div className="text-sm font-medium text-gray-900 dark:text-white">
-                {currentProvider === 'cursor' ? 'Cursor' : currentProvider === 'codebuddy' ? 'CodeBuddy' : 'Claude'}
-              </div>
-            </div>
-            <div className="w-full text-sm text-gray-500 dark:text-gray-400 pl-3 sm:pl-0">
-              <div className="flex items-center space-x-1">
-                <div className="animate-pulse">●</div>
-                <div className="animate-pulse" style={{ animationDelay: '0.2s' }}>●</div>
-                <div className="animate-pulse" style={{ animationDelay: '0.4s' }}>●</div>
-                <span className="ml-2">Thinking...</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       
       {/* Scroll anchor */}
       <div ref={messagesEndRef} />
