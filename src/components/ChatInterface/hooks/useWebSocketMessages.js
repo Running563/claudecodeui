@@ -66,12 +66,15 @@ export function useWebSocketMessages({
     if (chunk) {
       setChatMessages(prev => {
         const updated = [...prev];
-        const last = updated[updated.length - 1];
+        const lastIndex = updated.length - 1;
+        const last = updated[lastIndex];
         if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
-          last.content = (last.content || '') + chunk;
-          if (finalizeStreaming) {
-            last.isStreaming = false;
-          }
+          // Create new object instead of mutating
+          updated[lastIndex] = {
+            ...last,
+            content: (last.content || '') + chunk,
+            isStreaming: !finalizeStreaming
+          };
         } else {
           updated.push({ 
             type: 'assistant', 
@@ -85,9 +88,14 @@ export function useWebSocketMessages({
     } else if (finalizeStreaming) {
       setChatMessages(prev => {
         const updated = [...prev];
-        const last = updated[updated.length - 1];
+        const lastIndex = updated.length - 1;
+        const last = updated[lastIndex];
         if (last && last.type === 'assistant' && last.isStreaming) {
-          last.isStreaming = false;
+          // Create new object instead of mutating
+          updated[lastIndex] = {
+            ...last,
+            isStreaming: false
+          };
         }
         return updated;
       });
@@ -110,9 +118,14 @@ export function useWebSocketMessages({
         
         setChatMessages(prev => {
           const updated = [...prev];
-          const last = updated[updated.length - 1];
+          const lastIndex = updated.length - 1;
+          const last = updated[lastIndex];
           if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
-            last.content = last.content ? `${last.content}\n${chunk}` : chunk;
+            // Create new object instead of mutating
+            updated[lastIndex] = {
+              ...last,
+              content: last.content ? `${last.content}\n${chunk}` : chunk
+            };
           } else {
             updated.push({ type: 'assistant', content: chunk, timestamp: new Date(), isStreaming: true });
           }
@@ -235,9 +248,14 @@ export function useWebSocketMessages({
         if (!chunk) return;
         setChatMessages(prev => {
           const updated = [...prev];
-          const last = updated[updated.length - 1];
+          const lastIndex = updated.length - 1;
+          const last = updated[lastIndex];
           if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
-            last.content = (last.content || '') + chunk;
+            // Create new object instead of mutating
+            updated[lastIndex] = {
+              ...last,
+              content: (last.content || '') + chunk
+            };
           } else {
             updated.push({ type: 'assistant', content: chunk, timestamp: new Date(), isStreaming: true });
           }
@@ -287,7 +305,8 @@ export function useWebSocketMessages({
 
     // Filter messages by session ID to prevent cross-session interference
     // Include system init messages that may set up new sessions
-    const globalMessageTypes = ['projects_updated', 'session-created', 'session-complete', 'session-status'];
+    // Also include session-aborted and session-error as they should always update UI
+    const globalMessageTypes = ['projects_updated', 'session-created', 'session-complete', 'session-status', 'session-aborted', 'session-error'];
     const isGlobalMessage = globalMessageTypes.includes(latestMessage.type);
 
     if (!isGlobalMessage && latestMessage.sessionId && currentSessionId && latestMessage.sessionId !== currentSessionId) {
@@ -475,8 +494,14 @@ export function useWebSocketMessages({
         const completedSessionId = latestMessage.sessionId || currentSessionId || sessionStorage.getItem('pendingSessionId');
         const providerName = latestMessage.provider || 'claude';
         
-        // 处理当前会话的 UI 状态
-        if (completedSessionId === currentSessionId || !currentSessionId) {
+        // 处理当前会话的 UI 状态 - 放宽条件，确保状态能被更新
+        // 当 completedSessionId 匹配当前会话，或者没有当前会话时，或者 pendingSessionId 匹配时都更新
+        const pendingSessionId = sessionStorage.getItem('pendingSessionId');
+        const shouldUpdateUI = completedSessionId === currentSessionId || 
+                               !currentSessionId || 
+                               completedSessionId === pendingSessionId;
+        
+        if (shouldUpdateUI) {
           setIsLoading(false);
           setCanAbortSession(false);
           setClaudeStatus(null);
@@ -508,10 +533,15 @@ export function useWebSocketMessages({
             if (finalChunk.trim()) {
               setChatMessages(prev => {
                 const updated = [...prev];
-                const last = updated[updated.length - 1];
+                const lastIndex = updated.length - 1;
+                const last = updated[lastIndex];
                 if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
-                  last.content = (last.content || '') + finalChunk;
-                  last.isStreaming = false;
+                  // Create new object instead of mutating
+                  updated[lastIndex] = {
+                    ...last,
+                    content: (last.content || '') + finalChunk,
+                    isStreaming: false
+                  };
                 } else {
                   updated.push({ type: 'assistant', content: finalChunk, timestamp: new Date(), isStreaming: false });
                 }
@@ -519,6 +549,16 @@ export function useWebSocketMessages({
               });
             }
           }
+          
+          // Force finalize any streaming messages even if buffer is empty
+          setChatMessages(prev => {
+            const hasStreamingMessage = prev.some(msg => msg.isStreaming);
+            if (!hasStreamingMessage) return prev;
+            
+            return prev.map(msg => 
+              msg.isStreaming ? { ...msg, isStreaming: false } : msg
+            );
+          });
         }
 
         // 标记会话完成
@@ -534,8 +574,7 @@ export function useWebSocketMessages({
           }
         }
         
-        // Handle new session navigation
-        const pendingSessionId = sessionStorage.getItem('pendingSessionId');
+        // Handle new session navigation (pendingSessionId already declared above)
         if (latestMessage.isNewSession && completedSessionId && !currentSessionId) {
           if (completedSessionId === pendingSessionId) {
             setCurrentSessionId(completedSessionId);
@@ -560,8 +599,14 @@ export function useWebSocketMessages({
         
       case 'session-aborted': {
         const abortedSessionId = latestMessage.sessionId || currentSessionId;
+        const abortPendingSessionId = sessionStorage.getItem('pendingSessionId');
+        
+        // 放宽条件：当前会话、没有会话、或 pending 会话匹配时都更新 UI
+        const shouldUpdateAbortUI = abortedSessionId === currentSessionId || 
+                                    !currentSessionId ||
+                                    abortedSessionId === abortPendingSessionId;
 
-        if (abortedSessionId === currentSessionId) {
+        if (shouldUpdateAbortUI) {
           setIsLoading(false);
           setCanAbortSession(false);
           setClaudeStatus(null);
@@ -586,8 +631,12 @@ export function useWebSocketMessages({
 
       case 'session-status': {
         const statusSessionId = latestMessage.sessionId;
+        const statusPendingSessionId = sessionStorage.getItem('pendingSessionId');
+        // 放宽条件：匹配当前会话、选中会话、或 pending 会话
         const isCurrentSession = statusSessionId === currentSessionId ||
-                                 (selectedSession && statusSessionId === selectedSession.id);
+                                 (selectedSession && statusSessionId === selectedSession.id) ||
+                                 statusSessionId === statusPendingSessionId ||
+                                 !currentSessionId;
         if (isCurrentSession) {
           if (latestMessage.isProcessing) {
             setIsLoading(true);
