@@ -214,12 +214,6 @@ export function useChatSession({
       return;
     }
 
-    // Don't refresh if currently processing a message
-    if (isLoading) {
-      console.log('[useChatSession] Skipping refresh - currently loading');
-      return;
-    }
-
     try {
       const currentProvider = localStorage.getItem('selected-provider') || 'claude';
       
@@ -266,7 +260,7 @@ export function useChatSession({
     } catch (error) {
       console.error('[useChatSession] Error refreshing session:', error);
     }
-  }, [selectedSession, selectedProject, isLoading, loadSessionMessages, loadCursorSessionMessagesWithState, 
+  }, [selectedSession, selectedProject, loadSessionMessages, loadCursorSessionMessagesWithState, 
       setSessionMessages, setChatMessages, resetPagination, ws, sendMessage, fetchUpdatedTokenUsage, scrollToBottom]);
 
   return {
