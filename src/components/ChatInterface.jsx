@@ -116,9 +116,12 @@ function ChatInterface({
   const {
     provider,
     setProvider,
+    claudeModel,
+    setClaudeModel,
     cursorModel,
     setCursorModel,
     codebuddyModel,
+    setCodebuddyModel,
     permissionMode,
     cyclePermissionMode
   } = useProviderState({ selectedSession });
@@ -310,6 +313,7 @@ function ChatInterface({
     selectedSession,
     currentSessionId,
     provider,
+    claudeModel,
     cursorModel,
     codebuddyModel,
     permissionMode,
@@ -526,8 +530,12 @@ function ChatInterface({
             selectedProject={selectedProject}
             provider={provider}
             setProvider={setProvider}
+            claudeModel={claudeModel}
+            setClaudeModel={setClaudeModel}
             cursorModel={cursorModel}
             setCursorModel={setCursorModel}
+            codebuddyModel={codebuddyModel}
+            setCodebuddyModel={setCodebuddyModel}
             createDiff={createDiff}
             onFileOpen={onFileOpen}
             onShowSettings={onShowSettings}
@@ -622,6 +630,13 @@ function ChatInterface({
           placeholderText={placeholderText}
           // Refresh session
           onRefreshSession={handleRefreshSession}
+          // Model selection
+          claudeModel={claudeModel}
+          setClaudeModel={setClaudeModel}
+          cursorModel={cursorModel}
+          setCursorModel={setCursorModel}
+          codebuddyModel={codebuddyModel}
+          setCodebuddyModel={setCodebuddyModel}
         />
 
         {/* Image Preview Modal */}

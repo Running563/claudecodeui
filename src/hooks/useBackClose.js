@@ -17,6 +17,7 @@ export function skipNextHistoryBack() {
   setTimeout(() => { skipHistoryBack = false; }, 100);
 }
 
+
 /**
  * Hook to close modal/dialog when browser back button is pressed (especially useful on mobile)
  * Uses history.pushState to add a state entry when modal opens, and listens for popstate to close

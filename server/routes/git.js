@@ -300,11 +300,13 @@ router.get('/diff', async (req, res) => {
 
 // Get file content with diff information for CodeEditor
 router.get('/file-with-diff', async (req, res) => {
-  const { project, file } = req.query;
+  const { project, file, staged } = req.query;
 
   if (!project || !file) {
     return res.status(400).json({ error: 'Project name and file path are required' });
   }
+
+  const isStaged = staged === 'true';
 
   try {
     const projectPath = await getActualProjectPath(project);
@@ -338,10 +340,39 @@ router.get('/file-with-diff', async (req, res) => {
       currentContent = await fs.readFile(filePath, 'utf-8');
 
       if (!isUntracked) {
-        // Get the old content from HEAD for tracked files
+        // For tracked files, get the appropriate old content based on whether it's staged
         try {
-          const { stdout: headContent } = await execAsync(`git show HEAD:"${file}"`, { cwd: projectPath });
-          oldContent = headContent;
+          if (isStaged) {
+            // For staged files: show INDEX vs HEAD
+            // oldContent = HEAD version
+            const { stdout: headContent } = await execAsync(`git show HEAD:"${file}"`, { cwd: projectPath });
+            oldContent = headContent;
+            // currentContent = INDEX version (staged content)
+            try {
+              const { stdout: indexContent } = await execAsync(`git show :${file}`, { cwd: projectPath });
+              currentContent = indexContent;
+            } catch (error) {
+              // File might be newly added to index (no HEAD version)
+              // In this case, keep currentContent as working directory version
+            }
+          } else {
+            // For unstaged files: show WORKING DIRECTORY vs INDEX
+            // oldContent = INDEX version (staged content, or HEAD if nothing staged)
+            try {
+              const { stdout: indexContent } = await execAsync(`git show :${file}`, { cwd: projectPath });
+              oldContent = indexContent;
+            } catch (error) {
+              // File might not be in index, fall back to HEAD
+              try {
+                const { stdout: headContent } = await execAsync(`git show HEAD:"${file}"`, { cwd: projectPath });
+                oldContent = headContent;
+              } catch (headError) {
+                // File might be newly added (not in HEAD or index)
+                oldContent = '';
+              }
+            }
+            // currentContent = already set to working directory version above
+          }
         } catch (error) {
           // File might be newly added to git (staged but not committed)
           oldContent = '';

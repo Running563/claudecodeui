@@ -35,8 +35,12 @@ const MessageList = memo(function MessageList({
   // Provider state
   provider,
   setProvider,
+  claudeModel,
+  setClaudeModel,
   cursorModel,
   setCursorModel,
+  codebuddyModel,
+  setCodebuddyModel,
   
   // Callbacks
   createDiff,
@@ -76,8 +80,12 @@ const MessageList = memo(function MessageList({
           <ProviderSelector
             provider={provider}
             setProvider={setProvider}
+            claudeModel={claudeModel}
+            setClaudeModel={setClaudeModel}
             cursorModel={cursorModel}
             setCursorModel={setCursorModel}
+            codebuddyModel={codebuddyModel}
+            setCodebuddyModel={setCodebuddyModel}
             textareaRef={textareaRef}
             selectedProject={selectedProject}
           />

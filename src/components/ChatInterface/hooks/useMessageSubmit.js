@@ -14,6 +14,7 @@ import { safeLocalStorage } from '../utils';
  * @param {Object} params.selectedSession - Currently selected session
  * @param {string} params.currentSessionId - Current session ID
  * @param {string} params.provider - Current provider (claude/cursor/codebuddy)
+ * @param {string} params.claudeModel - Current Claude model
  * @param {string} params.cursorModel - Current Cursor model
  * @param {string} params.codebuddyModel - Current CodeBuddy model
  * @param {string} params.permissionMode - Current permission mode
@@ -33,6 +34,7 @@ export function useMessageSubmit({
   selectedSession,
   currentSessionId,
   provider,
+  claudeModel,
   cursorModel,
   codebuddyModel,
   permissionMode,
@@ -172,6 +174,7 @@ export function useMessageSubmit({
           cwd: selectedProject.path,
           sessionId: currentSessionId,
           resume: !!currentSessionId,
+          model: claudeModel,
           toolsSettings: toolsSettings,
           permissionMode: permissionMode,
           images: uploadedImages
@@ -186,7 +189,7 @@ export function useMessageSubmit({
 
     return true;
   }, [
-    selectedProject, selectedSession, currentSessionId, provider, cursorModel, codebuddyModel,
+    selectedProject, selectedSession, currentSessionId, provider, claudeModel, cursorModel, codebuddyModel,
     permissionMode, sendMessage, setChatMessages, setIsLoading, setCanAbortSession,
     setClaudeStatus, setIsUserScrolledUp, scrollToBottom, onSessionActive, getToolsSettings
   ]);

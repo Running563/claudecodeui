@@ -98,7 +98,14 @@ function InputArea({
   handleClearInput,
   placeholderText,
   // Refresh session
-  onRefreshSession
+  onRefreshSession,
+  // Model selection
+  claudeModel,
+  setClaudeModel,
+  cursorModel,
+  setCursorModel,
+  codebuddyModel,
+  setCodebuddyModel
 }) {
   // Select command handler
   const selectCommand = useCallback((command) => {
@@ -183,6 +190,13 @@ function InputArea({
         chatMessages={chatMessages}
         scrollToBottom={scrollToBottom}
         onRefreshSession={onRefreshSession}
+        provider={provider}
+        claudeModel={claudeModel}
+        setClaudeModel={setClaudeModel}
+        cursorModel={cursorModel}
+        setCursorModel={setCursorModel}
+        codebuddyModel={codebuddyModel}
+        setCodebuddyModel={setCodebuddyModel}
       />
       
       <form onSubmit={handleSubmit} className="relative max-w-4xl mx-auto">

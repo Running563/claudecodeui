@@ -2,10 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ScrollArea } from './ui/scroll-area';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Folder, FolderOpen, File, FileText, FileCode, List, TableProperties, Eye, Search, X, Loader2, ChevronRight } from 'lucide-react';
+import { Folder, FolderOpen, File, FileText, FileCode, List, TableProperties, Eye, Search, X, Loader2, ChevronRight, Copy } from 'lucide-react';
 import { cn } from '../lib/utils';
 import CodeEditor from './CodeEditor';
 import ImageViewer from './ImageViewer';
+import Toast from './Toast';
 import { api, getProjectId } from '../utils/api';
 
 function FileTree({ selectedProject }) {
@@ -19,6 +20,8 @@ function FileTree({ selectedProject }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredFiles, setFilteredFiles] = useState([]);
   const [isSearchMode, setIsSearchMode] = useState(false); // Full tree loaded for search
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
 
   // Get project root path for relative path calculation
   const getProjectRoot = useCallback(() => {
@@ -250,54 +253,86 @@ function FileTree({ selectedProject }) {
     return past.toLocaleDateString();
   };
 
+  // Copy relative path to clipboard
+  const copyPathToClipboard = (itemPath, e) => {
+    e.stopPropagation(); // Prevent triggering the file/folder click
+    
+    const projectRoot = getProjectRoot();
+    // Get relative path from project root
+    const relativePath = itemPath.startsWith(projectRoot) 
+      ? itemPath.slice(projectRoot.length).replace(/^\//, '')
+      : itemPath;
+    
+    navigator.clipboard.writeText(relativePath).then(() => {
+      setToastMessage(`已复制路径: ${relativePath}`);
+      setShowToast(true);
+    }).catch(err => {
+      console.error('Failed to copy path:', err);
+      setToastMessage('复制路径失败');
+      setShowToast(true);
+    });
+  };
+
   const renderFileTree = (items, level = 0) => {
     return items.map((item) => (
-      <div key={item.path} className="select-none">
-        <Button
-          variant="ghost"
-          className={cn(
-            "w-full justify-start p-2 h-auto font-normal text-left hover:bg-accent",
-          )}
-          style={{ paddingLeft: `${level * 16 + 12}px` }}
-          onClick={() => {
-            if (item.type === 'directory') {
-              toggleDirectory(item.path, item);
-            } else if (isImageFile(item.name)) {
-              // Open image in viewer
-              setSelectedImage({
-                name: item.name,
-                path: item.path,
-                projectPath: selectedProject.path,
-                projectId: getProjectId(selectedProject)
-              });
-            } else {
-              // Open file in editor
-              setSelectedFile({
-                name: item.name,
-                path: item.path,
-                projectPath: selectedProject.path,
-                projectId: getProjectId(selectedProject)
-              });
-            }
-          }}
-        >
-          <div className="flex items-center gap-2 min-w-0 w-full">
-            {item.type === 'directory' ? (
-              loadingDirs.has(item.path) ? (
-                <Loader2 className="w-4 h-4 text-muted-foreground flex-shrink-0 animate-spin" />
-              ) : expandedDirs.has(item.path) ? (
-                <FolderOpen className="w-4 h-4 text-blue-500 flex-shrink-0" />
-              ) : (
-                <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-              )
-            ) : (
-              getFileIcon(item.name)
+      <div key={item.path} className="select-none group">
+        <div className="relative">
+          <Button
+            variant="ghost"
+            className={cn(
+              "w-full justify-start p-2 h-auto font-normal text-left hover:bg-accent",
             )}
-            <span className="text-sm truncate text-foreground">
-              {item.name}
-            </span>
-          </div>
-        </Button>
+            style={{ paddingLeft: `${level * 16 + 12}px` }}
+            onClick={() => {
+              if (item.type === 'directory') {
+                toggleDirectory(item.path, item);
+              } else if (isImageFile(item.name)) {
+                // Open image in viewer
+                setSelectedImage({
+                  name: item.name,
+                  path: item.path,
+                  projectPath: selectedProject.path,
+                  projectId: getProjectId(selectedProject)
+                });
+              } else {
+                // Open file in editor
+                setSelectedFile({
+                  name: item.name,
+                  path: item.path,
+                  projectPath: selectedProject.path,
+                  projectId: getProjectId(selectedProject)
+                });
+              }
+            }}
+          >
+            <div className="flex items-center gap-2 min-w-0 w-full">
+              {item.type === 'directory' ? (
+                loadingDirs.has(item.path) ? (
+                  <Loader2 className="w-4 h-4 text-muted-foreground flex-shrink-0 animate-spin" />
+                ) : expandedDirs.has(item.path) ? (
+                  <FolderOpen className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                ) : (
+                  <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                )
+              ) : (
+                getFileIcon(item.name)
+              )}
+              <span className="text-sm truncate text-foreground">
+                {item.name}
+              </span>
+            </div>
+          </Button>
+          {/* Copy path button - shows on hover */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="absolute right-1 top-1/2 transform -translate-y-1/2 h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+            onClick={(e) => copyPathToClipboard(item.path, e)}
+            title="复制路径"
+          >
+            <Copy className="w-3.5 h-3.5" />
+          </Button>
+        </div>
         
         {item.type === 'directory' && 
          expandedDirs.has(item.path) && 
@@ -338,57 +373,69 @@ function FileTree({ selectedProject }) {
   // Render detailed view with table-like layout
   const renderDetailedView = (items, level = 0) => {
     return items.map((item) => (
-      <div key={item.path} className="select-none">
-        <div
-          className={cn(
-            "grid grid-cols-12 gap-2 p-2 hover:bg-accent cursor-pointer items-center",
-          )}
-          style={{ paddingLeft: `${level * 16 + 12}px` }}
-          onClick={() => {
-            if (item.type === 'directory') {
-              toggleDirectory(item.path, item);
-            } else if (isImageFile(item.name)) {
-              setSelectedImage({
-                name: item.name,
-                path: item.path,
-                projectPath: selectedProject.path,
-                projectId: getProjectId(selectedProject)
-              });
-            } else {
-              setSelectedFile({
-                name: item.name,
-                path: item.path,
-                projectPath: selectedProject.path,
-                projectId: getProjectId(selectedProject)
-              });
-            }
-          }}
-        >
-          <div className="col-span-5 flex items-center gap-2 min-w-0">
-            {item.type === 'directory' ? (
-              loadingDirs.has(item.path) ? (
-                <Loader2 className="w-4 h-4 text-muted-foreground flex-shrink-0 animate-spin" />
-              ) : expandedDirs.has(item.path) ? (
-                <FolderOpen className="w-4 h-4 text-blue-500 flex-shrink-0" />
-              ) : (
-                <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-              )
-            ) : (
-              getFileIcon(item.name)
+      <div key={item.path} className="select-none group">
+        <div className="relative">
+          <div
+            className={cn(
+              "grid grid-cols-12 gap-2 p-2 hover:bg-accent cursor-pointer items-center",
             )}
-            <span className="text-sm truncate text-foreground">
-              {item.name}
-            </span>
+            style={{ paddingLeft: `${level * 16 + 12}px` }}
+            onClick={() => {
+              if (item.type === 'directory') {
+                toggleDirectory(item.path, item);
+              } else if (isImageFile(item.name)) {
+                setSelectedImage({
+                  name: item.name,
+                  path: item.path,
+                  projectPath: selectedProject.path,
+                  projectId: getProjectId(selectedProject)
+                });
+              } else {
+                setSelectedFile({
+                  name: item.name,
+                  path: item.path,
+                  projectPath: selectedProject.path,
+                  projectId: getProjectId(selectedProject)
+                });
+              }
+            }}
+          >
+            <div className="col-span-5 flex items-center gap-2 min-w-0">
+              {item.type === 'directory' ? (
+                loadingDirs.has(item.path) ? (
+                  <Loader2 className="w-4 h-4 text-muted-foreground flex-shrink-0 animate-spin" />
+                ) : expandedDirs.has(item.path) ? (
+                  <FolderOpen className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                ) : (
+                  <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                )
+              ) : (
+                getFileIcon(item.name)
+              )}
+              <span className="text-sm truncate text-foreground">
+                {item.name}
+              </span>
+            </div>
+            <div className="col-span-2 text-sm text-muted-foreground">
+              {item.type === 'file' ? formatFileSize(item.size) : '-'}
+            </div>
+            <div className="col-span-3 text-sm text-muted-foreground">
+              {formatRelativeTime(item.modified)}
+            </div>
+            <div className="col-span-2 text-sm text-muted-foreground font-mono">
+              {item.permissionsRwx || '-'}
+            </div>
           </div>
-          <div className="col-span-2 text-sm text-muted-foreground">
-            {item.type === 'file' ? formatFileSize(item.size) : '-'}
-          </div>
-          <div className="col-span-3 text-sm text-muted-foreground">
-            {formatRelativeTime(item.modified)}
-          </div>
-          <div className="col-span-2 text-sm text-muted-foreground font-mono">
-            {item.permissionsRwx || '-'}
-          </div>
+          {/* Copy path button - shows on hover */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="absolute right-1 top-1/2 transform -translate-y-1/2 h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+            onClick={(e) => copyPathToClipboard(item.path, e)}
+            title="复制路径"
+          >
+            <Copy className="w-3.5 h-3.5" />
+          </Button>
         </div>
         
         {item.type === 'directory' && 
@@ -402,56 +449,68 @@ function FileTree({ selectedProject }) {
   // Render compact view with inline details
   const renderCompactView = (items, level = 0) => {
     return items.map((item) => (
-      <div key={item.path} className="select-none">
-        <div
-          className={cn(
-            "flex items-center justify-between p-2 hover:bg-accent cursor-pointer",
-          )}
-          style={{ paddingLeft: `${level * 16 + 12}px` }}
-          onClick={() => {
-            if (item.type === 'directory') {
-              toggleDirectory(item.path, item);
-            } else if (isImageFile(item.name)) {
-              setSelectedImage({
-                name: item.name,
-                path: item.path,
-                projectPath: selectedProject.path,
-                projectId: getProjectId(selectedProject)
-              });
-            } else {
-              setSelectedFile({
-                name: item.name,
-                path: item.path,
-                projectPath: selectedProject.path,
-                projectId: getProjectId(selectedProject)
-              });
-            }
-          }}
-        >
-          <div className="flex items-center gap-2 min-w-0">
-            {item.type === 'directory' ? (
-              loadingDirs.has(item.path) ? (
-                <Loader2 className="w-4 h-4 text-muted-foreground flex-shrink-0 animate-spin" />
-              ) : expandedDirs.has(item.path) ? (
-                <FolderOpen className="w-4 h-4 text-blue-500 flex-shrink-0" />
+      <div key={item.path} className="select-none group">
+        <div className="relative">
+          <div
+            className={cn(
+              "flex items-center justify-between p-2 hover:bg-accent cursor-pointer",
+            )}
+            style={{ paddingLeft: `${level * 16 + 12}px` }}
+            onClick={() => {
+              if (item.type === 'directory') {
+                toggleDirectory(item.path, item);
+              } else if (isImageFile(item.name)) {
+                setSelectedImage({
+                  name: item.name,
+                  path: item.path,
+                  projectPath: selectedProject.path,
+                  projectId: getProjectId(selectedProject)
+                });
+              } else {
+                setSelectedFile({
+                  name: item.name,
+                  path: item.path,
+                  projectPath: selectedProject.path,
+                  projectId: getProjectId(selectedProject)
+                });
+              }
+            }}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              {item.type === 'directory' ? (
+                loadingDirs.has(item.path) ? (
+                  <Loader2 className="w-4 h-4 text-muted-foreground flex-shrink-0 animate-spin" />
+                ) : expandedDirs.has(item.path) ? (
+                  <FolderOpen className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                ) : (
+                  <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                )
               ) : (
-                <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-              )
-            ) : (
-              getFileIcon(item.name)
-            )}
-            <span className="text-sm truncate text-foreground">
-              {item.name}
-            </span>
+                getFileIcon(item.name)
+              )}
+              <span className="text-sm truncate text-foreground">
+                {item.name}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              {item.type === 'file' && (
+                <>
+                  <span>{formatFileSize(item.size)}</span>
+                  <span className="font-mono">{item.permissionsRwx}</span>
+                </>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            {item.type === 'file' && (
-              <>
-                <span>{formatFileSize(item.size)}</span>
-                <span className="font-mono">{item.permissionsRwx}</span>
-              </>
-            )}
-          </div>
+          {/* Copy path button - shows on hover */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="absolute right-1 top-1/2 transform -translate-y-1/2 h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+            onClick={(e) => copyPathToClipboard(item.path, e)}
+            title="复制路径"
+          >
+            <Copy className="w-3.5 h-3.5" />
+          </Button>
         </div>
         
         {item.type === 'directory' && 
@@ -589,6 +648,14 @@ function FileTree({ selectedProject }) {
         <ImageViewer
           file={selectedImage}
           onClose={() => setSelectedImage(null)}
+        />
+      )}
+      
+      {/* Toast Notification */}
+      {showToast && (
+        <Toast
+          message={toastMessage}
+          onClose={() => setShowToast(false)}
         />
       )}
     </div>

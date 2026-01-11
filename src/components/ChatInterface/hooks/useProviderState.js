@@ -16,6 +16,10 @@ export function useProviderState({ selectedSession }) {
     return localStorage.getItem('selected-provider') || 'claude';
   });
   
+  const [claudeModel, setClaudeModel] = useState(() => {
+    return localStorage.getItem('claude-model') || 'sonnet';
+  });
+  
   const [cursorModel, setCursorModel] = useState(() => {
     return localStorage.getItem('cursor-model') || 'gpt-5';
   });
@@ -24,7 +28,7 @@ export function useProviderState({ selectedSession }) {
     return localStorage.getItem('codebuddy-model') || 'default';
   });
   
-  const [permissionMode, setPermissionMode] = useState('default');
+  const [permissionMode, setPermissionMode] = useState('bypassPermissions');
 
   // Load permission mode for the current session
   useEffect(() => {
@@ -33,7 +37,7 @@ export function useProviderState({ selectedSession }) {
       if (savedMode) {
         setPermissionMode(savedMode);
       } else {
-        setPermissionMode('default');
+        setPermissionMode('bypassPermissions');
       }
     }
   }, [selectedSession?.id]);
@@ -93,6 +97,12 @@ export function useProviderState({ selectedSession }) {
     localStorage.setItem('selected-provider', newProvider);
   };
 
+  // Update claude model and save to localStorage
+  const updateClaudeModel = (newModel) => {
+    setClaudeModel(newModel);
+    localStorage.setItem('claude-model', newModel);
+  };
+
   // Update cursor model and save to localStorage
   const updateCursorModel = (newModel) => {
     setCursorModel(newModel);
@@ -108,6 +118,8 @@ export function useProviderState({ selectedSession }) {
   return {
     provider,
     setProvider: updateProvider,
+    claudeModel,
+    setClaudeModel: updateClaudeModel,
     cursorModel,
     setCursorModel: updateCursorModel,
     codebuddyModel,

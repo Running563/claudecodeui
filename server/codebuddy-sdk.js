@@ -1,5 +1,18 @@
-import { spawn } from 'child_process';
-import crossSpawn from 'cross-spawn';
+/**
+ * CodeBuddy SDK Integration
+ *
+ * This module provides SDK-based integration with CodeBuddy using @tencent-ai/agent-sdk.
+ * It mirrors the interface of Claude SDK for consistency.
+ *
+ * Key features:
+ * - Direct SDK integration without child processes
+ * - Session management with abort capability
+ * - Options mapping between CLI and SDK formats
+ * - WebSocket message streaming
+ * - Background task support (tasks continue even when client disconnects)
+ */
+
+import { query } from '@tencent-ai/agent-sdk';
 import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
@@ -12,84 +25,175 @@ import {
   isTaskRunning
 } from './background-task-manager.js';
 
-// Use cross-spawn for better command execution (handles PATH lookup without shell)
-const spawnFunction = crossSpawn;
-
-let activeCodeBuddyProcesses = new Map(); // Track active processes by session ID
+// Session tracking: Map of session IDs to active query instances
+const activeSessions = new Map();
 
 /**
- * Error type classification for user-friendly error messages
+ * Maps CLI options to SDK-compatible options format
+ * @param {Object} options - CLI options
+ * @returns {Object} SDK-compatible options
  */
-const ERROR_TYPES = {
-  // Authentication/API errors
-  AUTH: {
-    patterns: [/api[_-]?key/i, /authentication/i, /unauthorized/i, /invalid.*key/i, /ANTHROPIC_API_KEY/i],
-    userMessage: 'API 认证失败。请检查您的 API 密钥配置。',
-    type: 'auth'
-  },
-  // Rate limiting
-  RATE_LIMIT: {
-    patterns: [/rate[_-]?limit/i, /too many requests/i, /429/i, /quota/i],
-    userMessage: 'API 请求频率过高，请稍后重试。',
-    type: 'rate_limit'
-  },
-  // Network errors
-  NETWORK: {
-    patterns: [/network/i, /connection/i, /ECONNREFUSED/i, /ETIMEDOUT/i, /ENOTFOUND/i, /socket/i],
-    userMessage: '网络连接失败。请检查您的网络连接。',
-    type: 'network'
-  },
-  // Permission errors
-  PERMISSION: {
-    patterns: [/permission denied/i, /EACCES/i, /not allowed/i],
-    userMessage: '权限不足。请检查文件或目录权限。',
-    type: 'permission'
-  },
-  // File/Path errors
-  FILE: {
-    patterns: [/ENOENT/i, /no such file/i, /file not found/i, /directory not found/i],
-    userMessage: '找不到指定的文件或目录。',
-    type: 'file'
-  },
-  // Model errors
-  MODEL: {
-    patterns: [/model/i, /invalid.*model/i, /not available/i],
-    userMessage: '模型不可用或配置错误。',
-    type: 'model'
-  },
-  // Session errors
-  SESSION: {
-    patterns: [/session/i, /conversation/i, /context/i],
-    userMessage: '会话出现问题。',
-    type: 'session'
+function mapCliOptionsToSDK(options = {}) {
+  const { sessionId, cwd, toolsSettings, permissionMode } = options;
+
+  const sdkOptions = {};
+
+  // Map working directory
+  if (cwd) {
+    sdkOptions.cwd = cwd;
   }
-};
 
-/**
- * Classifies error message and returns user-friendly information
- * @param {string} errorMessage - Raw error message from stderr
- * @returns {{type: string, userMessage: string, rawMessage: string}}
- */
-function classifyError(errorMessage) {
-  const normalizedError = errorMessage.trim();
-  
-  for (const [key, errorType] of Object.entries(ERROR_TYPES)) {
-    for (const pattern of errorType.patterns) {
-      if (pattern.test(normalizedError)) {
-        return {
-          type: errorType.type,
-          userMessage: errorType.userMessage,
-          rawMessage: normalizedError
-        };
+  // Map permission mode
+  if (permissionMode && permissionMode !== 'default') {
+    sdkOptions.permissionMode = permissionMode;
+  }
+
+  // Map tool settings
+  const settings = toolsSettings || {
+    allowedTools: [],
+    disallowedTools: [],
+    skipPermissions: false
+  };
+
+  // Handle tool permissions
+  if (settings.skipPermissions && permissionMode !== 'plan') {
+    // When skipping permissions, use bypassPermissions mode
+    sdkOptions.permissionMode = 'bypassPermissions';
+  } else {
+    // Map allowed tools
+    let allowedTools = [...(settings.allowedTools || [])];
+
+    // Add plan mode default tools
+    if (permissionMode === 'plan') {
+      const planModeTools = ['Read', 'Task', 'exit_plan_mode', 'TodoRead', 'TodoWrite'];
+      for (const tool of planModeTools) {
+        if (!allowedTools.includes(tool)) {
+          allowedTools.push(tool);
+        }
       }
     }
+
+    if (allowedTools.length > 0) {
+      sdkOptions.allowedTools = allowedTools;
+    }
+
+    // Map disallowed tools
+    if (settings.disallowedTools && settings.disallowedTools.length > 0) {
+      sdkOptions.disallowedTools = settings.disallowedTools;
+    }
+  }
+
+  // Map model (default to claude-4.5)
+  // Support both CLI format ('claude-4.5') and UI format ('default')
+  let modelValue = options.model || 'default';
+  
+  // Map 'default' to CLI's default model
+  if (modelValue === 'default') {
+    modelValue = 'claude-4.5';  // CLI 的默认模型
   }
   
-  // Default: unknown error
+  sdkOptions.model = modelValue;
+
+  // Map system prompt configuration
+  sdkOptions.systemPrompt = {
+    type: 'preset',
+    preset: 'codebuddy_code'  // CodeBuddy preset for CODEBUDDY.md
+  };
+
+  // Map setting sources for CODEBUDDY.md loading
+  sdkOptions.settingSources = ['project', 'user', 'local'];
+
+  // Map resume session
+  if (sessionId) {
+    sdkOptions.resume = sessionId;
+  }
+
+  // Map max turns
+  sdkOptions.maxTurns = 1000;
+
+  return sdkOptions;
+}
+
+/**
+ * Adds a session to the active sessions map
+ * @param {string} sessionId - Session identifier
+ * @param {Object} queryInstance - SDK query instance
+ * @param {Array<string>} tempImagePaths - Temp image file paths for cleanup
+ * @param {string} tempDir - Temp directory for cleanup
+ */
+function addSession(sessionId, queryInstance, tempImagePaths = [], tempDir = null) {
+  activeSessions.set(sessionId, {
+    instance: queryInstance,
+    startTime: Date.now(),
+    status: 'active',
+    tempImagePaths,
+    tempDir
+  });
+}
+
+/**
+ * Removes a session from the active sessions map
+ * @param {string} sessionId - Session identifier
+ */
+function removeSession(sessionId) {
+  activeSessions.delete(sessionId);
+}
+
+/**
+ * Gets a session from the active sessions map
+ * @param {string} sessionId - Session identifier
+ * @returns {Object|undefined} Session data or undefined
+ */
+function getSession(sessionId) {
+  return activeSessions.get(sessionId);
+}
+
+/**
+ * Gets all active session IDs
+ * @returns {Array<string>} Array of active session IDs
+ */
+function getAllSessions() {
+  return Array.from(activeSessions.keys());
+}
+
+/**
+ * Transforms SDK messages to WebSocket format expected by frontend
+ * @param {Object} sdkMessage - SDK message object
+ * @returns {Object} Transformed message ready for WebSocket
+ */
+function transformMessage(sdkMessage) {
+  // SDK messages are already in a format compatible with the frontend
+  return sdkMessage;
+}
+
+/**
+ * Extracts token usage from SDK result messages
+ * @param {Object} resultMessage - SDK result message
+ * @returns {Object|null} Token budget object or null
+ */
+function extractTokenBudget(resultMessage) {
+  if (resultMessage.type !== 'result' || !resultMessage.usage) {
+    return null;
+  }
+
+  const usage = resultMessage.usage;
+
+  // Calculate total used tokens
+  const inputTokens = usage.input_tokens || 0;
+  const outputTokens = usage.output_tokens || 0;
+  const cacheReadTokens = usage.cache_read_input_tokens || 0;
+  const cacheCreationTokens = usage.cache_creation_input_tokens || 0;
+
+  const totalUsed = inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens;
+
+  // Use configured context window budget from environment (default 160000)
+  const contextWindow = parseInt(process.env.CONTEXT_WINDOW) || 160000;
+
+  console.log(`📊 Token calculation: input=${inputTokens}, output=${outputTokens}, cache=${cacheReadTokens + cacheCreationTokens}, total=${totalUsed}/${contextWindow}`);
+
   return {
-    type: 'unknown',
-    userMessage: '发生了一个错误。',
-    rawMessage: normalizedError
+    used: totalUsed,
+    total: contextWindow
   };
 }
 
@@ -150,7 +254,141 @@ async function handleImages(command, images, cwd) {
 }
 
 /**
- * Spawns a CodeBuddy CLI process to handle a query
+ * Cleans up temporary image files
+ * @param {Array<string>} tempImagePaths - Array of temp file paths to delete
+ * @param {string} tempDir - Temp directory to remove
+ */
+async function cleanupTempFiles(tempImagePaths, tempDir) {
+  if (!tempImagePaths || tempImagePaths.length === 0) {
+    return;
+  }
+
+  let cleanedCount = 0;
+  try {
+    // Delete individual temp files
+    for (const imagePath of tempImagePaths) {
+      try {
+        await fs.unlink(imagePath);
+        cleanedCount++;
+      } catch (err) {
+        if (err.code !== 'ENOENT') {
+          console.error(`Failed to delete temp image ${imagePath}:`, err.message);
+        }
+      }
+    }
+
+    // Delete temp directory
+    if (tempDir) {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(err =>
+        console.error(`Failed to delete temp directory ${tempDir}:`, err.message)
+      );
+    }
+
+    if (cleanedCount > 0) {
+      console.log(`🧹 Cleaned up ${cleanedCount} temp image files`);
+    }
+  } catch (error) {
+    console.error('Error during temp file cleanup:', error);
+  }
+}
+
+/**
+ * Cleans up old temporary image directories (older than 24 hours)
+ * @param {string} baseDir - Base directory to scan for .tmp/images folders
+ */
+async function cleanupOldTempImages(baseDir) {
+  const tmpImagesDir = path.join(baseDir, '.tmp', 'images');
+  const maxAge = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+  try {
+    await fs.access(tmpImagesDir);
+
+    const entries = await fs.readdir(tmpImagesDir, { withFileTypes: true });
+    const now = Date.now();
+    let cleanedCount = 0;
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const timestamp = parseInt(entry.name, 10);
+        if (!isNaN(timestamp) && (now - timestamp) > maxAge) {
+          const dirPath = path.join(tmpImagesDir, entry.name);
+          await fs.rm(dirPath, { recursive: true, force: true });
+          cleanedCount++;
+        }
+      }
+    }
+
+    if (cleanedCount > 0) {
+      console.log(`🧹 Cleaned up ${cleanedCount} old temp image directories (>24h)`);
+    }
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      console.error('Error cleaning up old temp images:', err.message);
+    }
+  }
+}
+
+/**
+ * Loads MCP server configurations from ~/.codebuddy.json
+ * @param {string} cwd - Current working directory for project-specific configs
+ * @returns {Object|null} MCP servers object or null if none found
+ */
+async function loadMcpConfig(cwd) {
+  try {
+    const codebuddyConfigPath = path.join(os.homedir(), '.codebuddy.json');
+
+    // Check if config file exists
+    try {
+      await fs.access(codebuddyConfigPath);
+    } catch (error) {
+      console.log('📡 No ~/.codebuddy.json found, proceeding without MCP servers');
+      return null;
+    }
+
+    // Read and parse config file
+    let codebuddyConfig;
+    try {
+      const configContent = await fs.readFile(codebuddyConfigPath, 'utf8');
+      codebuddyConfig = JSON.parse(configContent);
+    } catch (error) {
+      console.error('❌ Failed to parse ~/.codebuddy.json:', error.message);
+      return null;
+    }
+
+    // Extract MCP servers (merge global and project-specific)
+    let mcpServers = {};
+
+    // Add global MCP servers
+    if (codebuddyConfig.mcpServers && typeof codebuddyConfig.mcpServers === 'object') {
+      mcpServers = { ...codebuddyConfig.mcpServers };
+      console.log(`📡 Loaded ${Object.keys(mcpServers).length} global MCP servers`);
+    }
+
+    // Add/override with project-specific MCP servers
+    if (codebuddyConfig.codebuddyProjects && cwd) {
+      const projectConfig = codebuddyConfig.codebuddyProjects[cwd];
+      if (projectConfig && projectConfig.mcpServers && typeof projectConfig.mcpServers === 'object') {
+        mcpServers = { ...mcpServers, ...projectConfig.mcpServers };
+        console.log(`📡 Loaded ${Object.keys(projectConfig.mcpServers).length} project-specific MCP servers`);
+      }
+    }
+
+    // Return null if no servers found
+    if (Object.keys(mcpServers).length === 0) {
+      console.log('📡 No MCP servers configured');
+      return null;
+    }
+
+    console.log(`✅ Total MCP servers loaded: ${Object.keys(mcpServers).length}`);
+    return mcpServers;
+  } catch (error) {
+    console.error('❌ Error loading MCP config:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Spawns a CodeBuddy query using the SDK
  * Tasks continue running in background even if client disconnects.
  * Only manual abort stops the task.
  * 
@@ -160,435 +398,188 @@ async function handleImages(command, images, cwd) {
  * @returns {Promise<void>}
  */
 async function spawnCodeBuddy(command, options = {}, ws) {
-  return new Promise(async (resolve, reject) => {
-    const { sessionId, projectPath, cwd, resume, toolsSettings, skipPermissions, model, images, permissionMode } = options;
-    let capturedSessionId = sessionId; // Track session ID throughout the process
-    let sessionCreatedSent = false; // Track if we've already sent session-created event
-    let messageBuffer = ''; // Buffer for accumulating assistant messages
-    const isNewSession = !sessionId && !!command;
-    let tempImagePaths = [];
-    let tempDir = null;
-    
-    // Generate a temporary task ID for new sessions
-    const tempTaskId = sessionId || `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
-    // Register background task (简化版：不缓存消息，只跟踪任务状态)
-    registerTask(tempTaskId, 'codebuddy', projectPath, null);
+  const { sessionId, projectPath } = options;
+  let capturedSessionId = sessionId;
+  let sessionCreatedSent = false;
+  let tempImagePaths = [];
+  let tempDir = null;
+  let queryInstance = null;
+  
+  // Generate a temporary task ID for new sessions
+  const tempTaskId = sessionId || `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  // Register background task
+  registerTask(tempTaskId, 'codebuddy', projectPath, null);
 
-    // Helper: 安全发送消息（忽略断开的连接）
-    const safeSend = (data) => {
-      try {
-        if (ws && ws.readyState === 1) { // WebSocket.OPEN = 1
-          ws.send(data);
-        }
-      } catch (e) {
-        // 连接已断开，忽略发送错误
+  // Helper: 安全发送消息（忽略断开的连接）
+  const safeSend = (data) => {
+    try {
+      if (ws && ws.readyState === 1) { // WebSocket.OPEN = 1
+        ws.send(data);
       }
-    };
-    
-    // Debug log for images
-    if (images && images.length > 0) {
-      console.log('🖼️  [CodeBuddy] Received images:', images.length, 'images');
+    } catch (e) {
+      // 连接已断开，忽略发送错误
     }
-    
-    // Use tools settings passed from frontend, or defaults
-    const settings = toolsSettings || {
-      allowedTools: [],
-      disallowedTools: [],
-      skipPermissions: false
-    };
-    
-    // Use cwd (actual project directory) instead of projectPath
-    let workingDir = cwd || projectPath || process.cwd();
-    if (!path.isAbsolute(workingDir)) {
-      workingDir = path.join('/', workingDir);
+  };
+
+  try {
+    // Map CLI options to SDK format
+    const sdkOptions = mapCliOptionsToSDK(options);
+
+    // Load MCP configuration
+    const mcpServers = await loadMcpConfig(options.cwd);
+    if (mcpServers) {
+      sdkOptions.mcpServers = mcpServers;
     }
 
     // Handle images - save to temp files and modify prompt
-    const imageResult = await handleImages(command, images, workingDir);
+    const imageResult = await handleImages(command, options.images, options.cwd);
     const finalCommand = imageResult.modifiedCommand;
     tempImagePaths = imageResult.tempImagePaths;
     tempDir = imageResult.tempDir;
 
-    // Build CodeBuddy CLI command
-    const args = [];
-    
-    // Build flags allowing both resume and prompt together
-    if (sessionId && !sessionId.startsWith('temp-')) {
-      args.push('--resume=' + sessionId);
-      console.log('🔄 Resuming existing session:', sessionId);
-    } else if (sessionId && sessionId.startsWith('temp-')) {
-      console.log('⚠️  Ignoring temp session ID, starting new session');
-      capturedSessionId = null;
-    }
-
-    // Use simple -p mode with modified command
-    if (finalCommand && finalCommand.trim()) {
-      const sanitizedCommand = finalCommand.replace(/\n/g, ' ').replace(/\r/g, '');
-      args.push('-p', sanitizedCommand);
-      args.push('--output-format', 'stream-json');
-      
-      // Increase max turns to allow longer conversations with many tool calls
-      args.push('--max-turns', '1000');
-    }
-
-    // Add model flag if specified (only meaningful for new sessions; harmless on resume)
-    if (!sessionId && model && model !== 'default') {
-      args.push('--model', model);
-    }
-    
-    // Add tool restrictions if specified (Issue 5 fix)
-    if (settings.allowedTools && settings.allowedTools.length > 0) {
-      args.push('--allowedTools', settings.allowedTools.join(','));
-      console.log('🔧 Allowed tools:', settings.allowedTools.join(','));
-    }
-    if (settings.disallowedTools && settings.disallowedTools.length > 0) {
-      args.push('--disallowedTools', settings.disallowedTools.join(','));
-      console.log('🚫 Disallowed tools:', settings.disallowedTools.join(','));
-    }
-    
-    // Add skip permissions flag for non-interactive mode
-    // In --print mode, we cannot handle interactive permission prompts,
-    // so we need to either skip permissions or use a mode that auto-approves
-    // Only skip if not in plan mode (plan mode should remain read-only)
-    const effectivePermissionMode = permissionMode || 'default';
-    const needsAutoApprove = effectivePermissionMode !== 'plan' && (
-      skipPermissions || 
-      settings.skipPermissions || 
-      effectivePermissionMode === 'bypassPermissions' ||
-      effectivePermissionMode === 'acceptEdits' ||
-      effectivePermissionMode === 'default'  // In non-interactive mode, default also needs -y
-    );
-    
-    if (needsAutoApprove) {
-      args.push('-y');
-      console.log('⚠️  Using -y flag (non-interactive mode requires auto-approve)');
-    }
-    
-    // Add permission mode if specified and not default
-    if (effectivePermissionMode && effectivePermissionMode !== 'default') {
-      args.push('--permission-mode', effectivePermissionMode);
-      console.log('🔐 Permission mode:', effectivePermissionMode);
-    }
-    
-    // CodeBuddy CLI command
-    const codebuddyCmd = 'codebuddy';
-    
-    console.log('🤖 Spawning CodeBuddy CLI:', codebuddyCmd, args.join(' '));
-    console.log('📁 Working directory:', workingDir);
-    console.log('🔑 Session info - Input sessionId:', sessionId, 'Resume:', resume);
+    console.log('🤖 Starting CodeBuddy SDK query');
+    console.log('📁 Working directory:', options.cwd);
+    console.log('🔑 Session info - Input sessionId:', sessionId);
     if (tempImagePaths.length > 0) {
       console.log('🖼️  Images saved to temp files:', tempImagePaths.length);
     }
-    
-    const codebuddyProcess = spawnFunction(codebuddyCmd, args, {
-      cwd: workingDir,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      shell: false, // Disable shell to avoid output buffering
-      env: { 
-        ...process.env,
-        // Force unbuffered output
-        PYTHONUNBUFFERED: '1',
-        NODE_OPTIONS: '--no-warnings',
-        // Disable interactive prompts
-        CI: 'true',
-        TERM: 'dumb',
-        // Prevent color output from interfering with JSON parsing (Issue 4 fix)
-        NO_COLOR: '1',
-        FORCE_COLOR: '0',
-        // Signal headless mode to CodeBuddy
-        CODEBUDDY_HEADLESS: '1'
-      }
+
+    // Create SDK query instance
+    queryInstance = query({
+      prompt: finalCommand,
+      options: sdkOptions
     });
-    
-    // Close stdin immediately (no need to write stdin for -p mode)
-    codebuddyProcess.stdin.end();
-    
-    // Store process reference for potential abort
-    const processKey = (capturedSessionId && !capturedSessionId.startsWith('temp-')) 
-      ? capturedSessionId 
-      : `process-${Date.now()}`;
-    activeCodeBuddyProcesses.set(processKey, codebuddyProcess);
+
+    // Track the query instance for abort capability
+    if (capturedSessionId) {
+      addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir);
+    }
     
     // 设置 abort 函数
-    setAbortFn(tempTaskId, () => {
-      codebuddyProcess.kill('SIGTERM');
+    setAbortFn(tempTaskId, async () => {
+      if (queryInstance) {
+        await queryInstance.interrupt();
+      }
     });
-    
-    
-    // Handle stdout (streaming JSON responses)
-    codebuddyProcess.stdout.on('data', (data) => {
-      const rawOutput = data.toString();
-      const lines = rawOutput.split('\n').filter(line => line.trim());
-      
-      for (const line of lines) {
-        try {
-          const response = JSON.parse(line);
-          
-          // Handle different message types
-          switch (response.type) {
-            case 'system':
-              if (response.subtype === 'init') {
-                // Capture session ID
-                if (response.session_id) {
-                  const newSessionId = response.session_id;
-                  
-                  // Detect session resume failure
-                  if (sessionId && !sessionId.startsWith('temp-') && sessionId !== newSessionId) {
-                    console.warn('⚠️ Session resume failed! Requested:', sessionId, 'Got:', newSessionId);
-                    safeSend(JSON.stringify({
-                      type: 'session-resume-failed',
-                      requestedSessionId: sessionId,
-                      newSessionId: newSessionId,
-                      message: 'Unable to resume the requested session. A new session has been created.'
-                    }));
-                  }
-                  
-                  if (!capturedSessionId) {
-                    capturedSessionId = newSessionId;
-                    console.log('📝 Captured NEW session ID:', capturedSessionId);
-                    
-                    // Update process key with captured session ID
-                    if (processKey !== capturedSessionId) {
-                      activeCodeBuddyProcesses.delete(processKey);
-                      activeCodeBuddyProcesses.set(capturedSessionId, codebuddyProcess);
-                    }
-                    
-                    // Update task ID in background manager
-                    updateTaskId(tempTaskId, capturedSessionId);
 
-                    // Send session-created event only once for new sessions
-                    if (!sessionId && !sessionCreatedSent) {
-                      sessionCreatedSent = true;
-                      
-                      // Save session to database
-                      try {
-                        const project = getProjectByPath(projectPath);
-                        if (project) {
-                          createSession(project.id, capturedSessionId, 'codebuddy', null, null);
-                          console.log('✅ [CodeBuddy] Session saved to database:', capturedSessionId);
-                        }
-                      } catch (dbError) {
-                        console.error('❌ [CodeBuddy] Failed to save session to database:', dbError);
-                      }
-                      
-                      safeSend(JSON.stringify({
-                        type: 'session-created',
-                        sessionId: capturedSessionId,
-                        model: response.model,
-                        cwd: response.cwd
-                      }));
-                    }
-                  }
-                }
-                
-                // Send system info to frontend (session-created already sent above)
-                // No need for separate codebuddy-system message
-              }
-              break;
-              
-            case 'user':
-              // User messages contain tool execution results
-              if (response.message && response.message.content) {
-                for (const contentBlock of response.message.content) {
-                  if (contentBlock.type === 'tool_result') {
-                    let resultContent = contentBlock.content;
-                    if (Array.isArray(resultContent)) {
-                      resultContent = resultContent
-                        .map(item => item.text || JSON.stringify(item))
-                        .join('\n');
-                    } else if (typeof resultContent === 'object' && resultContent !== null) {
-                      resultContent = JSON.stringify(resultContent, null, 2);
-                    }
-                    
-                    safeSend(JSON.stringify({
-                      type: 'session-response',
-                      data: {
-                        type: 'tool_result',
-                        tool_use_id: contentBlock.tool_use_id,
-                        content: resultContent,
-                        is_error: contentBlock.is_error
-                      }
-                    }));
-                  }
-                }
-              }
-              break;
-              
-            case 'assistant':
-              if (response.message && response.message.content) {
-                for (const contentBlock of response.message.content) {
-                  if (contentBlock.type === 'text' && contentBlock.text) {
-                    messageBuffer += contentBlock.text;
-                    
-                    safeSend(JSON.stringify({
-                      type: 'session-response',
-                      data: {
-                        type: 'content_block_delta',
-                        delta: {
-                          type: 'text_delta',
-                          text: contentBlock.text
-                        }
-                      }
-                    }));
-                  } else if (contentBlock.type === 'tool_use') {
-                    safeSend(JSON.stringify({
-                      type: 'session-response',
-                      data: {
-                        type: 'content_block_start',
-                        content_block: {
-                          type: 'tool_use',
-                          id: contentBlock.id,
-                          name: contentBlock.name,
-                          input: contentBlock.input
-                        }
-                      }
-                    }));
-                    safeSend(JSON.stringify({
-                      type: 'session-response',
-                      data: {
-                        type: 'content_block_stop'
-                      }
-                    }));
-                  } else if (contentBlock.type === 'tool_result') {
-                    safeSend(JSON.stringify({
-                      type: 'session-response',
-                      data: {
-                        type: 'tool_result',
-                        tool_use_id: contentBlock.tool_use_id,
-                        content: contentBlock.content
-                      }
-                    }));
-                  }
-                }
-              }
-              break;
-              
-            case 'result':
-              if (messageBuffer) {
-                safeSend(JSON.stringify({
-                  type: 'session-response',
-                  data: { type: 'content_block_stop' }
-                }));
-              }
-              // session-complete will be sent on process close
-              activeCodeBuddyProcesses.delete(capturedSessionId || processKey);
-              break;
-            
-            case 'content_block_start':
-            case 'content_block_delta':
-            case 'content_block_stop':
-              safeSend(JSON.stringify({
-                type: 'session-response',
-                data: response
-              }));
-              break;
-              
-            default:
-              console.log('📦 Unknown CodeBuddy message type:', response.type);
+    // Process streaming messages
+    console.log('🔄 Starting async generator loop for session:', capturedSessionId || 'NEW');
+    for await (const message of queryInstance) {
+      // Check if task is still running (may have been aborted)
+      if (!isTaskRunning(capturedSessionId || tempTaskId)) {
+        console.log('🛑 Task was aborted, stopping message processing');
+        break;
+      }
+      
+      // Handle different message types
+      if (message.type === 'system' && message.subtype === 'init') {
+        // Capture session ID
+        if (message.session_id) {
+          const newSessionId = message.session_id;
+          
+          // Detect session resume failure
+          if (sessionId && !sessionId.startsWith('temp-') && sessionId !== newSessionId) {
+            console.warn('⚠️ Session resume failed! Requested:', sessionId, 'Got:', newSessionId);
+            safeSend(JSON.stringify({
+              type: 'session-resume-failed',
+              requestedSessionId: sessionId,
+              newSessionId: newSessionId,
+              message: 'Unable to resume the requested session. A new session has been created.'
+            }));
           }
-        } catch (parseError) {
-          // Check for OSC title sequence
-          const oscTitleMatch = line.match(/\u001b\]0;([^\u0007\u009c]+)[\u0007\u009c]/);
-          if (oscTitleMatch && oscTitleMatch[1]) {
-            const rawTitle = oscTitleMatch[1];
-            const cleanTitle = rawTitle.replace(/^[✳✓✗⏳]\s*/, '').trim();
-            if (cleanTitle) {
-              const currentSessionId = capturedSessionId || sessionId;
-              console.log('📝 OSC title detected:', cleanTitle);
-              safeSend(JSON.stringify({
-                type: 'session-title-update',
-                sessionId: currentSessionId,
-                title: cleanTitle
-              }));
+          
+          if (!capturedSessionId) {
+            capturedSessionId = newSessionId;
+            addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir);
+            
+            // Update task ID in background manager
+            updateTaskId(tempTaskId, capturedSessionId);
+
+            // Send session-created event only once for new sessions
+            if (!sessionId && !sessionCreatedSent) {
+              sessionCreatedSent = true;
               
-              // Persist title
-              if (currentSessionId && workingDir) {
-                const projectName = workingDir.replace(/\//g, '-').replace(/^-/, '');
-                const codebuddyProjectDir = path.join(os.homedir(), '.codebuddy', 'projects', projectName);
-                const titlesFile = path.join(codebuddyProjectDir, 'session-titles.json');
-                
-                (async () => {
-                  try {
-                    let titles = {};
-                    try {
-                      const content = await fs.readFile(titlesFile, 'utf8');
-                      titles = JSON.parse(content);
-                    } catch (e) {}
-                    titles[currentSessionId] = cleanTitle;
-                    await fs.writeFile(titlesFile, JSON.stringify(titles, null, 2));
-                  } catch (err) {
-                    console.warn('⚠️  Failed to persist session title:', err.message);
-                  }
-                })();
+              // Save session to database
+              try {
+                const project = getProjectByPath(projectPath);
+                if (project) {
+                  createSession(project.id, capturedSessionId, 'codebuddy', null, null);
+                  console.log('✅ [CodeBuddy SDK] Session saved to database:', capturedSessionId);
+                }
+              } catch (dbError) {
+                console.error('❌ [CodeBuddy SDK] Failed to save session to database:', dbError);
               }
-            }
-            if (line.trim() === oscTitleMatch[0]) {
-              continue;
+              
+              safeSend(JSON.stringify({
+                type: 'session-created',
+                sessionId: capturedSessionId,
+                model: message.model,
+                cwd: message.cwd
+              }));
             }
           }
         }
       }
-    });
-    
-    // Handle stderr
-    codebuddyProcess.stderr.on('data', (data) => {
-      const rawError = data.toString();
-      console.error('❌ CodeBuddy CLI stderr:', rawError);
-      
-      const classifiedError = classifyError(rawError);
-      
-      // 统一使用 session-error 消息类型
+
+      // Transform and send message
+      const transformedMessage = transformMessage(message);
       safeSend(JSON.stringify({
-        type: 'session-error',
-        error: classifiedError.userMessage || rawError,
-        errorType: classifiedError.type,
-        details: classifiedError.rawMessage,
-        provider: 'codebuddy'
+        type: 'session-response',
+        data: transformedMessage
       }));
-    });
-    
-    // Handle process completion
-    codebuddyProcess.on('close', (code) => {
-      activeCodeBuddyProcesses.delete(capturedSessionId || processKey);
-      
-      // Mark background task as completed
-      completeTask(capturedSessionId || tempTaskId);
-      
-      // 统一使用 session-complete 消息类型，前端不需要区分 provider
-      safeSend(JSON.stringify({
-        type: 'session-complete',
-        sessionId: capturedSessionId || sessionId,
-        exitCode: code,
-        isNewSession: isNewSession,
-        provider: 'codebuddy'
-      }));
-      
-      resolve({ 
-        sessionId: capturedSessionId || sessionId,
-        exitCode: code 
-      });
-    });
-    
-    // Handle process errors
-    codebuddyProcess.on('error', (error) => {
-      console.error('❌ CodeBuddy process error:', error);
-      
-      activeCodeBuddyProcesses.delete(capturedSessionId || processKey);
-      
-      // Mark background task as completed (with error)
-      completeTask(capturedSessionId || tempTaskId);
-      
-      // 统一使用 session-error 消息类型
-      safeSend(JSON.stringify({
-        type: 'session-error',
-        error: error.message,
-        provider: 'codebuddy'
-      }));
-      
-      reject(error);
-    });
-  });
+
+      // Extract and send token budget updates from result messages
+      if (message.type === 'result') {
+        const tokenBudget = extractTokenBudget(message);
+        if (tokenBudget) {
+          console.log('📊 Token budget from usage:', tokenBudget);
+          safeSend(JSON.stringify({
+            type: 'token-budget',
+            data: tokenBudget
+          }));
+        }
+      }
+    }
+
+    // Clean up session on completion
+    if (capturedSessionId) {
+      removeSession(capturedSessionId);
+    }
+
+    // Mark background task as completed
+    completeTask(capturedSessionId || tempTaskId);
+
+    // Send completion event
+    console.log('✅ Streaming complete, sending session-complete event');
+    safeSend(JSON.stringify({
+      type: 'session-complete',
+      sessionId: capturedSessionId,
+      exitCode: 0,
+      isNewSession: !sessionId && !!command,
+      provider: 'codebuddy'
+    }));
+
+  } catch (error) {
+    console.error('CodeBuddy SDK query error:', error);
+
+    // Clean up session on error
+    if (capturedSessionId) {
+      removeSession(capturedSessionId);
+    }
+
+    // Mark background task as completed (with error)
+    completeTask(capturedSessionId || tempTaskId);
+
+    // Send error
+    safeSend(JSON.stringify({
+      type: 'session-error',
+      error: error.message,
+      provider: 'codebuddy'
+    }));
+
+    throw error;
+  }
 }
 
 /**
@@ -597,17 +588,40 @@ async function spawnCodeBuddy(command, options = {}, ws) {
  * @returns {boolean} True if session was aborted, false if not found
  */
 async function abortCodeBuddySession(sessionId) {
-  const process = activeCodeBuddyProcesses.get(sessionId);
-  
-  if (!process) {
-    console.log(`⚠️  CodeBuddy session ${sessionId} not found in active processes`);
+  const session = getSession(sessionId);
+
+  if (!session && !isTaskRunning(sessionId)) {
+    console.log(`⚠️ CodeBuddy session ${sessionId} not found`);
     return false;
   }
-  
+
   try {
     console.log(`🛑 Aborting CodeBuddy session: ${sessionId}`);
-    process.kill('SIGTERM');
-    activeCodeBuddyProcesses.delete(sessionId);
+
+    // Call interrupt() on the query instance (with error handling)
+    if (session && session.instance) {
+      try {
+        await session.instance.interrupt();
+      } catch (interruptError) {
+        // Ignore "Session not found" errors - session may have already completed
+        if (!interruptError.message?.includes('Session not found')) {
+          console.error(`Error calling interrupt():`, interruptError.message);
+        }
+      }
+    }
+
+    // Update session status
+    if (session) {
+      session.status = 'aborted';
+    }
+
+    // Clean up session
+    removeSession(sessionId);
+    
+    // Also abort in background task manager
+    const { abortTask } = await import('./background-task-manager.js');
+    abortTask(sessionId);
+
     return true;
   } catch (error) {
     console.error(`❌ Error aborting CodeBuddy session ${sessionId}:`, error);
@@ -621,7 +635,8 @@ async function abortCodeBuddySession(sessionId) {
  * @returns {boolean} True if session is active
  */
 function isCodeBuddySessionActive(sessionId) {
-  return activeCodeBuddyProcesses.has(sessionId);
+  const session = getSession(sessionId);
+  return session && session.status === 'active';
 }
 
 /**
@@ -629,7 +644,7 @@ function isCodeBuddySessionActive(sessionId) {
  * @returns {Array<string>} Array of active session IDs
  */
 function getActiveCodeBuddySessions() {
-  return Array.from(activeCodeBuddyProcesses.keys());
+  return getAllSessions();
 }
 
 // Export public API
@@ -637,5 +652,6 @@ export {
   spawnCodeBuddy,
   abortCodeBuddySession,
   isCodeBuddySessionActive,
-  getActiveCodeBuddySessions
+  getActiveCodeBuddySessions,
+  cleanupOldTempImages
 };

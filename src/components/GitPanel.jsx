@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { GitBranch, GitCommit, Plus, Minus, RefreshCw, Check, X, ChevronDown, ChevronRight, Info, History, FileText, Mic, MicOff, Sparkles, Download, RotateCcw, Trash2, AlertTriangle, Upload, CloudDownload, GitPullRequest, List, FolderTree } from 'lucide-react';
+import { GitBranch, GitCommit, Plus, Minus, RefreshCw, Check, X, ChevronDown, ChevronRight, Info, History, FileText, Mic, MicOff, Sparkles, Download, RotateCcw, Trash2, AlertTriangle, Upload, CloudDownload, GitPullRequest, List, FolderTree, Copy } from 'lucide-react';
 import { MicButton } from './MicButton.jsx';
 import { authenticatedFetch, getProjectId } from '../utils/api';
 import DiffViewer from './DiffViewer.jsx';
+import Toast from './Toast.jsx';
 
 function GitPanel({ selectedProject, isMobile, onFileOpen }) {
   const [gitStatus, setGitStatus] = useState(null);
@@ -47,6 +48,8 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
   const [stashDiff, setStashDiff] = useState(null);
   const textareaRef = useRef(null);
   const dropdownRef = useRef(null);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
 
   // Get current provider from localStorage (same as ChatInterface does)
   const [provider, setProvider] = useState(() => {
@@ -485,12 +488,13 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
     }
   };
 
-  const handleFileOpen = async (filePath) => {
+  const handleFileOpen = async (filePath, isStaged = false) => {
     if (!onFileOpen) return;
 
     try {
       // Fetch file content with diff information
-      const response = await authenticatedFetch(`/api/git/file-with-diff?project=${encodeURIComponent(getProjectId(selectedProject))}&file=${encodeURIComponent(filePath)}`);
+      // Pass isStaged parameter to backend to get correct diff
+      const response = await authenticatedFetch(`/api/git/file-with-diff?project=${encodeURIComponent(getProjectId(selectedProject))}&file=${encodeURIComponent(filePath)}&staged=${isStaged}`);
       const data = await response.json();
 
       if (data.error) {
@@ -932,6 +936,22 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
     }
   };
 
+  // Copy relative path to clipboard
+  const copyPathToClipboard = (filePath, e) => {
+    if (e) {
+      e.stopPropagation(); // Prevent triggering the file click
+    }
+    
+    navigator.clipboard.writeText(filePath).then(() => {
+      setToastMessage(`已复制路径: ${filePath}`);
+      setShowToast(true);
+    }).catch(err => {
+      console.error('Failed to copy path:', err);
+      setToastMessage('复制路径失败');
+      setShowToast(true);
+    });
+  };
+
   // Open commit file diff in full screen (reuse onFileOpen with diffInfo)
   const openCommitFileDiff = async (commitHash, filename) => {
     if (!onFileOpen) return;
@@ -1072,19 +1092,27 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
     const stats = gitStatus?.fileStats?.[filePath];
     
     return (
-      <div key={`${filePath}-${isStaged ? 'staged' : 'unstaged'}`} className="border-b border-gray-200 dark:border-gray-700 last:border-0">
+      <div key={`${filePath}-${isStaged ? 'staged' : 'unstaged'}`} className="border-b border-gray-200 dark:border-gray-700 last:border-0 group">
         <div className={`flex items-center hover:bg-gray-50 dark:hover:bg-gray-800 ${isMobile ? 'px-2 py-1.5' : 'px-3 py-2'}`}>
           <span
             className={`flex-1 truncate ${isMobile ? 'text-xs' : 'text-sm'} cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 hover:underline`}
             onClick={(e) => {
               e.stopPropagation();
-              handleFileOpen(filePath);
+              handleFileOpen(filePath, isStaged);
             }}
             title="Click to open file"
           >
             {filePath}
           </span>
           <div className="flex items-center gap-1">
+            {/* Copy path button - shows on hover */}
+            <button
+              onClick={(e) => copyPathToClipboard(filePath, e)}
+              className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-500 dark:text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity"
+              title="复制路径"
+            >
+              <Copy className="w-3.5 h-3.5" />
+            </button>
             {/* Line change stats */}
             {stats && (stats.additions > 0 || stats.deletions > 0) && (
               <span className="flex items-center gap-1 text-xs font-mono mr-1">
@@ -1249,7 +1277,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
       const stats = gitStatus?.fileStats?.[node.path];
       
       return (
-        <div key={`${node.path}-${isStaged ? 'staged' : 'unstaged'}`} className="border-b border-gray-200 dark:border-gray-700">
+        <div key={`${node.path}-${isStaged ? 'staged' : 'unstaged'}`} className="border-b border-gray-200 dark:border-gray-700 group">
           <div 
             className={`flex items-center hover:bg-gray-50 dark:hover:bg-gray-800 ${isMobile ? 'px-2 py-1.5' : 'px-3 py-2'}`}
             style={{ paddingLeft: `${(depth * 16) + (isMobile ? 8 : 12)}px` }}
@@ -1258,13 +1286,21 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
               className={`flex-1 truncate ${isMobile ? 'text-xs' : 'text-sm'} cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 hover:underline`}
               onClick={(e) => {
                 e.stopPropagation();
-                handleFileOpen(node.path);
+                handleFileOpen(node.path, isStaged);
               }}
               title={node.path}
             >
               {name}
             </span>
             <div className="flex items-center gap-1">
+              {/* Copy path button - shows on hover */}
+              <button
+                onClick={(e) => copyPathToClipboard(node.path, e)}
+                className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-500 dark:text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                title="复制路径"
+              >
+                <Copy className="w-3.5 h-3.5" />
+              </button>
               {/* Line change stats */}
               {stats && (stats.additions > 0 || stats.deletions > 0) && (
                 <span className="flex items-center gap-1 text-xs font-mono mr-1">
@@ -2297,6 +2333,14 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
             </div>
           </div>
         </div>
+      )}
+      
+      {/* Toast Notification */}
+      {showToast && (
+        <Toast
+          message={toastMessage}
+          onClose={() => setShowToast(false)}
+        />
       )}
     </div>
   );

@@ -56,11 +56,15 @@ ProviderButton.displayName = 'ProviderButton';
  * @param {Object} props
  * @param {string} props.provider - Currently selected provider
  * @param {function} props.setProvider - Function to set provider
+ * @param {string} props.codebuddyModel - Currently selected CodeBuddy model
+ * @param {function} props.setCodebuddyModel - Function to set CodeBuddy model
  * @param {React.RefObject} props.textareaRef - Reference to textarea for focus
  */
 const ProviderSelector = memo(({ 
   provider, 
-  setProvider, 
+  setProvider,
+  codebuddyModel,
+  setCodebuddyModel,
   textareaRef,
   selectedProject
 }) => {
@@ -75,8 +79,7 @@ const ProviderSelector = memo(({
     <div className="text-center px-6 sm:px-4 py-8">
       <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-10">{selectedProject?.displayName || '选择您的 AI 助手'}</h2>
       
-      <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-8">
-        {/* Claude Button */}
+      <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-8">{/* Claude Button */}
         <button
           onClick={() => handleProviderSelect('claude')}
           className={`group relative w-64 h-32 bg-white dark:bg-gray-800 rounded-xl border-2 transition-all duration-200 hover:scale-105 hover:shadow-xl ${

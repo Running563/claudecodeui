@@ -356,6 +356,70 @@ export function useWebSocketMessages({
             setCanAbortSession(false);
             return;
           }
+          
+          // Handle SDK result message (final response)
+          if (messageData.type === 'result') {
+            flushStreamBuffer(true);
+            
+            // Display the result if it exists and is not empty
+            if (messageData.result && messageData.result.trim()) {
+              const content = decodeHtmlEntities(messageData.result);
+              setChatMessages(prev => [...prev, {
+                type: 'assistant',
+                content: content,
+                timestamp: new Date()
+              }]);
+            }
+            
+            setIsLoading(false);
+            setCanAbortSession(false);
+            return;
+          }
+          
+          // Handle SDK assistant message (contains full message with content blocks)
+          if (messageData.type === 'assistant' && messageData.message) {
+            const assistantMessage = messageData.message;
+            
+            if (Array.isArray(assistantMessage.content)) {
+              for (const contentBlock of assistantMessage.content) {
+                if (contentBlock.type === 'tool_use') {
+                  const toolInput = contentBlock.input ? JSON.stringify(contentBlock.input, null, 2) : '';
+                  setChatMessages(prev => [...prev, {
+                    type: 'assistant',
+                    content: '',
+                    timestamp: new Date(),
+                    isToolUse: true,
+                    toolName: contentBlock.name,
+                    toolInput: toolInput,
+                    toolId: contentBlock.id,
+                    toolResult: null
+                  }]);
+                } else if (contentBlock.type === 'text' && contentBlock.text?.trim()) {
+                  const content = decodeHtmlEntities(contentBlock.text);
+                  setChatMessages(prev => [...prev, {
+                    type: 'assistant',
+                    content: content,
+                    timestamp: new Date()
+                  }]);
+                }
+              }
+            }
+            return;
+          }
+          
+          // Handle SDK user message (contains tool results)
+          if (messageData.type === 'user' && messageData.message) {
+            const userMessage = messageData.message;
+            
+            if (Array.isArray(userMessage.content)) {
+              for (const contentBlock of userMessage.content) {
+                if (contentBlock.type === 'tool_result') {
+                  handleToolResult(contentBlock);
+                }
+              }
+            }
+            return;
+          }
         }
 
         // Handle Claude CLI session duplication

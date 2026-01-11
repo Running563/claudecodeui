@@ -56,6 +56,25 @@ export const convertSessionMessages = (rawMessages) => {
     const role = msg.message?.role || msg.role;
     const content = msg.message?.content || msg.content;
     
+    // Handle reasoning messages (CodeBuddy format: top-level type="reasoning")
+    if (msg.type === 'reasoning' && msg.rawContent && Array.isArray(msg.rawContent)) {
+      for (const part of msg.rawContent) {
+        if (part.type === 'reasoning_text') {
+          let text = part.text;
+          if (typeof text === 'string') {
+            text = unescapeWithMathProtection(text);
+          }
+          converted.push({
+            type: 'assistant',
+            content: text,
+            timestamp: msg.timestamp || new Date().toISOString(),
+            isThinking: true
+          });
+        }
+      }
+      continue;
+    }
+    
     // Handle function_call type (CodeBuddy format)
     if (msg.type === 'function_call') {
       const toolResult = toolResults.get(msg.callId);

@@ -67,23 +67,113 @@ function InputToolbar({
   isUserScrolledUp,
   chatMessages,
   scrollToBottom,
-  onRefreshSession
+  onRefreshSession,
+  // Provider and model selection
+  provider,
+  claudeModel,
+  setClaudeModel,
+  cursorModel,
+  setCursorModel,
+  codebuddyModel,
+  setCodebuddyModel
 }) {
+  // Claude 可用模型列表
+  const claudeModels = [
+    { value: 'sonnet', label: 'Sonnet4.5' },
+    { value: 'opus', label: 'Opus4.5' },
+    { value: 'haiku', label: 'Haiku4.5' }
+  ];
+
+  // CodeBuddy 可用模型列表（与 CLI 一致）
+  const codebuddyModels = [
+    { value: 'default', label: 'Sonnet4.5' },
+    { value: 'claude-opus-4.5', label: 'Opus4.5' },
+    { value: 'claude-haiku-4.5', label: 'Haiku4.5' },
+    { value: 'gemini-3.0-pro', label: 'Gemini3.0Pro' },
+    { value: 'deepseek-v3-2-volc-ioa', label: 'DeepSeek V3' }
+  ];
+
+  // Cursor 可用模型列表
+  const cursorModels = [
+    { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
+    { value: 'gpt-4o', label: 'GPT-4o' },
+    { value: 'o1-preview', label: 'o1-preview' },
+    { value: 'o1-mini', label: 'o1-mini' },
+    { value: 'claude-3-opus', label: 'Claude 3 Opus' }
+  ];
+
   return (
     <div ref={inputContainerRef} className="max-w-4xl mx-auto mb-3">
       <div className="flex items-center justify-center gap-2">
-        {/* Permission Mode Selector (弱化样式) */}
+        {/* Permission Mode Selector - 显示当前模式 */}
         <button
           type="button"
           onClick={cyclePermissionMode}
-          className={`px-2 py-1 rounded-md text-xs font-normal border transition-all duration-200 ${getModeStyles(permissionMode)}`}
-          title="Click to change permission mode (or press Tab in input)"
+          className={`w-5 h-5 rounded-full flex items-center justify-center transition-all duration-200 border ${getModeStyles(permissionMode)} relative group`}
+          title={`Current: ${getModeText(permissionMode)} (Click to cycle)`}
         >
-          <div className="flex items-center gap-1.5">
-            <div className={`w-1.5 h-1.5 rounded-full ${getModeDotColor(permissionMode)}`} />
-            <span className="opacity-80">{getModeText(permissionMode)}</span>
+          <div className={`w-1.5 h-1.5 rounded-full ${getModeDotColor(permissionMode)}`} />
+          {/* 悬停显示模式文本 */}
+          <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-900 dark:bg-gray-700 text-white text-xs px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+            {getModeText(permissionMode)}
           </div>
         </button>
+
+        {/* Model Selector - Claude (无框样式) */}
+        {provider === 'claude' && setClaudeModel && (
+          <select
+            value={claudeModel || 'sonnet'}
+            onChange={(e) => {
+              setClaudeModel(e.target.value);
+              localStorage.setItem('claude-model', e.target.value);
+            }}
+            className="h-8 px-2 text-xs font-normal bg-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-all duration-200 focus:outline-none cursor-pointer appearance-none"
+            title="选择模型"
+          >
+            {claudeModels.map(model => (
+              <option key={model.value} value={model.value}>
+                {model.label}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {/* Model Selector - CodeBuddy (无框样式) */}
+        {provider === 'codebuddy' && setCodebuddyModel && (
+          <select
+            value={codebuddyModel || 'default'}
+            onChange={(e) => {
+              setCodebuddyModel(e.target.value);
+              localStorage.setItem('codebuddy-model', e.target.value);
+            }}
+            className="h-8 px-2 text-xs font-normal bg-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-all duration-200 focus:outline-none cursor-pointer appearance-none"
+            title="选择模型"
+          >
+            {codebuddyModels.map(model => (
+              <option key={model.value} value={model.value}>
+                {model.label}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {provider === 'cursor' && setCursorModel && (
+          <select
+            value={cursorModel || 'claude-3-5-sonnet-20241022'}
+            onChange={(e) => {
+              setCursorModel(e.target.value);
+              localStorage.setItem('cursor-model', e.target.value);
+            }}
+            className="h-8 px-2 text-xs font-normal bg-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-all duration-200 focus:outline-none cursor-pointer appearance-none"
+            title="选择模型"
+          >
+            {cursorModels.map(model => (
+              <option key={model.value} value={model.value}>
+                {model.label}
+              </option>
+            ))}
+          </select>
+        )}
 
         {/* Token usage pie chart */}
         <TokenUsagePie
@@ -116,15 +206,15 @@ function InputToolbar({
           )}
         </button>
 
-        {/* Clear input button */}
+        {/* Clear input button - 无框样式 */}
         {input.trim() && (
           <button
             type="button"
             onClick={handleClearInput}
-            className="w-8 h-8 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-full flex items-center justify-center transition-all duration-200 group shadow-sm"
+            className="w-8 h-8 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-full flex items-center justify-center transition-colors"
             title="Clear input"
           >
-            <svg className="w-4 h-4 text-gray-600 dark:text-gray-300 group-hover:text-gray-800 dark:group-hover:text-gray-100 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>

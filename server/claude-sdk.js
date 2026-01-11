@@ -579,9 +579,16 @@ async function abortClaudeSDKSession(sessionId) {
   try {
     console.log(`🛑 Aborting SDK session: ${sessionId}`);
 
-    // Call interrupt() on the query instance
+    // Call interrupt() on the query instance (with error handling)
     if (session && session.instance) {
-      await session.instance.interrupt();
+      try {
+        await session.instance.interrupt();
+      } catch (interruptError) {
+        // Ignore "Session not found" errors - session may have already completed
+        if (!interruptError.message?.includes('Session not found')) {
+          console.error(`Error calling interrupt():`, interruptError.message);
+        }
+      }
     }
 
     // Update session status

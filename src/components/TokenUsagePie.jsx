@@ -24,7 +24,7 @@ function TokenUsagePie({ used, total }) {
 
   return (
     <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-      <svg width="24" height="24" viewBox="0 0 24 24" className="transform -rotate-90">
+      <svg width="20" height="20" viewBox="0 0 24 24" className="transform -rotate-90">
         {/* Background circle */}
         <circle
           cx="12"

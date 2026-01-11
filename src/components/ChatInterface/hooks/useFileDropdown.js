@@ -27,6 +27,57 @@ const flattenFileTree = (files, basePath = '') => {
 };
 
 /**
+ * Calculate match priority score for file search
+ * Lower score = higher priority
+ * 
+ * Priority rules:
+ * 1. Exact filename match (0)
+ * 2. Filename starts with query (10)
+ * 3. Filename contains query (100 + position)
+ * 4. Path contains query (1000 + position)
+ * 5. Add depth penalty (deeper files get lower priority)
+ */
+const calculateMatchScore = (file, query) => {
+  if (!query) return 1000; // Empty query, keep original order
+  
+  const queryLower = query.toLowerCase();
+  const nameLower = file.name.toLowerCase();
+  const pathLower = file.path.toLowerCase();
+  
+  let score = 0;
+  
+  // 1. Exact filename match - highest priority
+  if (nameLower === queryLower) {
+    return 0;
+  }
+  
+  // 2. Filename prefix match
+  if (nameLower.startsWith(queryLower)) {
+    score = 10;
+  }
+  // 3. Filename contains match (earlier position = higher priority)
+  else if (nameLower.includes(queryLower)) {
+    const position = nameLower.indexOf(queryLower);
+    score = 100 + position;
+  }
+  // 4. Path contains match (earlier position = higher priority)
+  else if (pathLower.includes(queryLower)) {
+    const position = pathLower.indexOf(queryLower);
+    score = 1000 + position;
+  }
+  // 5. No match (shouldn't happen after filter)
+  else {
+    return 10000;
+  }
+  
+  // Add depth penalty: deeper files get slightly lower priority
+  const depth = file.path.split('/').length;
+  score += depth * 0.1; // Small penalty for depth
+  
+  return score;
+};
+
+/**
  * Hook for managing file dropdown (@ mentions)
  * @param {Object} params
  * @param {Object} params.selectedProject - Currently selected project
@@ -59,7 +110,8 @@ export function useFileDropdown({
       if (!projectId) return;
       
       try {
-        const response = await api.getFiles(projectId);
+        // Fetch with depth=10 to get deep file tree for @ mentions
+        const response = await api.getFiles(projectId, { depth: 10 });
         if (response.ok) {
           const files = await response.json();
           const flatFiles = flattenFileTree(files);
@@ -85,11 +137,26 @@ export function useFileDropdown({
         setAtSymbolPosition(lastAtIndex);
         setShowFileDropdown(true);
         
-        // Filter files based on the text after @
-        const filtered = fileList.filter(file => 
-          file.name.toLowerCase().includes(textAfterAt.toLowerCase()) ||
-          file.path.toLowerCase().includes(textAfterAt.toLowerCase())
-        ).slice(0, 10);
+        // Filter and sort files with intelligent priority scoring
+        const queryLower = textAfterAt.toLowerCase();
+        const filtered = fileList
+          .filter(file => 
+            file.name.toLowerCase().includes(queryLower) ||
+            file.path.toLowerCase().includes(queryLower)
+          )
+          .map(file => ({
+            ...file,
+            score: calculateMatchScore(file, textAfterAt)
+          }))
+          .sort((a, b) => {
+            // Primary: sort by score (lower = higher priority)
+            if (a.score !== b.score) {
+              return a.score - b.score;
+            }
+            // Secondary: alphabetical order
+            return a.name.localeCompare(b.name);
+          })
+          .slice(0, 10);
         
         setFilteredFiles(filtered);
         setSelectedFileIndex(-1);
