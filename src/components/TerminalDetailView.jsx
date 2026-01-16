@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronLeft, MoreVertical, Trash2, Copy, Eraser, Clock, Infinity, MousePointer2, Hand } from 'lucide-react';
+import { ChevronLeft, MoreVertical, Trash2, Copy, Eraser, Clock, Infinity, MousePointer2, Hand, MessageSquare, Folder, Terminal, GitBranch, MonitorPlay } from 'lucide-react';
 import Shell from './Shell';
 import { ConfirmDialog } from './ui/confirm-dialog';
 
@@ -8,7 +8,9 @@ function TerminalDetailView({
   onBack, 
   onDelete,
   onClone,
-  onUpdateTerminal
+  onUpdateTerminal,
+  onNavigate,
+  preferredSessionView
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [keepAlive, setKeepAlive] = useState(terminal?.keepAlive || false);
@@ -238,6 +240,36 @@ function TerminalDetailView({
           selectMode={selectMode}
         />
       </div>
+
+      {/* Mobile Bottom Navigation */}
+      {isMobile && onNavigate && (
+        <div className="flex-shrink-0 bg-background border-t border-border ios-bottom-safe">
+          <div className="flex items-center justify-around">
+            {[
+              { id: 'chat-shell', icon: preferredSessionView === 'shell' ? Terminal : MessageSquare, tab: preferredSessionView || 'chat' },
+              { id: 'files', icon: Folder, tab: 'files' },
+              { id: 'git', icon: GitBranch, tab: 'git' },
+              { id: 'terminals', icon: MonitorPlay, tab: 'terminals', isActive: true }
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => onNavigate(item.tab)}
+                  className={`vk-btn flex items-center justify-center p-1.5 rounded-lg min-h-[32px] min-w-[40px] touch-manipulation ${
+                    item.isActive
+                      ? 'text-blue-600 dark:text-blue-400'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                  aria-label={item.id}
+                >
+                  <Icon className="w-5 h-5" />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
     </>
   );

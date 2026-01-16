@@ -93,6 +93,7 @@ function AppContent() {
   // Quick Terminals State
   const [showDirectoryPicker, setShowDirectoryPicker] = useState(false);
   const [selectedTerminal, setSelectedTerminal] = useState(null);
+  const [lastOpenedTerminalId, setLastOpenedTerminalId] = useState(null); // 记住最后打开的终端ID
   
   // Session Protection System: Track sessions with active conversations to prevent
   // automatic project updates from interrupting ongoing chats. When a user sends
@@ -968,12 +969,40 @@ function AppContent() {
 
   const handleSelectTerminal = useCallback((terminal) => {
     setSelectedTerminal(terminal);
+    setLastOpenedTerminalId(terminal?.id || null);
   }, []);
 
   const handleTerminalBack = useCallback(() => {
     setSelectedTerminal(null);
+    setLastOpenedTerminalId(null); // 明确点击返回时清除记忆
     setActiveTab('terminals');
   }, []);
+
+  // 当切换到 terminals tab 且有记住的终端时，验证终端是否存在
+  useEffect(() => {
+    const validateTerminal = async () => {
+      if (activeTab === 'terminals' && selectedTerminal) {
+        try {
+          const token = localStorage.getItem('auth-token');
+          const response = await fetch('/api/terminals', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (response.ok) {
+            const terminals = await response.json();
+            const exists = terminals.some(t => t.id === selectedTerminal.id);
+            if (!exists) {
+              // 终端已不存在，清除选择
+              setSelectedTerminal(null);
+              setLastOpenedTerminalId(null);
+            }
+          }
+        } catch (error) {
+          console.error('Validate terminal error:', error);
+        }
+      }
+    };
+    validateTerminal();
+  }, [activeTab, selectedTerminal?.id]);
 
   // Wrapper for setActiveTab that also saves chat/shell preference
   const handleSetActiveTab = useCallback((tab) => {
@@ -999,6 +1028,7 @@ function AppContent() {
       });
       
       setSelectedTerminal(null);
+      setLastOpenedTerminalId(null); // 删除时清除记忆
       setActiveTab('terminals');
     } catch (error) {
       console.error('Delete terminal error:', error);
@@ -1146,13 +1176,18 @@ function AppContent() {
 
       {/* Main Content Area - Flexible */}
       <div className={`flex-1 flex flex-col min-w-0 ${isMobile ? 'pb-mobile-nav' : ''}`}>
-        {selectedTerminal ? (
+        {selectedTerminal && activeTab === 'terminals' ? (
           <TerminalDetailView
             terminal={selectedTerminal}
             onBack={handleTerminalBack}
             onDelete={handleTerminalDelete}
             onClone={handleTerminalClone}
             onUpdateTerminal={handleUpdateTerminal}
+            onNavigate={(tab) => {
+              // 导航到其他页面时不清除 selectedTerminal，只切换 tab
+              handleSetActiveTab(tab);
+            }}
+            preferredSessionView={preferredSessionView}
           />
         ) : (
           <MainContent
