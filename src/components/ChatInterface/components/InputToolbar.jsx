@@ -3,9 +3,8 @@
  * 
  * Contains:
  * - Image upload button
- * - Permission mode selector (弱化样式)
- * - Token usage pie chart
  * - Slash commands button
+ * - Permission mode selector (弱化样式)
  * - Clear input button
  * - Refresh button (直接显示)
  * - Scroll to bottom button
@@ -167,6 +166,18 @@ function InputToolbar({
           )}
         </button>
 
+        {/* Slash commands button */}
+        <button
+          type="button"
+          onClick={toggleCommandMenu}
+          className="w-8 h-8 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none"
+          title="快捷命令"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+        </button>
+
         {/* Permission Mode Selector */}
         <button
           type="button"
@@ -233,23 +244,11 @@ function InputToolbar({
           </select>
         )}
 
-        {/* Token usage pie chart */}
+        {/* Token usage text */}
         <TokenUsagePie
           used={tokenBudget?.used || 0}
           total={tokenBudget?.total || parseInt(import.meta.env.VITE_CONTEXT_WINDOW) || 160000}
         />
-
-        {/* Slash commands button */}
-        <button
-          type="button"
-          onClick={toggleCommandMenu}
-          className="w-8 h-8 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none"
-          title="快捷命令"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-          </svg>
-        </button>
 
         {/* Clear input button - 无框样式 */}
         {input.trim() && (
