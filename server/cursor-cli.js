@@ -141,7 +141,8 @@ async function spawnCursor(command, options = {}, ws) {
                       type: 'text_delta',
                       text: textContent
                     }
-                  }
+                  },
+                  sessionId: sessionId  // Include sessionId for session isolation
                 }));
               }
               break;
@@ -152,7 +153,8 @@ async function spawnCursor(command, options = {}, ws) {
               if (messageBuffer) {
                 ws.send(JSON.stringify({
                   type: 'session-response',
-                  data: { type: 'content_block_stop' }
+                  data: { type: 'content_block_stop' },
+                  sessionId: sessionId  // Include sessionId for session isolation
                 }));
               }
               // session-complete will be sent on process close
@@ -166,7 +168,8 @@ async function spawnCursor(command, options = {}, ws) {
                   data: {
                     type: 'content_block_delta',
                     delta: { type: 'thinking_delta', text: response.text }
-                  }
+                  },
+                  sessionId: sessionId  // Include sessionId for session isolation
                 }));
               }
               break;
@@ -182,7 +185,8 @@ async function spawnCursor(command, options = {}, ws) {
             ws.send(JSON.stringify({
               type: 'session-output',
               data: line,
-              provider: 'cursor'
+              provider: 'cursor',
+              sessionId: sessionId  // Include sessionId for session isolation
             }));
           }
         }

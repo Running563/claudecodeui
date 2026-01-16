@@ -70,12 +70,22 @@ export function useChatSession({
           return;
         }
 
+        // 用局部变量跟踪是否应该跳过消息加载
+        // 当用户主动切换会话时，必须加载新会话消息
+        let shouldSkipMessageLoad = isSystemSessionChange;
+
         if (sessionChanged) {
           resetPagination();
           resetTokenBudget();
           // 切换会话时，先强制重置状态为非进行中，然后再查询确认
           setIsLoading(false);
           setCanAbortSession(false);
+          // 切换会话时，重置 isSystemSessionChange 标志
+          setIsSystemSessionChange(false);
+          // 清空当前聊天消息，准备加载新会话
+          setChatMessages([]);
+          // 用户主动切换会话，必须加载新会话消息
+          shouldSkipMessageLoad = false;
 
           if (ws && sendMessage) {
             // 统一消息：不再传 provider，后端会检查所有 provider
@@ -99,7 +109,7 @@ export function useChatSession({
           setCurrentSessionId(selectedSession.id);
           sessionStorage.setItem('cursorSessionId', selectedSession.id);
           
-          if (!isSystemSessionChange) {
+          if (!shouldSkipMessageLoad) {
             const projectPath = selectedProject.path || selectedProject.path;
             const converted = await loadCursorSessionMessagesWithState(projectPath, selectedSession.id);
             setSessionMessages([]);
@@ -110,7 +120,7 @@ export function useChatSession({
         } else {
           setCurrentSessionId(selectedSession.id);
           
-          if (!isSystemSessionChange) {
+          if (!shouldSkipMessageLoad) {
             const messages = await loadSessionMessages(getProjectId(selectedProject), selectedSession.id, false);
             setSessionMessages(messages);
             // chatMessages will be updated by the useEffect that watches convertedMessages

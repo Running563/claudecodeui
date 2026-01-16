@@ -460,7 +460,14 @@ async function queryClaudeSDK(command, options = {}, ws) {
     // 设置 abort 函数
     setAbortFn(tempTaskId, async () => {
       if (queryInstance) {
-        await queryInstance.interrupt();
+        try {
+          await queryInstance.interrupt();
+        } catch (interruptError) {
+          // Ignore "Session not found" errors - session may have already completed
+          if (!interruptError.message?.includes('Session not found')) {
+            console.error(`Error calling interrupt() in abort handler:`, interruptError.message);
+          }
+        }
       }
     });
 
@@ -507,7 +514,8 @@ async function queryClaudeSDK(command, options = {}, ws) {
       const transformedMessage = transformMessage(message);
       safeSend(JSON.stringify({
         type: 'session-response',
-        data: transformedMessage
+        data: transformedMessage,
+        sessionId: capturedSessionId  // Include sessionId for session isolation
       }));
 
       // Extract and send token budget updates from result messages
@@ -601,7 +609,7 @@ async function abortClaudeSDKSession(sessionId) {
     
     // Also abort in background task manager
     const { abortTask } = await import('./background-task-manager.js');
-    abortTask(sessionId);
+    await abortTask(sessionId);
 
     return true;
   } catch (error) {

@@ -304,13 +304,53 @@ export function useWebSocketMessages({
     processedMessageCountRef.current = messages.length;
 
     // Filter messages by session ID to prevent cross-session interference
-    // Include system init messages that may set up new sessions
-    // Also include session-aborted and session-error as they should always update UI
-    const globalMessageTypes = ['projects_updated', 'session-created', 'session-complete', 'session-status', 'session-aborted', 'session-error'];
-    const isGlobalMessage = globalMessageTypes.includes(latestMessage.type);
-
-    if (!isGlobalMessage && latestMessage.sessionId && currentSessionId && latestMessage.sessionId !== currentSessionId) {
-      return;
+    // Only truly global messages (no sessionId relevance) should bypass the filter
+    const trulyGlobalMessageTypes = ['projects_updated', 'session-status'];
+    const isTrulyGlobalMessage = trulyGlobalMessageTypes.includes(latestMessage.type);
+    
+    // Get pending session ID for new session handling
+    const pendingSessionIdFromStorage = sessionStorage.getItem('pendingSessionId');
+    
+    // For messages with sessionId, check if it matches current session or pending session
+    if (!isTrulyGlobalMessage && latestMessage.sessionId) {
+      const isForCurrentSession = latestMessage.sessionId === currentSessionId;
+      const isForPendingSession = latestMessage.sessionId === pendingSessionIdFromStorage;
+      
+      // Special case: new session being created
+      // If we have no currentSessionId and no pendingSessionId, this is a new session flow
+      // Allow messages through and set pendingSessionId for subsequent messages
+      const isNewSessionFlow = !currentSessionId && !pendingSessionIdFromStorage;
+      
+      if (isNewSessionFlow) {
+        // For new session, set the pendingSessionId from the first message we receive
+        // This ensures all subsequent messages for this session are accepted
+        if (latestMessage.type === 'session-created' || latestMessage.type === 'session-response') {
+          sessionStorage.setItem('pendingSessionId', latestMessage.sessionId);
+          console.log(`[WS] New session flow: set pendingSessionId to ${latestMessage.sessionId}`);
+        }
+        // Allow this message through
+      } else if (!isForCurrentSession && !isForPendingSession) {
+        // If message has sessionId but doesn't match current or pending session, skip it
+        console.log(`[WS] Skipping message for session ${latestMessage.sessionId}, current=${currentSessionId}, pending=${pendingSessionIdFromStorage}`);
+        return;
+      }
+    }
+    
+    // For session lifecycle messages that have sessionId, apply additional checks
+    const sessionCreationTypes = ['session-created', 'session-complete', 'session-aborted', 'session-error'];
+    if (!isTrulyGlobalMessage && sessionCreationTypes.includes(latestMessage.type) && latestMessage.sessionId) {
+      // Re-read pendingSessionId as it might have been set above
+      const currentPendingSessionId = sessionStorage.getItem('pendingSessionId');
+      const isForCurrentSession = latestMessage.sessionId === currentSessionId;
+      const isForPendingSession = latestMessage.sessionId === currentPendingSessionId;
+      
+      // For session-created, allow if we're expecting a new session (no current session)
+      if (latestMessage.type === 'session-created' && !currentSessionId) {
+        // Allow - this is a new session being created
+      } else if (!isForCurrentSession && !isForPendingSession) {
+        console.log(`[WS] Skipping ${latestMessage.type} for session ${latestMessage.sessionId}`);
+        return;
+      }
     }
 
     switch (latestMessage.type) {
@@ -358,19 +398,11 @@ export function useWebSocketMessages({
           }
           
           // Handle SDK result message (final response)
+          // For CodeBuddy/Claude SDK, the 'result' message contains a summary
+          // The actual content is usually already displayed via 'assistant' type messages
+          // or streaming deltas, so we skip displaying result.result to avoid duplication
           if (messageData.type === 'result') {
             flushStreamBuffer(true);
-            
-            // Display the result if it exists and is not empty
-            if (messageData.result && messageData.result.trim()) {
-              const content = decodeHtmlEntities(messageData.result);
-              setChatMessages(prev => [...prev, {
-                type: 'assistant',
-                content: content,
-                timestamp: new Date()
-              }]);
-            }
-            
             setIsLoading(false);
             setCanAbortSession(false);
             return;
@@ -519,25 +551,39 @@ export function useWebSocketMessages({
 
       // 统一处理所有 provider 的错误消息
       case 'session-error': {
-        // Stop loading state on error
-        setIsLoading(false);
-        setCanAbortSession(false);
-        setClaudeStatus(null);
+        const errorSessionId = latestMessage.sessionId;
+        const errorPendingSessionId = sessionStorage.getItem('pendingSessionId');
         
-        const errorMessage = latestMessage.error || 'Unknown error';
-        const errorDetails = latestMessage.details;
-        const errorType = latestMessage.errorType;
+        // 严格检查：只处理当前会话或 pending 会话的错误消息
+        const shouldUpdateErrorUI = errorSessionId && (
+          errorSessionId === currentSessionId ||
+          errorSessionId === errorPendingSessionId
+        );
         
-        setChatMessages(prev => [...prev, {
-          type: 'error',
-          content: `Error: ${errorMessage}`,
-          errorType: errorType,
-          errorDetails: errorDetails,
-          timestamp: new Date()
-        }]);
+        if (shouldUpdateErrorUI) {
+          // Stop loading state on error
+          setIsLoading(false);
+          setCanAbortSession(false);
+          setClaudeStatus(null);
+          
+          const errorMessage = latestMessage.error || 'Unknown error';
+          const errorDetails = latestMessage.details;
+          const errorType = latestMessage.errorType;
+          
+          setChatMessages(prev => [...prev, {
+            type: 'error',
+            content: `Error: ${errorMessage}`,
+            errorType: errorType,
+            errorDetails: errorDetails,
+            timestamp: new Date()
+          }]);
+          
+          if (errorDetails) {
+            console.error('Error details:', { type: errorType, details: errorDetails });
+          }
+        }
         
-        // Mark session as inactive on error
-        const errorSessionId = latestMessage.sessionId || currentSessionId;
+        // Mark session as inactive on error (always do this for tracking)
         if (errorSessionId) {
           if (onSessionInactive) {
             onSessionInactive(errorSessionId);
@@ -546,24 +592,20 @@ export function useWebSocketMessages({
             onSessionNotProcessing(errorSessionId);
           }
         }
-        
-        if (errorDetails) {
-          console.error('Error details:', { type: errorType, details: errorDetails });
-        }
         break;
       }
         
       // 统一处理所有 provider 的完成消息
       case 'session-complete': {
-        const completedSessionId = latestMessage.sessionId || currentSessionId || sessionStorage.getItem('pendingSessionId');
+        const completedSessionId = latestMessage.sessionId;
         const providerName = latestMessage.provider || 'claude';
         
-        // 处理当前会话的 UI 状态 - 放宽条件，确保状态能被更新
-        // 当 completedSessionId 匹配当前会话，或者没有当前会话时，或者 pendingSessionId 匹配时都更新
+        // 严格检查：只处理当前会话或 pending 会话的完成消息
         const pendingSessionId = sessionStorage.getItem('pendingSessionId');
-        const shouldUpdateUI = completedSessionId === currentSessionId || 
-                               !currentSessionId || 
-                               completedSessionId === pendingSessionId;
+        const shouldUpdateUI = completedSessionId && (
+          completedSessionId === currentSessionId || 
+          completedSessionId === pendingSessionId
+        );
         
         if (shouldUpdateUI) {
           setIsLoading(false);
@@ -662,18 +704,25 @@ export function useWebSocketMessages({
       }
         
       case 'session-aborted': {
-        const abortedSessionId = latestMessage.sessionId || currentSessionId;
+        const abortedSessionId = latestMessage.sessionId;
         const abortPendingSessionId = sessionStorage.getItem('pendingSessionId');
         
-        // 放宽条件：当前会话、没有会话、或 pending 会话匹配时都更新 UI
-        const shouldUpdateAbortUI = abortedSessionId === currentSessionId || 
-                                    !currentSessionId ||
-                                    abortedSessionId === abortPendingSessionId;
+        // 严格检查：只处理当前会话或 pending 会话的中止消息
+        const shouldUpdateAbortUI = abortedSessionId && (
+          abortedSessionId === currentSessionId ||
+          abortedSessionId === abortPendingSessionId
+        );
 
         if (shouldUpdateAbortUI) {
           setIsLoading(false);
           setCanAbortSession(false);
           setClaudeStatus(null);
+          
+          setChatMessages(prev => [...prev, {
+            type: 'assistant',
+            content: 'Session interrupted by user.',
+            timestamp: new Date()
+          }]);
         }
 
         if (abortedSessionId) {
@@ -684,24 +733,19 @@ export function useWebSocketMessages({
             onSessionNotProcessing(abortedSessionId);
           }
         }
-
-        setChatMessages(prev => [...prev, {
-          type: 'assistant',
-          content: 'Session interrupted by user.',
-          timestamp: new Date()
-        }]);
         break;
       }
 
       case 'session-status': {
         const statusSessionId = latestMessage.sessionId;
         const statusPendingSessionId = sessionStorage.getItem('pendingSessionId');
-        // 放宽条件：匹配当前会话、选中会话、或 pending 会话
-        const isCurrentSession = statusSessionId === currentSessionId ||
-                                 (selectedSession && statusSessionId === selectedSession.id) ||
-                                 statusSessionId === statusPendingSessionId ||
-                                 !currentSessionId;
-        if (isCurrentSession) {
+        // 严格检查：只处理当前会话、选中会话、或 pending 会话的状态
+        const isRelevantSession = statusSessionId && (
+          statusSessionId === currentSessionId ||
+          (selectedSession && statusSessionId === selectedSession.id) ||
+          statusSessionId === statusPendingSessionId
+        );
+        if (isRelevantSession) {
           if (latestMessage.isProcessing) {
             setIsLoading(true);
             setCanAbortSession(true);

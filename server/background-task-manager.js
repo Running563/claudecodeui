@@ -78,7 +78,7 @@ function completeTask(sessionId) {
  * @param {string} sessionId - 会话ID
  * @returns {boolean} 是否成功终止
  */
-function abortTask(sessionId) {
+async function abortTask(sessionId) {
   const task = runningTasks.get(sessionId);
   if (!task) {
     return false;
@@ -86,10 +86,13 @@ function abortTask(sessionId) {
 
   console.log(`[BGTask] 终止任务: ${sessionId}`);
   
-  // 调用终止函数
+  // 调用终止函数（可能是 async 函数）
   if (task.abortFn && typeof task.abortFn === 'function') {
     try {
-      task.abortFn();
+      // 使用 await 等待 async abortFn 完成，并捕获可能的异常
+      await Promise.resolve(task.abortFn()).catch(e => {
+        console.error(`[BGTask] 终止任务出错:`, e.message);
+      });
     } catch (e) {
       console.error(`[BGTask] 终止任务出错:`, e.message);
     }
