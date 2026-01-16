@@ -295,9 +295,17 @@ function InputArea({
           
           {/* Send button */}
           <button
-            type="submit"
+            type="button"
             disabled={!input.trim() || isLoading}
-            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleSubmit(e);
+            }}
+            onMouseDown={(e) => {
+              // Prevent textarea blur but don't stop propagation
+              e.preventDefault();
+            }}
             className="absolute right-2 top-1/2 transform -translate-y-1/2 w-12 h-12 sm:w-12 sm:h-12 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed rounded-full flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:ring-offset-gray-800 z-20"
             style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
           >

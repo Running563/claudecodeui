@@ -457,14 +457,25 @@ async function spawnCodeBuddy(command, options = {}, ws) {
     }
     
     // 设置 abort 函数
+    // 注意：interrupt() 可能会抛出 "Session not found" 错误，这是 SDK 内部的异步错误
+    // 需要安全地处理，避免导致进程崩溃
     setAbortFn(tempTaskId, async () => {
       if (queryInstance) {
         try {
-          await queryInstance.interrupt();
+          // 给 interrupt 一个超时，防止无限等待
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Interrupt timeout')), 5000)
+          );
+          await Promise.race([
+            queryInstance.interrupt(),
+            timeoutPromise
+          ]);
         } catch (interruptError) {
           // Ignore "Session not found" errors - session may have already completed
-          if (!interruptError.message?.includes('Session not found')) {
-            console.error(`Error calling interrupt() in abort handler:`, interruptError.message);
+          // Also ignore timeout errors - we tried our best
+          const errorMsg = interruptError.message || '';
+          if (!errorMsg.includes('Session not found') && !errorMsg.includes('Interrupt timeout')) {
+            console.error(`Error calling interrupt() in abort handler:`, errorMsg);
           }
         }
       }
@@ -569,7 +580,14 @@ async function spawnCodeBuddy(command, options = {}, ws) {
     }));
 
   } catch (error) {
-    console.error('CodeBuddy SDK query error:', error);
+    // Check if this is an abort-related error (Session not found during interrupt)
+    const isAbortError = error.message?.includes('Session not found');
+    
+    if (isAbortError) {
+      console.log('🛑 Session was interrupted/aborted:', error.message);
+    } else {
+      console.error('CodeBuddy SDK query error:', error);
+    }
 
     // Clean up session on error
     if (capturedSessionId) {
@@ -579,14 +597,27 @@ async function spawnCodeBuddy(command, options = {}, ws) {
     // Mark background task as completed (with error)
     completeTask(capturedSessionId || tempTaskId);
 
-    // Send error
-    safeSend(JSON.stringify({
-      type: 'session-error',
-      error: error.message,
-      provider: 'codebuddy'
-    }));
-
-    throw error;
+    // Send appropriate event based on error type
+    if (isAbortError) {
+      safeSend(JSON.stringify({
+        type: 'session-aborted',
+        sessionId: capturedSessionId,
+        provider: 'codebuddy'
+      }));
+    } else {
+      // Send error
+      safeSend(JSON.stringify({
+        type: 'session-error',
+        sessionId: capturedSessionId,
+        error: error.message,
+        provider: 'codebuddy'
+      }));
+    }
+    
+    // Don't re-throw abort errors - they are expected during interruption
+    if (!isAbortError) {
+      throw error;
+    }
   }
 }
 
@@ -606,18 +637,6 @@ async function abortCodeBuddySession(sessionId) {
   try {
     console.log(`🛑 Aborting CodeBuddy session: ${sessionId}`);
 
-    // Call interrupt() on the query instance (with error handling)
-    if (session && session.instance) {
-      try {
-        await session.instance.interrupt();
-      } catch (interruptError) {
-        // Ignore "Session not found" errors - session may have already completed
-        if (!interruptError.message?.includes('Session not found')) {
-          console.error(`Error calling interrupt():`, interruptError.message);
-        }
-      }
-    }
-
     // Update session status
     if (session) {
       session.status = 'aborted';
@@ -626,7 +645,8 @@ async function abortCodeBuddySession(sessionId) {
     // Clean up session
     removeSession(sessionId);
     
-    // Also abort in background task manager
+    // Abort via background task manager (which calls the registered abortFn with interrupt())
+    // Note: Don't call interrupt() directly here to avoid calling it twice
     const { abortTask } = await import('./background-task-manager.js');
     await abortTask(sessionId);
 

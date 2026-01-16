@@ -44,6 +44,28 @@ try {
     console.log('No .env file found or error reading it:', e.message);
 }
 
+// Global error handlers to prevent process crashes from unhandled errors
+// This is especially important for SDK-related async errors (e.g., "Session not found")
+process.on('uncaughtException', (error) => {
+    console.error('⚠️ Uncaught Exception:', error.message);
+    console.error(error.stack);
+    // Don't exit - try to keep the server running
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    // Filter known harmless errors from SDK
+    const errorMsg = reason instanceof Error ? reason.message : String(reason);
+    if (errorMsg.includes('Session not found')) {
+        // This is a known SDK edge case when interrupting sessions
+        // It's harmless and doesn't affect functionality
+        console.log('ℹ️ SDK session interrupt edge case (harmless):', errorMsg);
+        return;
+    }
+    console.error('⚠️ Unhandled Rejection at:', promise);
+    console.error('Reason:', reason);
+    // Don't exit - try to keep the server running
+});
+
 console.log('PORT from env:', process.env.PORT);
 
 import express from 'express';
