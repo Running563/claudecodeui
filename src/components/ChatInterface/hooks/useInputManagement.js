@@ -65,12 +65,15 @@ export function useInputManagement({
   // Initial textarea setup - set to 2 rows height
   useEffect(() => {
     if (textareaRef.current) {
+      const lineHeight = parseInt(window.getComputedStyle(textareaRef.current).lineHeight) || 21;
+      const maxHeight = lineHeight * 10; // 最大 10 行
+      
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
+      const newHeight = Math.min(textareaRef.current.scrollHeight, maxHeight);
+      textareaRef.current.style.height = newHeight + 'px';
 
       // Check if initially expanded
-      const lineHeight = parseInt(window.getComputedStyle(textareaRef.current).lineHeight);
-      const isExpanded = textareaRef.current.scrollHeight > lineHeight * 2;
+      const isExpanded = newHeight > lineHeight * 2;
       setIsTextareaExpanded(isExpanded);
     }
   }, []); // Only run once on mount
@@ -92,12 +95,15 @@ export function useInputManagement({
         // Update textarea height after setting new content
         setTimeout(() => {
           if (textareaRef.current) {
+            const lineHeight = parseInt(window.getComputedStyle(textareaRef.current).lineHeight) || 21;
+            const maxHeight = lineHeight * 10; // 最大 10 行
+            
             textareaRef.current.style.height = 'auto';
-            textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
+            const newHeight = Math.min(textareaRef.current.scrollHeight, maxHeight);
+            textareaRef.current.style.height = newHeight + 'px';
 
             // Check if expanded after transcript
-            const lineHeight = parseInt(window.getComputedStyle(textareaRef.current).lineHeight);
-            const isExpanded = textareaRef.current.scrollHeight > lineHeight * 2;
+            const isExpanded = newHeight > lineHeight * 2;
             setIsTextareaExpanded(isExpanded);
           }
         }, 0);
@@ -112,15 +118,18 @@ export function useInputManagement({
     setCursorPosition(e.target.selectionStart);
   }, []);
 
-  // Handle textarea input event for auto-resize
+  // Handle textarea input event for auto-resize (max 10 lines)
   const handleTextareaInput = useCallback((e) => {
+    const lineHeight = parseInt(window.getComputedStyle(e.target).lineHeight) || 21;
+    const maxHeight = lineHeight * 10; // 最大 10 行
+    
     e.target.style.height = 'auto';
-    e.target.style.height = e.target.scrollHeight + 'px';
+    const newHeight = Math.min(e.target.scrollHeight, maxHeight);
+    e.target.style.height = newHeight + 'px';
     setCursorPosition(e.target.selectionStart);
 
     // Check if textarea is expanded (more than 2 lines worth of height)
-    const lineHeight = parseInt(window.getComputedStyle(e.target).lineHeight);
-    const isExpanded = e.target.scrollHeight > lineHeight * 2;
+    const isExpanded = newHeight > lineHeight * 2;
     setIsTextareaExpanded(isExpanded);
   }, []);
 
