@@ -2,6 +2,7 @@
  * InputToolbar - Toolbar component above the chat input
  * 
  * Contains:
+ * - Image upload button
  * - Permission mode selector (弱化样式)
  * - Token usage pie chart
  * - Slash commands button
@@ -10,7 +11,7 @@
  * - Scroll to bottom button
  */
 
-import React, { memo } from 'react';
+import React, { memo, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import TokenUsagePie from '../../TokenUsagePie';
 
@@ -75,7 +76,10 @@ function InputToolbar({
   cursorModel,
   setCursorModel,
   codebuddyModel,
-  setCodebuddyModel
+  setCodebuddyModel,
+  // Image upload props
+  openFilePicker,
+  attachedImages
 }) {
   // Claude 可用模型列表
   const claudeModels = [
@@ -102,9 +106,70 @@ function InputToolbar({
     { value: 'claude-3-opus', label: 'Claude 3 Opus' }
   ];
 
+  // 上传按钮按下状态（移动端视觉反馈）
+  const [isUploadPressed, setIsUploadPressed] = useState(false);
+
   return (
     <div ref={inputContainerRef} className="max-w-4xl mx-auto mb-3">
       <div className="flex items-center justify-center gap-2">
+        {/* Image upload button */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('Image upload button clicked');
+            openFilePicker();
+          }}
+          onTouchStart={(e) => {
+            e.preventDefault();
+            setIsUploadPressed(true);
+          }}
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsUploadPressed(false);
+            console.log('Image upload button touched');
+            openFilePicker();
+          }}
+          onTouchCancel={() => {
+            setIsUploadPressed(false);
+          }}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            setIsUploadPressed(true);
+          }}
+          onMouseUp={() => {
+            setIsUploadPressed(false);
+          }}
+          onMouseLeave={() => {
+            setIsUploadPressed(false);
+          }}
+          className={`vk-btn w-8 h-8 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-full flex items-center justify-center transition-all hover:bg-gray-100 dark:hover:bg-gray-700 relative ${
+            isUploadPressed ? 'scale-90 bg-gray-200 dark:bg-gray-600' : ''
+          }`}
+          title="上传图片"
+          style={{ 
+            touchAction: 'manipulation', 
+            WebkitTapHighlightColor: 'transparent', 
+            cursor: 'pointer',
+            userSelect: 'none',
+            WebkitUserSelect: 'none'
+          }}
+        >
+          <svg className="w-5 h-5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          {attachedImages && attachedImages.length > 0 && (
+            <span
+              className="absolute -top-1 -right-1 bg-blue-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center pointer-events-none"
+              style={{ fontSize: '10px' }}
+            >
+              {attachedImages.length}
+            </span>
+          )}
+        </button>
+
         {/* Permission Mode Selector - 显示当前模式 */}
         <button
           type="button"
