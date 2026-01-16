@@ -1490,88 +1490,136 @@ router.post('/publish', async (req, res) => {
   }
 });
 
-// Discard changes for a specific file
+// Discard changes for a specific file or multiple files
 router.post('/discard', async (req, res) => {
-  const { project, file } = req.body;
+  const { project, file, files } = req.body;
   
-  if (!project || !file) {
-    return res.status(400).json({ error: 'Project name and file path are required' });
+  // Support both single file and multiple files
+  const fileList = files || (file ? [file] : []);
+  
+  if (!project || fileList.length === 0) {
+    return res.status(400).json({ error: 'Project name and file path(s) are required' });
   }
 
   try {
     const projectPath = await getActualProjectPath(project);
     await validateGitRepository(projectPath);
 
-    // Check file status to determine correct discard command
-    const { stdout: statusOutput } = await execAsync(`git status --porcelain "${file}"`, { cwd: projectPath });
-    
-    if (!statusOutput.trim()) {
-      return res.status(400).json({ error: 'No changes to discard for this file' });
-    }
+    const results = [];
+    const errors = [];
 
-    const status = statusOutput.substring(0, 2);
+    for (const filePath of fileList) {
+      try {
+        // Check file status to determine correct discard command
+        const { stdout: statusOutput } = await execAsync(`git status --porcelain "${filePath}"`, { cwd: projectPath });
+        
+        if (!statusOutput.trim()) {
+          errors.push({ file: filePath, error: 'No changes to discard' });
+          continue;
+        }
 
-    if (status === '??') {
-      // Untracked file or directory - delete it
-      const filePath = path.join(projectPath, file);
-      const stats = await fs.stat(filePath);
+        const status = statusOutput.substring(0, 2);
 
-      if (stats.isDirectory()) {
-        await fs.rm(filePath, { recursive: true, force: true });
-      } else {
-        await fs.unlink(filePath);
+        if (status === '??') {
+          // Untracked file or directory - delete it
+          const fullPath = path.join(projectPath, filePath);
+          const stats = await fs.stat(fullPath);
+
+          if (stats.isDirectory()) {
+            await fs.rm(fullPath, { recursive: true, force: true });
+          } else {
+            await fs.unlink(fullPath);
+          }
+        } else if (status.includes('M') || status.includes('D')) {
+          // Modified or deleted file - restore from HEAD
+          await execAsync(`git restore "${filePath}"`, { cwd: projectPath });
+        } else if (status.includes('A')) {
+          // Added file - unstage it
+          await execAsync(`git reset HEAD "${filePath}"`, { cwd: projectPath });
+        }
+        
+        results.push(filePath);
+      } catch (fileError) {
+        errors.push({ file: filePath, error: fileError.message });
       }
-    } else if (status.includes('M') || status.includes('D')) {
-      // Modified or deleted file - restore from HEAD
-      await execAsync(`git restore "${file}"`, { cwd: projectPath });
-    } else if (status.includes('A')) {
-      // Added file - unstage it
-      await execAsync(`git reset HEAD "${file}"`, { cwd: projectPath });
     }
-    
-    res.json({ success: true, message: `Changes discarded for ${file}` });
+
+    if (errors.length > 0 && results.length === 0) {
+      res.status(400).json({ error: 'Failed to discard changes', details: errors });
+    } else {
+      res.json({ 
+        success: true, 
+        message: `Changes discarded for ${results.length} file(s)`,
+        discarded: results,
+        errors: errors.length > 0 ? errors : undefined
+      });
+    }
   } catch (error) {
     console.error('Git discard error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Delete untracked file
+// Delete untracked file or multiple files
 router.post('/delete-untracked', async (req, res) => {
-  const { project, file } = req.body;
+  const { project, file, files } = req.body;
   
-  if (!project || !file) {
-    return res.status(400).json({ error: 'Project name and file path are required' });
+  // Support both single file and multiple files
+  const fileList = files || (file ? [file] : []);
+  
+  if (!project || fileList.length === 0) {
+    return res.status(400).json({ error: 'Project name and file path(s) are required' });
   }
 
   try {
     const projectPath = await getActualProjectPath(project);
     await validateGitRepository(projectPath);
 
-    // Check if file is actually untracked
-    const { stdout: statusOutput } = await execAsync(`git status --porcelain "${file}"`, { cwd: projectPath });
-    
-    if (!statusOutput.trim()) {
-      return res.status(400).json({ error: 'File is not untracked or does not exist' });
+    const results = [];
+    const errors = [];
+
+    for (const filePath of fileList) {
+      try {
+        // Check if file is actually untracked
+        const { stdout: statusOutput } = await execAsync(`git status --porcelain "${filePath}"`, { cwd: projectPath });
+        
+        if (!statusOutput.trim()) {
+          errors.push({ file: filePath, error: 'File is not untracked or does not exist' });
+          continue;
+        }
+
+        const status = statusOutput.substring(0, 2);
+        
+        if (status !== '??') {
+          errors.push({ file: filePath, error: 'File is not untracked' });
+          continue;
+        }
+
+        // Delete the untracked file or directory
+        const fullPath = path.join(projectPath, filePath);
+        const stats = await fs.stat(fullPath);
+
+        if (stats.isDirectory()) {
+          await fs.rm(fullPath, { recursive: true, force: true });
+        } else {
+          await fs.unlink(fullPath);
+        }
+        
+        results.push(filePath);
+      } catch (fileError) {
+        errors.push({ file: filePath, error: fileError.message });
+      }
     }
 
-    const status = statusOutput.substring(0, 2);
-    
-    if (status !== '??') {
-      return res.status(400).json({ error: 'File is not untracked. Use discard for tracked files.' });
-    }
-
-    // Delete the untracked file or directory
-    const filePath = path.join(projectPath, file);
-    const stats = await fs.stat(filePath);
-
-    if (stats.isDirectory()) {
-      // Use rm with recursive option for directories
-      await fs.rm(filePath, { recursive: true, force: true });
-      res.json({ success: true, message: `Untracked directory ${file} deleted successfully` });
+    if (errors.length > 0 && results.length === 0) {
+      res.status(400).json({ error: 'Failed to delete untracked files', details: errors });
     } else {
-      await fs.unlink(filePath);
-      res.json({ success: true, message: `Untracked file ${file} deleted successfully` });
+      res.json({ 
+        success: true, 
+        message: `Deleted ${results.length} untracked file(s)`,
+        deleted: results,
+        errors: errors.length > 0 ? errors : undefined
+      });
     }
   } catch (error) {
     console.error('Git delete untracked error:', error);

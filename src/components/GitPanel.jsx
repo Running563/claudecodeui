@@ -383,12 +383,13 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
 
   const discardChanges = async (filePath) => {
     try {
+      const files = Array.isArray(filePath) ? filePath : [filePath];
       const response = await authenticatedFetch('/api/git/discard', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           project: getProjectId(selectedProject),
-          file: filePath
+          files: files
         })
       });
       
@@ -397,7 +398,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
         // Remove from selected files and refresh status
         setSelectedFiles(prev => {
           const newSet = new Set(prev);
-          newSet.delete(filePath);
+          files.forEach(f => newSet.delete(f));
           return newSet;
         });
         fetchGitStatus();
@@ -411,12 +412,13 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
 
   const deleteUntrackedFile = async (filePath) => {
     try {
+      const files = Array.isArray(filePath) ? filePath : [filePath];
       const response = await authenticatedFetch('/api/git/delete-untracked', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           project: getProjectId(selectedProject),
-          file: filePath
+          files: files
         })
       });
       
@@ -425,7 +427,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
         // Remove from selected files and refresh status
         setSelectedFiles(prev => {
           const newSet = new Set(prev);
-          newSet.delete(filePath);
+          files.forEach(f => newSet.delete(f));
           return newSet;
         });
         fetchGitStatus();
@@ -1100,7 +1102,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
               e.stopPropagation();
               handleFileOpen(filePath, isStaged);
             }}
-            title="Click to open file"
+            title="点击打开文件"
           >
             {filePath}
           </span>
@@ -1132,7 +1134,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                   handleUnstageFiles(filePath);
                 }}
                 className="p-1 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 rounded text-yellow-600 dark:text-yellow-400"
-                title="Unstage file"
+                title="取消暂存"
               >
                 <Minus className="w-4 h-4" />
               </button>
@@ -1143,7 +1145,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                   handleStageFiles(filePath);
                 }}
                 className="p-1 hover:bg-green-100 dark:hover:bg-green-900/30 rounded text-green-600 dark:text-green-400"
-                title={status === 'U' ? "Stage untracked file" : "Stage file"}
+                title={status === 'U' ? "暂存未跟踪文件" : "暂存文件"}
               >
                 <Plus className="w-4 h-4" />
               </button>
@@ -1156,11 +1158,11 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                   setConfirmAction({ 
                     type: 'discard', 
                     file: filePath,
-                    message: `Discard all changes to "${filePath}"? This action cannot be undone.` 
+                    message: `确定要丢弃 "${filePath}" 的所有更改吗？此操作无法撤销。` 
                   });
                 }}
                 className="p-1 hover:bg-red-100 dark:hover:bg-red-900 rounded text-red-600 dark:text-red-400"
-                title="Discard changes"
+                title="丢弃更改"
               >
                 <RotateCcw className="w-4 h-4" />
               </button>
@@ -1172,11 +1174,11 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                   setConfirmAction({ 
                     type: 'delete', 
                     file: filePath,
-                    message: `Delete untracked file "${filePath}"? This action cannot be undone.` 
+                    message: `确定要删除未跟踪文件 "${filePath}" 吗？此操作无法撤销。` 
                   });
                 }}
                 className="p-1 hover:bg-red-100 dark:hover:bg-red-900 rounded text-red-600 dark:text-red-400"
-                title="Delete untracked file"
+                title="删除未跟踪文件"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -1319,7 +1321,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                     handleUnstageFiles(node.path);
                   }}
                   className="p-1 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 rounded text-yellow-600 dark:text-yellow-400"
-                  title="Unstage file"
+                  title="取消暂存"
                 >
                   <Minus className="w-4 h-4" />
                 </button>
@@ -1330,7 +1332,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                     handleStageFiles(node.path);
                   }}
                   className="p-1 hover:bg-green-100 dark:hover:bg-green-900/30 rounded text-green-600 dark:text-green-400"
-                  title={status === 'U' ? "Stage untracked file" : "Stage file"}
+                  title={status === 'U' ? "暂存未跟踪文件" : "暂存文件"}
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -1342,11 +1344,11 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                     setConfirmAction({ 
                       type: 'discard', 
                       file: node.path,
-                      message: `Discard all changes to "${node.path}"? This action cannot be undone.` 
+                      message: `确定要丢弃 "${node.path}" 的所有更改吗？此操作无法撤销。` 
                     });
                   }}
                   className="p-1 hover:bg-red-100 dark:hover:bg-red-900 rounded text-red-600 dark:text-red-400"
-                  title="Discard changes"
+                  title="丢弃更改"
                 >
                   <RotateCcw className="w-4 h-4" />
                 </button>
@@ -1358,11 +1360,11 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                     setConfirmAction({ 
                       type: 'delete', 
                       file: node.path,
-                      message: `Delete untracked file "${node.path}"? This action cannot be undone.` 
+                      message: `确定要删除未跟踪文件 "${node.path}" 吗？此操作无法撤销。` 
                     });
                   }}
                   className="p-1 hover:bg-red-100 dark:hover:bg-red-900 rounded text-red-600 dark:text-red-400"
-                  title="Delete untracked file"
+                  title="删除未跟踪文件"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -1390,9 +1392,33 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
       const allSelected = filesInDir.every(f => selectedFiles.has(f));
       const someSelected = filesInDir.some(f => selectedFiles.has(f));
       
+      // Get file statuses in directory to determine which buttons to show
+      const getFileStatusesInDir = (dirNode, prefix = '') => {
+        const statuses = { modified: [], deleted: [], untracked: [] };
+        Object.entries(dirNode).forEach(([childName, childNode]) => {
+          const childPath = prefix ? `${prefix}/${childName}` : childName;
+          if (childNode.type === 'file') {
+            if (childNode.status === 'M') statuses.modified.push(childPath);
+            else if (childNode.status === 'D') statuses.deleted.push(childPath);
+            else if (childNode.status === 'U') statuses.untracked.push(childPath);
+          } else if (childNode.type === 'dir') {
+            const childStatuses = getFileStatusesInDir(childNode.children, childPath);
+            statuses.modified.push(...childStatuses.modified);
+            statuses.deleted.push(...childStatuses.deleted);
+            statuses.untracked.push(...childStatuses.untracked);
+          }
+        });
+        return statuses;
+      };
+      
+      const dirStatuses = getFileStatusesInDir(node.children, path);
+      const hasModifiedOrDeleted = dirStatuses.modified.length > 0 || dirStatuses.deleted.length > 0;
+      const hasUntracked = dirStatuses.untracked.length > 0;
+      const discardableFiles = [...dirStatuses.modified, ...dirStatuses.deleted];
+      
       return (
         <React.Fragment key={`dir-${path}-${isStaged ? 'staged' : 'unstaged'}`}>
-          <div className="border-b border-gray-200 dark:border-gray-700">
+          <div className="border-b border-gray-200 dark:border-gray-700 group">
             <div 
               className={`flex items-center hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer ${isMobile ? 'px-2 py-1.5' : 'px-3 py-2'}`}
               style={{ paddingLeft: `${(depth * 16) + (isMobile ? 8 : 12)}px` }}
@@ -1412,9 +1438,43 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                     handleStageFiles(filesInDir);
                   }}
                   className="p-1 hover:bg-green-100 dark:hover:bg-green-900/30 rounded text-green-600 dark:text-green-400"
-                  title="Stage all files in directory"
+                  title="暂存目录下所有文件"
                 >
                   <Plus className="w-4 h-4" />
+                </button>
+              )}
+              {/* Discard button for modified/deleted files in directory */}
+              {!isStaged && hasModifiedOrDeleted && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmAction({ 
+                      type: 'discard', 
+                      file: discardableFiles,
+                      message: `确定要丢弃 "${name}" 目录下 ${discardableFiles.length} 个文件的所有更改吗？此操作无法撤销。` 
+                    });
+                  }}
+                  className="p-1 hover:bg-red-100 dark:hover:bg-red-900 rounded text-red-600 dark:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="丢弃目录下的更改"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+              )}
+              {/* Delete button for untracked files in directory */}
+              {!isStaged && hasUntracked && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmAction({ 
+                      type: 'delete', 
+                      file: dirStatuses.untracked,
+                      message: `确定要删除 "${name}" 目录下 ${dirStatuses.untracked.length} 个未跟踪文件吗？此操作无法撤销。` 
+                    });
+                  }}
+                  className="p-1 hover:bg-red-100 dark:hover:bg-red-900 rounded text-red-600 dark:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="删除目录下的未跟踪文件"
+                >
+                  <Trash2 className="w-4 h-4" />
                 </button>
               )}
               {isStaged && (
@@ -1424,7 +1484,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                     handleUnstageFiles(filesInDir);
                   }}
                   className="p-1 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 rounded text-yellow-600 dark:text-yellow-400"
-                  title="Unstage all files in directory"
+                  title="取消暂存目录下所有文件"
                 >
                   <Minus className="w-4 h-4" />
                 </button>
@@ -1530,14 +1590,14 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                 <button
                   onClick={() => setConfirmAction({ 
                     type: 'publish', 
-                    message: `Publish branch "${currentBranch}" to ${remoteStatus.remoteName}?` 
+                    message: `确定要将分支 "${currentBranch}" 发布到 ${remoteStatus.remoteName} 吗？` 
                   })}
                   disabled={isPublishing}
                   className="px-2 py-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-800 rounded flex items-center gap-1 text-gray-600 dark:text-gray-400"
-                  title={`Publish branch "${currentBranch}" to ${remoteStatus.remoteName}`}
+                  title={`将分支 "${currentBranch}" 发布到 ${remoteStatus.remoteName}`}
                 >
                   <Upload className={`w-3.5 h-3.5 ${isPublishing ? 'animate-pulse' : ''}`} />
-                  <span className="text-xs">Publish</span>
+                  <span className="text-xs">发布</span>
                 </button>
               )}
               
@@ -1553,8 +1613,8 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                     }`}
                     title={
                       remoteStatus.isUpToDate 
-                        ? 'Up to date with remote' 
-                        : `${remoteStatus.behind} behind, ${remoteStatus.ahead} ahead`
+                        ? '已与远程同步' 
+                        : `落后 ${remoteStatus.behind} 个提交，领先 ${remoteStatus.ahead} 个提交`
                     }
                   >
                     ↓{remoteStatus.behind} ↑{remoteStatus.ahead}
@@ -1564,7 +1624,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                   <button
                     onClick={() => setConfirmAction({ 
                       type: 'sync', 
-                      message: `Sync with ${remoteStatus.remoteName}? (Pull first, then Push)`
+                      message: `确定要与 ${remoteStatus.remoteName} 同步吗？（先拉取后推送）`
                     })}
                     disabled={isSyncing || isPulling || isPushing}
                     className={`p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded ${
@@ -1572,7 +1632,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                         ? 'text-blue-600 dark:text-blue-400' 
                         : 'text-gray-500 dark:text-gray-400'
                     }`}
-                    title="Sync (Pull + Push)"
+                    title="同步（拉取 + 推送）"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
                   </button>
@@ -1582,8 +1642,8 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                     onClick={() => setConfirmAction({ 
                       type: 'pull', 
                       message: remoteStatus.behind > 0 
-                        ? `Pull ${remoteStatus.behind} commit${remoteStatus.behind !== 1 ? 's' : ''} from ${remoteStatus.remoteName}?`
-                        : `Pull from ${remoteStatus.remoteName}? (Already up to date)`
+                        ? `确定要从 ${remoteStatus.remoteName} 拉取 ${remoteStatus.behind} 个提交吗？`
+                        : `确定要从 ${remoteStatus.remoteName} 拉取吗？（已是最新）`
                     })}
                     disabled={isPulling || isSyncing}
                     className={`p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded ${
@@ -1591,7 +1651,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                         ? 'text-green-600 dark:text-green-400' 
                         : 'text-gray-400 dark:text-gray-500'
                     }`}
-                    title={`Pull from ${remoteStatus.remoteName}`}
+                    title={`从 ${remoteStatus.remoteName} 拉取`}
                   >
                     <Download className={`w-3.5 h-3.5 ${isPulling ? 'animate-bounce' : ''}`} />
                   </button>
@@ -1601,7 +1661,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                     onClick={() => handleFetch(false)}
                     disabled={isFetching || isSyncing}
                     className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded text-gray-600 dark:text-gray-400"
-                    title={`Fetch from ${remoteStatus.remoteName}`}
+                    title={`从 ${remoteStatus.remoteName} 获取`}
                   >
                     <CloudDownload className={`w-3.5 h-3.5 ${isFetching ? 'animate-pulse' : ''}`} />
                   </button>
@@ -1618,7 +1678,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
             }}
             disabled={isLoading}
             className={`hover:bg-gray-100 dark:hover:bg-gray-800 rounded ${isMobile ? 'p-1' : 'p-1.5'}`}
-            title="Refresh"
+            title="刷新"
           >
             <RefreshCw className={`${isLoading ? 'animate-spin' : ''} ${isMobile ? 'w-3 h-3' : 'w-4 h-4'}`} />
           </button>
@@ -1911,7 +1971,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
           ) : !gitStatus || (!gitStatus.staged?.modified?.length && !gitStatus.staged?.added?.length && !gitStatus.staged?.deleted?.length && !gitStatus.unstaged?.modified?.length && !gitStatus.unstaged?.deleted?.length && !gitStatus.untracked?.length) ? (
             <div className="flex flex-col items-center justify-center h-32 text-gray-500 dark:text-gray-400">
               <GitCommit className="w-12 h-12 mb-2 opacity-50" />
-              <p className="text-sm">No changes detected</p>
+              <p className="text-sm">没有检测到更改</p>
             </div>
           ) : (
             <div className={isMobile ? 'pb-4' : ''}>
@@ -2256,12 +2316,12 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                   }`} />
                 </div>
                 <h3 className="text-lg font-semibold">
-                  {confirmAction.type === 'discard' ? 'Discard Changes' : 
-                   confirmAction.type === 'delete' ? 'Delete File' :
-                   confirmAction.type === 'commit' ? 'Confirm Commit' : 
-                   confirmAction.type === 'pull' ? 'Confirm Pull' : 
-                   confirmAction.type === 'publish' ? 'Publish Branch' :
-                   confirmAction.type === 'sync' ? 'Sync with Remote' : 'Confirm Push'}
+                  {confirmAction.type === 'discard' ? '丢弃更改' : 
+                   confirmAction.type === 'delete' ? '删除文件' :
+                   confirmAction.type === 'commit' ? '确认提交' : 
+                   confirmAction.type === 'pull' ? '确认拉取' : 
+                   confirmAction.type === 'publish' ? '发布分支' :
+                   confirmAction.type === 'sync' ? '同步远程' : '确认推送'}
                 </h3>
               </div>
               
@@ -2274,7 +2334,7 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                   onClick={() => setConfirmAction(null)}
                   className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
                 >
-                  Cancel
+                  取消
                 </button>
                 <button
                   onClick={confirmAndExecute}
@@ -2295,37 +2355,37 @@ function GitPanel({ selectedProject, isMobile, onFileOpen }) {
                   {confirmAction.type === 'discard' ? (
                     <>
                       <Trash2 className="w-4 h-4" />
-                      <span>Discard</span>
+                      <span>丢弃</span>
                     </>
                   ) : confirmAction.type === 'delete' ? (
                     <>
                       <Trash2 className="w-4 h-4" />
-                      <span>Delete</span>
+                      <span>删除</span>
                     </>
                   ) : confirmAction.type === 'commit' ? (
                     <>
                       <Check className="w-4 h-4" />
-                      <span>Commit</span>
+                      <span>提交</span>
                     </>
                   ) : confirmAction.type === 'pull' ? (
                     <>
                       <Download className="w-4 h-4" />
-                      <span>Pull</span>
+                      <span>拉取</span>
                     </>
                   ) : confirmAction.type === 'publish' ? (
                     <>
                       <Upload className="w-4 h-4" />
-                      <span>Publish</span>
+                      <span>发布</span>
                     </>
                   ) : confirmAction.type === 'sync' ? (
                     <>
                       <RefreshCw className="w-4 h-4" />
-                      <span>Sync</span>
+                      <span>同步</span>
                     </>
                   ) : (
                     <>
                       <Upload className="w-4 h-4" />
-                      <span>Push</span>
+                      <span>推送</span>
                     </>
                   )}
                 </button>
