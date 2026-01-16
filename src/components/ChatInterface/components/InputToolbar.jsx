@@ -242,26 +242,13 @@ function InputToolbar({
         {/* Slash commands button */}
         <button
           type="button"
-          onClick={() => {
-            toggleCommandMenu();
-            if (textareaRef.current) {
-              textareaRef.current.focus();
-            }
-          }}
-          className="relative w-8 h-8 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-full flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:ring-offset-gray-800"
-          title="Show all commands"
+          onClick={toggleCommandMenu}
+          className="w-8 h-8 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-full flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none"
+          title="快捷命令"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
-          {slashCommands.length > 0 && (
-            <span
-              className="absolute -top-1 -right-1 bg-blue-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center"
-              style={{ fontSize: '10px' }}
-            >
-              {slashCommands.length}
-            </span>
-          )}
         </button>
 
         {/* Clear input button - 无框样式 */}
