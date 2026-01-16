@@ -1,7 +1,7 @@
 import React from 'react';
 import { MessageSquare, Folder, Terminal, GitBranch, Globe, CheckSquare, MonitorPlay } from 'lucide-react';
 
-function MobileNav({ activeTab, setActiveTab, isInputFocused, onOpenTerminals, selectedProject, preferredSessionView }) {
+function MobileNav({ activeTab, setActiveTab, onOpenTerminals, selectedProject, preferredSessionView }) {
   // chat 和 shell 合并为一个标签，显示当前选中的图标
   const isChatOrShell = activeTab === 'chat' || activeTab === 'shell';
   
@@ -40,11 +40,9 @@ function MobileNav({ activeTab, setActiveTab, isInputFocused, onOpenTerminals, s
 
   return (
     <div
-      className={`fixed bottom-0 left-0 right-0 bg-background border-t border-border z-50 ios-bottom-safe transform transition-transform duration-300 ease-in-out shadow-lg ${
-        isInputFocused ? 'translate-y-full' : 'translate-y-0'
-      }`}
+      className="fixed bottom-0 left-0 right-0 bg-background z-50 ios-bottom-safe shadow-lg"
     >
-      <div className="flex items-center justify-around py-1">
+      <div className="flex items-center justify-around">
         {navItems.map((item) => {
           // Hide items that require a project when no project is selected
           if (item.requiresProject && !selectedProject) {
@@ -58,7 +56,7 @@ function MobileNav({ activeTab, setActiveTab, isInputFocused, onOpenTerminals, s
             <button
               key={item.id}
               onClick={item.onClick}
-              className={`flex items-center justify-center p-2 rounded-lg min-h-[40px] min-w-[40px] relative touch-manipulation ${
+              className={`vk-btn flex items-center justify-center p-1.5 rounded-lg min-h-[32px] min-w-[40px] touch-manipulation ${
                 isActive
                   ? 'text-blue-600 dark:text-blue-400'
                   : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
@@ -66,9 +64,6 @@ function MobileNav({ activeTab, setActiveTab, isInputFocused, onOpenTerminals, s
               aria-label={item.id}
             >
               <Icon className="w-5 h-5" />
-              {isActive && (
-                <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-6 h-0.5 bg-blue-600 dark:bg-blue-400 rounded-full" />
-              )}
             </button>
           );
         })}

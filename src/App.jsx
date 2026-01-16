@@ -1144,7 +1144,7 @@ function AppContent() {
       )}
 
       {/* Main Content Area - Flexible */}
-      <div className={`flex-1 flex flex-col min-w-0 ${isMobile && !isInputFocused ? 'pb-mobile-nav' : ''}`}>
+      <div className={`flex-1 flex flex-col min-w-0 ${isMobile ? 'pb-mobile-nav' : ''}`}>
         {selectedTerminal ? (
           <TerminalDetailView
             terminal={selectedTerminal}
@@ -1196,7 +1196,6 @@ function AppContent() {
         <MobileNav
           activeTab={activeTab}
           setActiveTab={handleSetActiveTab}
-          isInputFocused={isInputFocused}
           selectedProject={selectedProject}
           preferredSessionView={preferredSessionView}
         />
