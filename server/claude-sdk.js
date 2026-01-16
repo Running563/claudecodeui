@@ -17,7 +17,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
-import { getProjectByPath, createSession } from './db.js';
+import { getProjectByPath, createSession, touchSession, updateSessionTitleFromContent } from './db.js';
 import {
   registerTask,
   updateTaskId,
@@ -496,7 +496,13 @@ async function queryClaudeSDK(command, options = {}, ws) {
           try {
             const project = getProjectByPath(projectPath);
             if (project) {
-              createSession(project.id, capturedSessionId, 'claude', null, null);
+              // Construct the source file path for the session
+              // Claude sessions are stored in project-specific directories
+              const claudeProjectName = '-' + projectPath.replace(/^\//, '').replace(/\//g, '-');
+              const claudeProjectDir = path.join(os.homedir(), '.claude', 'projects', claudeProjectName);
+              const sourceFile = path.join(claudeProjectDir, `${capturedSessionId}.jsonl`);
+              
+              createSession(project.id, capturedSessionId, 'claude', null, sourceFile);
               console.log('✅ [Claude SDK] Session saved to database:', capturedSessionId);
             }
           } catch (dbError) {
@@ -534,6 +540,29 @@ async function queryClaudeSDK(command, options = {}, ws) {
     // Clean up session on completion
     if (capturedSessionId) {
       removeSession(capturedSessionId);
+      
+      // Update session timestamp and title when conversation ends
+      try {
+        const project = getProjectByPath(projectPath);
+        if (project) {
+          // Update the session's updated_at timestamp
+          touchSession(project.id, capturedSessionId);
+          
+          // Update session title from first user message if not set
+          const title = await updateSessionTitleFromContent(project.id, capturedSessionId);
+          if (title) {
+            // Notify frontend about title update
+            safeSend(JSON.stringify({
+              type: 'session-title-update',
+              sessionId: capturedSessionId,
+              title: title,
+              provider: 'claude'
+            }));
+          }
+        }
+      } catch (dbError) {
+        console.error('❌ [Claude SDK] Failed to update session on completion:', dbError);
+      }
     }
 
     // Mark background task as completed

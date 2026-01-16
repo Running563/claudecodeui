@@ -355,6 +355,102 @@ export function updateSession(id, updates) {
   `).run(provider, title, sourceFile, now, id);
 }
 
+// 更新会话的 updated_at 时间（用于会话活动追踪）
+export function touchSession(projectId, sessionId) {
+  const db = getDb();
+  const now = getBeijingTime();
+  
+  return db.prepare(`
+    UPDATE sessions 
+    SET updated_at = ?
+    WHERE project_id = ? AND session_id = ?
+  `).run(now, projectId, sessionId);
+}
+
+// 从会话文件中提取第一条用户消息并更新会话标题（如果当前标题为空）
+export async function updateSessionTitleFromContent(projectId, sessionId) {
+  const session = getSessionBySessionId(projectId, sessionId);
+  if (!session || !session.source_file) {
+    return null;
+  }
+  
+  // 如果已有标题，不覆盖
+  if (session.title && session.title !== '新会话') {
+    return session.title;
+  }
+  
+  try {
+    // 读取会话文件并提取第一条用户消息
+    const firstUserMessage = await extractFirstUserMessage(session.source_file);
+    
+    if (firstUserMessage) {
+      // 截取前30个字符作为标题
+      const title = firstUserMessage.slice(0, 30);
+      updateSession(session.id, { title });
+      return title;
+    }
+  } catch (error) {
+    console.error('Failed to extract session title:', error);
+  }
+  
+  return null;
+}
+
+// 从 JSONL 文件中提取第一条用户消息
+async function extractFirstUserMessage(jsonlPath) {
+  return new Promise((resolve, reject) => {
+    const fileStream = fsSync.createReadStream(jsonlPath);
+    const rl = readline.createInterface({
+      input: fileStream,
+      crlfDelay: Infinity
+    });
+    
+    let firstUserMessage = null;
+    
+    rl.on('line', (line) => {
+      if (!line.trim() || firstUserMessage) return;
+      
+      try {
+        const entry = JSON.parse(line);
+        
+        let content = null;
+        
+        // 兼容 Claude 格式: {"type": "user", "message": {"content": "..."}}
+        if (entry.type === 'user' && entry.message?.content) {
+          content = typeof entry.message.content === 'string' 
+            ? entry.message.content 
+            : entry.message.content[0]?.text || '';
+        }
+        
+        // 兼容 CodeBuddy 格式: {"type": "message", "role": "user", "content": [...]}
+        if (entry.type === 'message' && entry.role === 'user' && entry.content) {
+          if (Array.isArray(entry.content)) {
+            // content 是数组格式，提取 text 字段
+            const textItem = entry.content.find(item => item.type === 'input_text' || item.text);
+            content = textItem?.text || '';
+          } else if (typeof entry.content === 'string') {
+            content = entry.content;
+          }
+        }
+        
+        // 跳过系统命令消息和空消息
+        if (content && !content.startsWith('<command-') && !content.startsWith('<system-')) {
+          firstUserMessage = content.trim();
+          rl.close(); // 找到后立即关闭
+        }
+      } catch (e) {
+        // 忽略解析错误
+      }
+    });
+    
+    rl.on('close', () => {
+      resolve(firstUserMessage);
+    });
+    
+    rl.on('error', reject);
+  });
+}
+
 // 删除会话
 export function deleteSession(id) {
   const db = getDb();

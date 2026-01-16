@@ -226,7 +226,7 @@ function AppContent() {
         return;
       }
       
-      // Handle session title update from CodeBuddy
+      // Handle session title update
       if (latestMessage.type === 'session-title-update') {
         // Mark as processed immediately to prevent re-processing
         lastProcessedMessageIndexRef.current = latestMessageIndex;
@@ -255,7 +255,7 @@ function AppContent() {
             const updatedProjects = prevProjects.map(project => {
               let projectChanged = false;
               
-              // Check and update sessions (Claude)
+              // Check and update sessions (all providers in unified sessions array)
               const updatedSessions = project.sessions?.map(s => {
                 if (s.id === targetSessionId && s.title !== newTitle) {
                   projectChanged = true;
@@ -264,7 +264,7 @@ function AppContent() {
                 return s;
               });
               
-              // Check and update codebuddySessions
+              // Check and update codebuddySessions (legacy)
               const updatedCodebuddySessions = project.codebuddySessions?.map(s => {
                 if (s.id === targetSessionId && s.title !== newTitle) {
                   projectChanged = true;
@@ -273,7 +273,7 @@ function AppContent() {
                 return s;
               });
               
-              // Check and update cursorSessions
+              // Check and update cursorSessions (legacy)
               const updatedCursorSessions = project.cursorSessions?.map(s => {
                 if (s.id === targetSessionId && s.title !== newTitle) {
                   projectChanged = true;
