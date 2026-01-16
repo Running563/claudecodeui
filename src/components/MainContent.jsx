@@ -55,6 +55,7 @@ function MainContent({
   showThinking,           // Show thinking/reasoning sections
   autoScrollToBottom,     // Auto-scroll to bottom when new messages arrive
   sendByCtrlEnter,        // Send by Ctrl+Enter mode for East Asian language input
+  notifyOnComplete,       // Session completion notification mode: 'none', 'sound', 'vibrate', 'both'
   externalMessageUpdate,  // Trigger for external CLI updates to current session
   onToggleQuickSettings,  // Toggle quick settings panel
   onSelectTerminal,       // Select a terminal from the list
@@ -896,6 +897,7 @@ function MainContent({
               showThinking={showThinking}
               autoScrollToBottom={autoScrollToBottom}
               sendByCtrlEnter={sendByCtrlEnter}
+              notifyOnComplete={notifyOnComplete}
               externalMessageUpdate={externalMessageUpdate}
               onToggleQuickSettings={onToggleQuickSettings}
               getProjectTasks={getProjectTasks}

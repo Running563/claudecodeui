@@ -85,6 +85,8 @@ function AppContent() {
   const [autoScrollToBottom, setAutoScrollToBottom] = useLocalStorage('autoScrollToBottom', true);
   const [sendByCtrlEnter, setSendByCtrlEnter] = useLocalStorage('sendByCtrlEnter', false);
   const [sidebarVisible, setSidebarVisible] = useLocalStorage('sidebarVisible', true);
+  // Session completion notification settings
+  const [notifyOnComplete, setNotifyOnComplete] = useLocalStorage('notifyOnComplete', 'none'); // 'none', 'sound', 'vibrate', 'both'
   
   // Support closing sidebar via browser back button on mobile
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
@@ -1217,6 +1219,7 @@ function AppContent() {
             showThinking={showThinking}
             autoScrollToBottom={autoScrollToBottom}
             sendByCtrlEnter={sendByCtrlEnter}
+            notifyOnComplete={notifyOnComplete}
             externalMessageUpdate={externalMessageUpdate}
             onToggleQuickSettings={() => setShowQuickSettings(prev => !prev)}
             onSelectTerminal={handleSelectTerminal}
@@ -1251,6 +1254,8 @@ function AppContent() {
           onAutoScrollChange={setAutoScrollToBottom}
           sendByCtrlEnter={sendByCtrlEnter}
           onSendByCtrlEnterChange={setSendByCtrlEnter}
+          notifyOnComplete={notifyOnComplete}
+          onNotifyOnCompleteChange={setNotifyOnComplete}
           isMobile={isMobile}
         />
       )}

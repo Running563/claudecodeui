@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { decodeHtmlEntities, formatUsageLimitText, hasImageContent } from '../utils';
+import { triggerCompletionNotification } from '../../../utils/notification';
 
 /**
  * Custom hook for handling WebSocket messages in ChatInterface
@@ -25,7 +26,8 @@ export function useWebSocketMessages({
   onSessionNotProcessing,
   onSessionCompleted,
   onReplaceTemporarySession,
-  onNavigateToSession
+  onNavigateToSession,
+  notifyOnComplete
 }) {
   // Streaming throttle buffers
   const streamBufferRef = useRef('');
@@ -665,6 +667,9 @@ export function useWebSocketMessages({
               msg.isStreaming ? { ...msg, isStreaming: false } : msg
             );
           });
+          
+          // Trigger completion notification (sound/vibration)
+          triggerCompletionNotification(notifyOnComplete);
         }
 
         // 标记会话完成
@@ -811,7 +816,7 @@ export function useWebSocketMessages({
         break;
       }
     }
-  }, [messages, currentSessionId, selectedSession, setChatMessages, setIsLoading, setCanAbortSession, setClaudeStatus, setCurrentSessionId, setIsSystemSessionChange, fetchUpdatedTokenUsage, onSessionInactive, onSessionProcessing, onSessionNotProcessing, onSessionCompleted, onReplaceTemporarySession, onNavigateToSession, handleSessionCreated, handleSessionResumeFailed, handleContentBlockStart, handleToolResult, handleContentBlockDelta, flushStreamBuffer, bufferStreamContent, handleSessionDuplication, handleNewSessionInit]);
+  }, [messages, currentSessionId, selectedSession, setChatMessages, setIsLoading, setCanAbortSession, setClaudeStatus, setCurrentSessionId, setIsSystemSessionChange, fetchUpdatedTokenUsage, onSessionInactive, onSessionProcessing, onSessionNotProcessing, onSessionCompleted, onReplaceTemporarySession, onNavigateToSession, handleSessionCreated, handleSessionResumeFailed, handleContentBlockStart, handleToolResult, handleContentBlockDelta, flushStreamBuffer, bufferStreamContent, handleSessionDuplication, handleNewSessionInit, notifyOnComplete]);
 
   return {
     streamBufferRef,

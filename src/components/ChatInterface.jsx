@@ -76,6 +76,7 @@ function ChatInterface({
   showThinking, 
   autoScrollToBottom, 
   sendByCtrlEnter, 
+  notifyOnComplete,
   externalMessageUpdate, 
   onToggleQuickSettings,
   // Background task support
@@ -284,7 +285,8 @@ function ChatInterface({
     onSessionNotProcessing,
     onSessionCompleted,
     onReplaceTemporarySession,
-    onNavigateToSession
+    onNavigateToSession,
+    notifyOnComplete
   });
 
   // Message editing via custom hook
