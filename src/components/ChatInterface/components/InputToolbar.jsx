@@ -14,46 +14,33 @@
 import React, { memo, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import TokenUsagePie from '../../TokenUsagePie';
+import { toast } from '../../GlobalToast';
 
-/**
- * Permission mode button styles based on current mode (弱化样式)
- */
-const getModeStyles = (mode) => {
-  switch (mode) {
-    case 'acceptEdits':
-      return 'bg-green-50/50 dark:bg-green-900/10 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800 hover:bg-green-50 dark:hover:bg-green-900/20';
-    case 'bypassPermissions':
-      return 'bg-orange-50/50 dark:bg-orange-900/10 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-800 hover:bg-orange-50 dark:hover:bg-orange-900/20';
-    case 'plan':
-      return 'bg-blue-50/50 dark:bg-blue-900/10 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-900/20';
-    default:
-      return 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700';
+// 模式配置
+const MODE_CONFIG = {
+  default: { 
+    text: 'Default Mode', 
+    dot: 'bg-gray-400 dark:bg-gray-500',
+    style: 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700'
+  },
+  acceptEdits: { 
+    text: 'Accept Edits', 
+    dot: 'bg-green-400 dark:bg-green-500',
+    style: 'bg-green-50/50 dark:bg-green-900/10 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800 hover:bg-green-50 dark:hover:bg-green-900/20'
+  },
+  bypassPermissions: { 
+    text: 'Bypass Permissions', 
+    dot: 'bg-orange-400 dark:bg-orange-500',
+    style: 'bg-orange-50/50 dark:bg-orange-900/10 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-800 hover:bg-orange-50 dark:hover:bg-orange-900/20'
+  },
+  plan: { 
+    text: 'Plan Mode', 
+    dot: 'bg-blue-400 dark:bg-blue-500',
+    style: 'bg-blue-50/50 dark:bg-blue-900/10 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-900/20'
   }
 };
 
-/**
- * Permission mode indicator dot color (弱化颜色)
- */
-const getModeDotColor = (mode) => {
-  switch (mode) {
-    case 'acceptEdits': return 'bg-green-400 dark:bg-green-500';
-    case 'bypassPermissions': return 'bg-orange-400 dark:bg-orange-500';
-    case 'plan': return 'bg-blue-400 dark:bg-blue-500';
-    default: return 'bg-gray-400 dark:bg-gray-500';
-  }
-};
-
-/**
- * Permission mode display text
- */
-const getModeText = (mode) => {
-  switch (mode) {
-    case 'acceptEdits': return 'Accept Edits';
-    case 'bypassPermissions': return 'Bypass Permissions';
-    case 'plan': return 'Plan Mode';
-    default: return 'Default Mode';
-  }
-};
+const MODES = ['default', 'acceptEdits', 'bypassPermissions', 'plan'];
 
 function InputToolbar({
   inputContainerRef,
@@ -109,8 +96,18 @@ function InputToolbar({
   // 上传按钮按下状态（移动端视觉反馈）
   const [isUploadPressed, setIsUploadPressed] = useState(false);
 
+  // 处理 mode 切换
+  const handlePermissionModeChange = () => {
+    const nextMode = MODES[(MODES.indexOf(permissionMode) + 1) % MODES.length];
+    toast.show(MODE_CONFIG[nextMode]?.text || 'Default Mode');
+    cyclePermissionMode();
+  };
+
+  const modeConfig = MODE_CONFIG[permissionMode] || MODE_CONFIG.default;
+
   return (
-    <div ref={inputContainerRef} className="max-w-4xl mx-auto mb-3">
+    <>
+      <div ref={inputContainerRef} className="max-w-4xl mx-auto mb-3 relative">
       <div className="flex items-center justify-center gap-2">
         {/* Image upload button */}
         <button
@@ -170,18 +167,14 @@ function InputToolbar({
           )}
         </button>
 
-        {/* Permission Mode Selector - 显示当前模式 */}
+        {/* Permission Mode Selector */}
         <button
           type="button"
-          onClick={cyclePermissionMode}
-          className={`w-5 h-5 rounded-full flex items-center justify-center transition-all duration-200 border ${getModeStyles(permissionMode)} relative group`}
-          title={`Current: ${getModeText(permissionMode)} (Click to cycle)`}
+          onClick={handlePermissionModeChange}
+          className={`w-5 h-5 rounded-full flex items-center justify-center transition-all duration-200 border ${modeConfig.style}`}
+          title={modeConfig.text}
         >
-          <div className={`w-1.5 h-1.5 rounded-full ${getModeDotColor(permissionMode)}`} />
-          {/* 悬停显示模式文本 */}
-          <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-900 dark:bg-gray-700 text-white text-xs px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-            {getModeText(permissionMode)}
-          </div>
+          <div className={`w-1.5 h-1.5 rounded-full ${modeConfig.dot}`} />
         </button>
 
         {/* Model Selector - Claude (无框样式) */}
@@ -315,6 +308,7 @@ function InputToolbar({
         )}
       </div>
     </div>
+    </>
   );
 }
 

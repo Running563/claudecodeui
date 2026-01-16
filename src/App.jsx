@@ -28,6 +28,7 @@ import Settings from './components/Settings';
 import QuickSettingsPanel from './components/QuickSettingsPanel';
 import DirectoryPickerModal from './components/DirectoryPickerModal';
 import TerminalDetailView from './components/TerminalDetailView';
+import GlobalToast from './components/GlobalToast';
 
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
@@ -1259,6 +1260,8 @@ function App() {
           </TasksSettingsProvider>
         </WebSocketProvider>
       </AuthProvider>
+      {/* 全局 Toast 组件 */}
+      <GlobalToast />
     </ThemeProvider>
   );
 }

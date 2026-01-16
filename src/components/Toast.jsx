@@ -1,6 +1,16 @@
 /**
- * Toast - Simple toast notification component
- * Shows a temporary message at the top of the screen
+ * Toast - Props 驱动的 Toast 通知组件
+ * 
+ * 使用方式：
+ *   const [show, setShow] = useState(false);
+ *   {show && <Toast message="消息" onClose={() => setShow(false)} />}
+ * 
+ * 特点：
+ *   - Props 驱动，需要父组件管理状态
+ *   - 显示位置：屏幕顶部 (top-4)
+ *   - 适合局部使用场景
+ * 
+ * 注：如需全局命令式 Toast，请使用 ./GlobalToast.jsx
  */
 
 import React, { useEffect } from 'react';
@@ -17,12 +27,7 @@ function Toast({ message, onClose, duration = 2000 }) {
   return (
     <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-[9999] animate-slide-down">
       <div className="bg-gray-800 dark:bg-gray-900 text-white px-6 py-3 rounded-lg shadow-lg border border-gray-700">
-        <div className="flex items-center gap-2">
-          <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-          <span className="text-sm font-medium">{message}</span>
-        </div>
+        <span className="text-sm font-medium">{message}</span>
       </div>
     </div>
   );
