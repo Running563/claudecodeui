@@ -654,6 +654,12 @@ app.get('/api/projects/:projectId/file', authenticateToken, async (req, res) => 
             return res.status(403).json({ error: 'Path must be under project root' });
         }
 
+        // Check if path is a directory
+        const stats = await fsPromises.stat(resolved);
+        if (stats.isDirectory()) {
+            return res.status(400).json({ error: 'Path is a directory, not a file' });
+        }
+
         const content = await fsPromises.readFile(resolved, 'utf8');
         res.json({ content, path: resolved });
     } catch (error) {
@@ -694,11 +700,17 @@ app.get('/api/projects/:projectId/files/content', authenticateToken, async (req,
             return res.status(403).json({ error: 'Path must be under project root' });
         }
 
-        // Check if file exists
+        // Check if file exists and is not a directory
         try {
-            await fsPromises.access(resolved);
+            const stats = await fsPromises.stat(resolved);
+            if (stats.isDirectory()) {
+                return res.status(400).json({ error: 'Path is a directory, not a file' });
+            }
         } catch (error) {
-            return res.status(404).json({ error: 'File not found' });
+            if (error.code === 'ENOENT') {
+                return res.status(404).json({ error: 'File not found' });
+            }
+            throw error;
         }
 
         // Get file extension and set appropriate content type
@@ -746,11 +758,17 @@ app.get('/api/temp-image', authenticateToken, async (req, res) => {
             return res.status(403).json({ error: 'Access denied: path traversal detected' });
         }
 
-        // Check if file exists
+        // Check if file exists and is not a directory
         try {
-            await fsPromises.access(resolved);
+            const stats = await fsPromises.stat(resolved);
+            if (stats.isDirectory()) {
+                return res.status(400).json({ error: 'Path is a directory, not an image' });
+            }
         } catch (error) {
-            return res.status(404).json({ error: 'Image not found' });
+            if (error.code === 'ENOENT') {
+                return res.status(404).json({ error: 'Image not found' });
+            }
+            throw error;
         }
 
         // Get file extension and set appropriate content type
